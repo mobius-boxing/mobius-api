@@ -1,0 +1,39 @@
+{
+  "info": {
+    "_postman_id": "4cdfb6b9-fb63-41bd-9e6d-2fd48e198e80",
+    "name": "mobius-api-v2",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "25678071"
+  },
+  "item": [],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "exec": [""]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "mobiusApiV2BackendHost",
+      "value": "http://localhost:<PORT>",
+      "type": "string"
+    },
+    {
+      "key": "mobiusApiV2BearerToken",
+      "value": "<token>",
+      "type": "string"
+    }
+  ]
+}
