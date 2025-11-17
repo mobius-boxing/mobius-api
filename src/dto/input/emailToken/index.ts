@@ -1,2 +1,2 @@
-export * from './EmailTokenCreateInputDTO';
-export * from './EmailTokenUpdateInputDTO';
+export * from "./EmailTokenCreateInputDTO";
+export * from "./EmailTokenUpdateInputDTO";

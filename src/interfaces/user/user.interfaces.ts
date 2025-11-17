@@ -1,4 +1,4 @@
-import { ICompany } from '../company/company.interfaces';
+import { ICompany } from "../company/company.interfaces";
 
 export interface IUser {
   id?: number;
@@ -7,7 +7,7 @@ export interface IUser {
   password: string;
   firstName: string;
   lastName: string;
-  role: 'member' | 'admin' | 'superAdmin';
+  role: "member" | "admin" | "superAdmin";
   companyId?: number;
   isActive?: boolean;
   emailVerified?: boolean;
@@ -17,6 +17,6 @@ export interface IUser {
   company?: ICompany;
 }
 
-export interface IUserWithCompany extends Omit<IUser, 'password'> {
+export interface IUserWithCompany extends Omit<IUser, "password"> {
   company: ICompany;
 }

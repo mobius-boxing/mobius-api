@@ -1,6 +1,7 @@
 /**
  * Email HTML Templates for Mobius
  * All templates use Mobius branding with gradient header (#0A2559 → #1E40AF)
+ * All templates are in Spanish (including subjects in email.service.ts)
  * Responsive design with buttons for CTAs
  */
 
@@ -18,7 +19,7 @@ interface EmailTemplateParams {
 const emailWrapper = (content: string): string => {
   return `
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -139,13 +140,12 @@ const emailWrapper = (content: string): string => {
       ${content}
     </div>
     <div class="footer">
-      <p><strong>Mobius TMS</strong></p>
-      <p>Transportation Management System</p>
+      <p><strong>Mobius</strong></p>
       <p style="margin-top: 15px;">
-        This is an automated email. Please do not reply to this message.
+        Este es un correo electrónico automatizado. Por favor no responda a este mensaje.
       </p>
       <p style="margin-top: 10px;">
-        <a href="mailto:support@mobius-tms.com">Contact Support</a>
+        <a href="mailto:support@mobius-tms.com">Contactar Soporte</a>
       </p>
     </div>
   </div>
@@ -158,42 +158,49 @@ const emailWrapper = (content: string): string => {
  * Invitation Email Template
  * Sent when a user is invited to join a company
  */
-export const invitationEmailTemplate = (params: EmailTemplateParams): string => {
-  const { firstName = 'there', companyName = 'a company', role = 'member', actionUrl = '#' } = params;
+export const invitationEmailTemplate = (
+  params: EmailTemplateParams,
+): string => {
+  const {
+    firstName = "there",
+    companyName = "a company",
+    role = "member",
+    actionUrl = "#",
+  } = params;
 
-  const roleDisplay = role === 'admin' ? 'Administrator' : 'Member';
+  const roleDisplay = role === "admin" ? "Administrador" : "Miembro";
 
   const content = `
-    <h2 class="greeting">Hello ${firstName}!</h2>
+    <h2 class="greeting">Hola ${firstName}!</h2>
 
     <p class="message">
-      You've been invited to join <strong>${companyName}</strong> on Mobius as a <strong>${roleDisplay}</strong>.
+      Has sido invitado a unirte a <strong>${companyName}</strong> en Mobius como <strong>${roleDisplay}</strong>.
     </p>
 
     <p class="message">
-      Mobius is a comprehensive Transportation Management System that helps companies streamline their logistics operations, manage shipments, and track deliveries in real-time.
+      Mobius es un software integral que ayuda a las empresas de cartón corrugado a gestionar su producción, inventario y operaciones de manera eficiente.
     </p>
 
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${actionUrl}" class="cta-button">Accept Invitation</a>
+      <a href="${actionUrl}" class="cta-button">Aceptar Invitación</a>
     </div>
 
     <div class="info-box">
-      <p><strong>Company:</strong> ${companyName}</p>
-      <p><strong>Role:</strong> ${roleDisplay}</p>
-      <p><strong>Action Required:</strong> Click the button above to set up your account</p>
+      <p><strong>Empresa:</strong> ${companyName}</p>
+      <p><strong>Rol:</strong> ${roleDisplay}</p>
+      <p><strong>Acción Requerida:</strong> Haz clic en el botón de arriba para configurar tu cuenta</p>
     </div>
 
     <div class="divider"></div>
 
     <p style="font-size: 14px; color: #777777;">
-      If the button doesn't work, copy and paste this link into your browser:
+      Si el botón no funciona, copia y pega este enlace en tu navegador:
       <br>
       <a href="${actionUrl}" style="color: #1E40AF; word-break: break-all;">${actionUrl}</a>
     </p>
 
     <p style="font-size: 14px; color: #777777; margin-top: 20px;">
-      This invitation link will expire in 48 hours. If you didn't expect this invitation, you can safely ignore this email.
+      Este enlace de invitación expirará en 48 horas. Si no esperabas esta invitación, puedes ignorar este correo de forma segura.
     </p>
   `;
 
@@ -205,38 +212,38 @@ export const invitationEmailTemplate = (params: EmailTemplateParams): string => 
  * Sent after a user successfully creates their account
  */
 export const welcomeEmailTemplate = (params: EmailTemplateParams): string => {
-  const { firstName = 'there' } = params;
+  const { firstName = "there" } = params;
 
   const content = `
-    <h2 class="greeting">Welcome to Mobius, ${firstName}!</h2>
+    <h2 class="greeting">Bienvenido a Mobius, ${firstName}!</h2>
 
     <p class="message">
-      Thank you for joining Mobius Transportation Management System. We're excited to have you on board!
+      Gracias por unirte a Mobius. ¡Estamos emocionados de tenerte con nosotros!
     </p>
 
     <p class="message">
-      Mobius provides you with powerful tools to manage your logistics operations efficiently:
+      Mobius te proporciona herramientas poderosas para gestionar tu producción de cartón corrugado de manera eficiente:
     </p>
 
     <div class="info-box">
-      <p><strong>✓</strong> Real-time shipment tracking</p>
-      <p><strong>✓</strong> Comprehensive delivery management</p>
-      <p><strong>✓</strong> Advanced analytics and reporting</p>
-      <p><strong>✓</strong> Team collaboration tools</p>
+      <p><strong>✓</strong> Gestión de inventarios y materiales</p>
+      <p><strong>✓</strong> Control de producción en tiempo real</p>
+      <p><strong>✓</strong> Análisis avanzados e informes</p>
+      <p><strong>✓</strong> Herramientas de colaboración en equipo</p>
     </div>
 
     <p class="message">
-      Your account is now active and ready to use. Log in to start managing your transportation operations.
+      Tu cuenta está ahora activa y lista para usar. Inicia sesión para comenzar a gestionar tus operaciones.
     </p>
 
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="cta-button">Go to Dashboard</a>
+      <a href="${process.env.FRONTEND_URL || "http://localhost:3000"}/login" class="cta-button">Ir al Panel</a>
     </div>
 
     <div class="divider"></div>
 
     <p style="font-size: 14px; color: #777777;">
-      Need help getting started? Check out our documentation or contact our support team at
+      ¿Necesitas ayuda para comenzar? Consulta nuestra documentación o contacta a nuestro equipo de soporte en
       <a href="mailto:support@mobius-tms.com" style="color: #1E40AF;">support@mobius-tms.com</a>
     </p>
   `;
@@ -248,44 +255,45 @@ export const welcomeEmailTemplate = (params: EmailTemplateParams): string => {
  * Password Reset Email Template
  * Sent when a user requests to reset their password
  */
-export const passwordResetEmailTemplate = (params: EmailTemplateParams): string => {
-  const { firstName = 'there', actionUrl = '#', email = '' } = params;
+export const passwordResetEmailTemplate = (
+  params: EmailTemplateParams,
+): string => {
+  const { firstName = "there", actionUrl = "#", email = "" } = params;
 
   const content = `
-    <h2 class="greeting">Password Reset Request</h2>
+    <h2 class="greeting">Solicitud de Restablecimiento de Contraseña</h2>
 
     <p class="message">
-      Hello ${firstName},
+      Hola ${firstName},
     </p>
 
     <p class="message">
-      We received a request to reset the password for your Mobius account (${email}).
+      Recibimos una solicitud para restablecer la contraseña de tu cuenta de Mobius (${email}).
     </p>
 
     <p class="message">
-      Click the button below to reset your password. This link will expire in 24 hours for security reasons.
+      Haz clic en el botón de abajo para restablecer tu contraseña. Este enlace expirará en 24 horas por razones de seguridad.
     </p>
 
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${actionUrl}" class="cta-button">Reset Password</a>
+      <a href="${actionUrl}" class="cta-button">Restablecer Contraseña</a>
     </div>
 
     <div class="info-box">
-      <p><strong>Security Note:</strong> This link can only be used once and expires in 24 hours.</p>
-      <p><strong>Account:</strong> ${email}</p>
+      <p><strong>Nota de Seguridad:</strong> Este enlace solo se puede usar una vez y expira en 24 horas.</p>
+      <p><strong>Cuenta:</strong> ${email}</p>
     </div>
 
     <div class="divider"></div>
 
     <p style="font-size: 14px; color: #777777;">
-      If the button doesn't work, copy and paste this link into your browser:
+      Si el botón no funciona, copia y pega este enlace en tu navegador:
       <br>
       <a href="${actionUrl}" style="color: #1E40AF; word-break: break-all;">${actionUrl}</a>
     </p>
 
     <p style="font-size: 14px; color: #ff6b6b; margin-top: 20px;">
-      <strong>Didn't request a password reset?</strong> If you didn't make this request, please ignore this email.
-      Your password will remain unchanged. You may want to review your account security.
+      <strong>¿No solicitaste restablecer tu contraseña?</strong> Si no realizaste esta solicitud, por favor ignora este correo. Tu contraseña permanecerá sin cambios. Es posible que desees revisar la seguridad de tu cuenta.
     </p>
   `;
 
@@ -296,45 +304,47 @@ export const passwordResetEmailTemplate = (params: EmailTemplateParams): string 
  * Email Verification Template
  * Sent when a user needs to verify their email address
  */
-export const emailVerificationTemplate = (params: EmailTemplateParams): string => {
-  const { firstName = 'there', actionUrl = '#', email = '' } = params;
+export const emailVerificationTemplate = (
+  params: EmailTemplateParams,
+): string => {
+  const { firstName = "there", actionUrl = "#", email = "" } = params;
 
   const content = `
-    <h2 class="greeting">Verify Your Email Address</h2>
+    <h2 class="greeting">Verifica tu Correo Electrónico</h2>
 
     <p class="message">
-      Hello ${firstName},
+      Hola ${firstName},
     </p>
 
     <p class="message">
-      Thank you for signing up for Mobius! To complete your registration and ensure the security of your account,
-      please verify your email address by clicking the button below.
+      ¡Gracias por registrarte en Mobius! Para completar tu registro y asegurar tu cuenta,
+      por favor verifica tu correo electrónico haciendo clic en el botón de abajo.
     </p>
 
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${actionUrl}" class="cta-button">Verify Email</a>
+      <a href="${actionUrl}" class="cta-button">Verificar Correo</a>
     </div>
 
     <div class="info-box">
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Action Required:</strong> Verify your email to activate your account</p>
-      <p><strong>Expires:</strong> 48 hours</p>
+      <p><strong>Correo:</strong> ${email}</p>
+      <p><strong>Acción Requerida:</strong> Verifica tu correo para activar tu cuenta</p>
+      <p><strong>Expira:</strong> 48 horas</p>
     </div>
 
     <p class="message">
-      Once verified, you'll have full access to all Mobius features and can start managing your logistics operations.
+      Una vez verificado, tendrás acceso completo a todas las funciones de Mobius y podrás comenzar a gestionar tus operaciones.
     </p>
 
     <div class="divider"></div>
 
     <p style="font-size: 14px; color: #777777;">
-      If the button doesn't work, copy and paste this link into your browser:
+      Si el botón no funciona, copia y pega este enlace en tu navegador:
       <br>
       <a href="${actionUrl}" style="color: #1E40AF; word-break: break-all;">${actionUrl}</a>
     </p>
 
     <p style="font-size: 14px; color: #777777; margin-top: 20px;">
-      This verification link will expire in 48 hours. If you didn't create this account, you can safely ignore this email.
+      Este enlace de verificación expirará en 48 horas. Si no creaste esta cuenta, puedes ignorar este correo de forma segura.
     </p>
   `;
 

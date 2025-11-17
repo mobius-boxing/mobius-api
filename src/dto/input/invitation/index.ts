@@ -1,2 +1,2 @@
-export * from './InvitationCreateInputDTO';
-export * from './InvitationUpdateInputDTO';
+export * from "./InvitationCreateInputDTO";
+export * from "./InvitationUpdateInputDTO";

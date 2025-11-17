@@ -1,13 +1,13 @@
-import { ICompany } from '../company/company.interfaces';
-import { IUser } from '../user/user.interfaces';
+import { ICompany } from "../company/company.interfaces";
+import { IUser } from "../user/user.interfaces";
 
 export interface IInvitation {
   id?: number;
   uuid?: string;
   email: string;
   token: string;
-  role: 'member' | 'admin';
-  companyId: number;
+  role: "member" | "admin" | "superAdmin";
+  companyId?: number;
   invitedBy: number;
   expiresAt: Date;
   acceptedAt?: Date;

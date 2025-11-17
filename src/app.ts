@@ -28,7 +28,8 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-app.use("/api", new IndexRouter().router);
+const indexRouter = new IndexRouter().router;
+app.use("/api", indexRouter);
 
 app.use(errorMiddleware);
 

@@ -1,13 +1,13 @@
 export class PasswordResetDTO {
-    token: string;
-    newPassword: string;
+  token: string;
+  newPassword: string;
 
-    constructor(data: any) {
-        this.token = data.token;
-        this.newPassword = data.newPassword;
-    }
+  constructor(data: any) {
+    this.token = data.token;
+    this.newPassword = data.newPassword;
+  }
 
-    public build(): this {
-        return this;
-    }
+  public build(): this {
+    return this;
+  }
 }

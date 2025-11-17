@@ -1,6 +1,6 @@
-import { ICompany } from '../company/company.interfaces';
-import { ICustomerCategory } from '../customer-category/customer-category.interfaces';
-import { IUser } from '../user/user.interfaces';
+import { ICompany } from "../company/company.interfaces";
+import { ICustomerCategory } from "../customer-category/customer-category.interfaces";
+import { IUser } from "../user/user.interfaces";
 
 export interface IContactInfo {
   name: string;
@@ -23,7 +23,14 @@ export interface IDeliveryLocation {
 }
 
 export interface IDeliveryDay {
-  day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+  day:
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday"
+    | "sunday";
   timeWindow?: string;
   notes?: string;
 }
@@ -32,7 +39,6 @@ export interface ICustomer {
   id?: number;
   uuid?: string;
   companyId: number;
-  customerUuid: string;
   name: string;
   supplierCode?: string;
   salesPersonId?: number;

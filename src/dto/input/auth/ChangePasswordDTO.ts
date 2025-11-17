@@ -1,13 +1,13 @@
 export class ChangePasswordDTO {
-    currentPassword: string;
-    newPassword: string;
+  currentPassword: string;
+  newPassword: string;
 
-    constructor(data: any) {
-        this.currentPassword = data.currentPassword;
-        this.newPassword = data.newPassword;
-    }
+  constructor(data: any) {
+    this.currentPassword = data.currentPassword;
+    this.newPassword = data.newPassword;
+  }
 
-    public build(): this {
-        return this;
-    }
+  public build(): this {
+    return this;
+  }
 }

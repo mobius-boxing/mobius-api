@@ -1,20 +1,41 @@
 // User DTOs
-export * from './user';
+export * from "./user";
 
 // Company DTOs
-export * from './company';
+export * from "./company";
 
 // Customer DTOs
-export * from './customer';
+export * from "./customer";
 
 // Customer Category DTOs
-export * from './customerCategory';
+export * from "./customerCategory";
 
 // Invitation DTOs
-export * from './invitation';
+export * from "./invitation";
 
 // Email Token DTOs
-export * from './emailToken';
+export * from "./emailToken";
 
 // Auth DTOs
-export * from './auth';
+export * from "./auth";
+
+// Paper Type DTOs
+export * from "./paperType";
+
+// Flute Type DTOs
+export * from "./fluteType";
+
+// Paper Class DTOs
+export * from "./paperClass";
+
+// Manufacturer DTOs
+export * from "./manufacturer";
+
+// Supplier DTOs
+export * from "./supplier";
+
+// Product DTOs
+export * from "./product";
+
+// Paper Supply DTOs
+export * from "./paperSupply";

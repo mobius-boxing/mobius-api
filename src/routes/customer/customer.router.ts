@@ -6,7 +6,7 @@ import {
   validateUUID,
   validatePagination,
   apiRateLimiter,
-  sensitiveRateLimiter,
+  sensitiveCustomerDeletionRateLimiter,
 } from "../../middlewares";
 
 export class CustomerRouter {
@@ -24,28 +24,28 @@ export class CustomerRouter {
       authenticate,
       validatePagination,
       apiRateLimiter,
-      this.customerController.getAll.bind(this.customerController)
+      this.customerController.getAll.bind(this.customerController),
     );
     this.router.get(
       "/:uuid/with-details",
       authenticate,
       validateUUID(),
       apiRateLimiter,
-      this.customerController.getWithDetails.bind(this.customerController)
+      this.customerController.getWithDetails.bind(this.customerController),
     );
     this.router.get(
       "/:uuid",
       authenticate,
       validateUUID(),
       apiRateLimiter,
-      this.customerController.getByUuid.bind(this.customerController)
+      this.customerController.getByUuid.bind(this.customerController),
     );
     this.router.post(
       "/",
       authenticate,
       requireAdmin(),
       apiRateLimiter,
-      this.customerController.create.bind(this.customerController)
+      this.customerController.create.bind(this.customerController),
     );
     this.router.put(
       "/:uuid",
@@ -53,15 +53,15 @@ export class CustomerRouter {
       requireAdmin(),
       validateUUID(),
       apiRateLimiter,
-      this.customerController.update.bind(this.customerController)
+      this.customerController.update.bind(this.customerController),
     );
     this.router.delete(
       "/:uuid",
       authenticate,
       requireAdmin(),
       validateUUID(),
-      sensitiveRateLimiter,
-      this.customerController.delete.bind(this.customerController)
+      sensitiveCustomerDeletionRateLimiter,
+      this.customerController.delete.bind(this.customerController),
     );
   }
 }

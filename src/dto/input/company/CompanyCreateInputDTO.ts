@@ -1,13 +1,13 @@
 export class CompanyCreateInputDTO {
-    name: string;
-    description?: string;
+  name: string;
+  description?: string;
 
-    constructor(data: any) {
-        this.name = data.name;
-        if (data.description !== undefined) this.description = data.description;
-    }
+  constructor(data: any) {
+    this.name = data.name;
+    if (data.description !== undefined) this.description = data.description;
+  }
 
-    public build(): this {
-        return this;
-    }
+  public build(): this {
+    return this;
+  }
 }

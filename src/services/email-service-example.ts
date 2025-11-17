@@ -7,28 +7,30 @@
  * DO NOT IMPORT THIS FILE IN PRODUCTION CODE - It's for reference only
  */
 
-import { EmailService } from './email.service';
-import { EmailTokenService } from './email-token.service';
-import { UserDAO } from '../dao/user/user.dao';
+import { EmailService } from "./email.service";
+import { EmailTokenService } from "./email-token.service";
+import { UserDAO } from "../dao/user/user.dao";
 
 /**
  * Example 1: Password Reset Flow
  */
-export async function examplePasswordResetFlow(userEmail: string): Promise<void> {
+export async function examplePasswordResetFlow(
+  userEmail: string,
+): Promise<void> {
   try {
     // 1. Find user by email
     const userDAO = new UserDAO();
-    const user = await userDAO.getByEmail(userEmail);
+    const user = await userDAO.getUserByEmail(userEmail);
 
     if (!user || !user.id) {
-      throw new Error('User not found');
+      throw new Error("User not found");
     }
 
     // 2. Generate password reset token (expires in 24h)
     const tokenService = new EmailTokenService();
     const tokenRecord = await tokenService.generateEmailToken(
       user.id,
-      'password_reset'
+      "password_reset",
     );
 
     // 3. Send password reset email
@@ -36,12 +38,12 @@ export async function examplePasswordResetFlow(userEmail: string): Promise<void>
     await emailService.sendPasswordResetEmail(
       user.email,
       tokenRecord.token,
-      user.firstName
+      user.firstName,
     );
 
-    console.log('Password reset email sent successfully');
+    console.log("Password reset email sent successfully");
   } catch (error) {
-    console.error('Error in password reset flow:', error);
+    console.error("Error in password reset flow:", error);
     throw error;
   }
 }
@@ -51,18 +53,18 @@ export async function examplePasswordResetFlow(userEmail: string): Promise<void>
  */
 export async function exampleVerifyResetToken(
   tokenString: string,
-  newPassword: string
+  newPassword: string,
 ): Promise<void> {
   try {
     // 1. Verify the token is valid
     const tokenService = new EmailTokenService();
     const verifiedToken = await tokenService.verifyEmailToken(
       tokenString,
-      'password_reset'
+      "password_reset",
     );
 
     if (!verifiedToken) {
-      throw new Error('Invalid or expired token');
+      throw new Error("Invalid or expired token");
     }
 
     // 2. Update user password (hash it first in real code!)
@@ -74,9 +76,9 @@ export async function exampleVerifyResetToken(
     // 3. Invalidate the token so it can't be used again
     await tokenService.invalidateToken(tokenString);
 
-    console.log('Password updated successfully');
+    console.log("Password updated successfully");
   } catch (error) {
-    console.error('Error verifying reset token:', error);
+    console.error("Error verifying reset token:", error);
     throw error;
   }
 }
@@ -85,20 +87,20 @@ export async function exampleVerifyResetToken(
  * Example 3: Email Verification Flow for New User
  */
 export async function exampleEmailVerificationFlow(
-  userEmail: string
+  userEmail: string,
 ): Promise<void> {
   try {
     // 1. Find user
     const userDAO = new UserDAO();
-    const user = await userDAO.getByEmail(userEmail);
+    const user = await userDAO.getUserByEmail(userEmail);
 
     if (!user || !user.id) {
-      throw new Error('User not found');
+      throw new Error("User not found");
     }
 
     // 2. Check if email is already verified
     if (user.emailVerified) {
-      console.log('Email already verified');
+      console.log("Email already verified");
       return;
     }
 
@@ -106,7 +108,7 @@ export async function exampleEmailVerificationFlow(
     const tokenService = new EmailTokenService();
     const tokenRecord = await tokenService.generateEmailToken(
       user.id,
-      'email_verification'
+      "email_verification",
     );
 
     // 4. Send verification email
@@ -114,12 +116,12 @@ export async function exampleEmailVerificationFlow(
     await emailService.sendEmailVerificationEmail(
       user.email,
       tokenRecord.token,
-      user.firstName
+      user.firstName,
     );
 
-    console.log('Verification email sent successfully');
+    console.log("Verification email sent successfully");
   } catch (error) {
-    console.error('Error in email verification flow:', error);
+    console.error("Error in email verification flow:", error);
     throw error;
   }
 }
@@ -128,18 +130,18 @@ export async function exampleEmailVerificationFlow(
  * Example 4: Process Email Verification Token
  */
 export async function exampleProcessVerificationToken(
-  tokenString: string
+  tokenString: string,
 ): Promise<void> {
   try {
     // 1. Verify the token
     const tokenService = new EmailTokenService();
     const verifiedToken = await tokenService.verifyEmailToken(
       tokenString,
-      'email_verification'
+      "email_verification",
     );
 
     if (!verifiedToken) {
-      throw new Error('Invalid or expired token');
+      throw new Error("Invalid or expired token");
     }
 
     // 2. Mark email as verified
@@ -151,9 +153,9 @@ export async function exampleProcessVerificationToken(
     // 3. Invalidate the token
     await tokenService.invalidateToken(tokenString);
 
-    console.log('Email verified successfully');
+    console.log("Email verified successfully");
   } catch (error) {
-    console.error('Error processing verification token:', error);
+    console.error("Error processing verification token:", error);
     throw error;
   }
 }
@@ -164,8 +166,8 @@ export async function exampleProcessVerificationToken(
 export async function exampleSendInvitation(
   inviteeEmail: string,
   companyName: string,
-  role: 'member' | 'admin',
-  firstName?: string
+  role: "member" | "admin",
+  firstName?: string,
 ): Promise<void> {
   try {
     // In a real scenario, you'd create a user record first and get their ID
@@ -176,7 +178,7 @@ export async function exampleSendInvitation(
     const tokenService = new EmailTokenService();
     const tokenRecord = await tokenService.generateEmailToken(
       userId,
-      'email_verification'
+      "email_verification",
     );
 
     // 2. Send invitation email
@@ -186,12 +188,12 @@ export async function exampleSendInvitation(
       companyName,
       role,
       tokenRecord.token,
-      firstName
+      firstName,
     );
 
-    console.log('Invitation email sent successfully');
+    console.log("Invitation email sent successfully");
   } catch (error) {
-    console.error('Error sending invitation:', error);
+    console.error("Error sending invitation:", error);
     throw error;
   }
 }
@@ -201,15 +203,15 @@ export async function exampleSendInvitation(
  */
 export async function exampleSendWelcomeEmail(
   userEmail: string,
-  firstName: string
+  firstName: string,
 ): Promise<void> {
   try {
     const emailService = new EmailService();
     await emailService.sendWelcomeEmail(userEmail, firstName);
 
-    console.log('Welcome email sent successfully');
+    console.log("Welcome email sent successfully");
   } catch (error) {
-    console.error('Error sending welcome email:', error);
+    console.error("Error sending welcome email:", error);
     throw error;
   }
 }
@@ -222,14 +224,14 @@ export function exampleCheckEmailServiceStatus(): void {
 
   // Check if SendGrid is configured
   if (emailService.isReady()) {
-    console.log('Email service is ready to send emails');
+    console.log("Email service is ready to send emails");
   } else {
-    console.warn('Email service not configured - emails will be logged only');
+    console.warn("Email service not configured - emails will be logged only");
   }
 
   // Get detailed status
   const status = emailService.getStatus();
-  console.log('Email service configuration:', status);
+  console.log("Email service configuration:", status);
   // Output: { configured: true/false, fromEmail, fromName, frontendUrl }
 }
 
@@ -238,21 +240,21 @@ export function exampleCheckEmailServiceStatus(): void {
  */
 export async function exampleCheckExistingToken(
   userId: number,
-  type: 'email_verification' | 'password_reset'
+  type: "email_verification" | "password_reset",
 ): Promise<void> {
   try {
     const tokenService = new EmailTokenService();
     const existingToken = await tokenService.getValidTokenForUser(userId, type);
 
     if (existingToken) {
-      console.log('User already has a valid token:', existingToken.token);
+      console.log("User already has a valid token:", existingToken.token);
       // Optionally: resend the email or inform user
     } else {
-      console.log('No valid token found for user');
+      console.log("No valid token found for user");
       // Generate a new token
     }
   } catch (error) {
-    console.error('Error checking existing token:', error);
+    console.error("Error checking existing token:", error);
     throw error;
   }
 }
@@ -265,28 +267,28 @@ export async function exampleCheckExistingToken(
  * Body: { email: string }
  */
 export async function controllerExampleForgotPassword(
-  email: string
+  email: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
     const userDAO = new UserDAO();
-    const user = await userDAO.getByEmail(email);
+    const user = await userDAO.getUserByEmail(email);
 
     if (!user || !user.id) {
       // Security: Don't reveal if email exists
       return {
         success: true,
-        message: 'If the email exists, a password reset link has been sent',
+        message: "If the email exists, a password reset link has been sent",
       };
     }
 
     // Invalidate any existing password reset tokens
     const tokenService = new EmailTokenService();
-    await tokenService.invalidateAllUserTokens(user.id, 'password_reset');
+    await tokenService.invalidateAllUserTokens(user.id, "password_reset");
 
     // Generate new token
     const tokenRecord = await tokenService.generateEmailToken(
       user.id,
-      'password_reset'
+      "password_reset",
     );
 
     // Send email
@@ -294,15 +296,15 @@ export async function controllerExampleForgotPassword(
     await emailService.sendPasswordResetEmail(
       user.email,
       tokenRecord.token,
-      user.firstName
+      user.firstName,
     );
 
     return {
       success: true,
-      message: 'If the email exists, a password reset link has been sent',
+      message: "If the email exists, a password reset link has been sent",
     };
   } catch (error) {
-    console.error('Error in forgot password:', error);
+    console.error("Error in forgot password:", error);
     throw error;
   }
 }
@@ -316,25 +318,25 @@ export async function controllerExampleForgotPassword(
  */
 export async function controllerExampleResetPassword(
   token: string,
-  newPassword: string
+  newPassword: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
     // 1. Verify token
     const tokenService = new EmailTokenService();
     const verifiedToken = await tokenService.verifyEmailToken(
       token,
-      'password_reset'
+      "password_reset",
     );
 
     if (!verifiedToken) {
       return {
         success: false,
-        message: 'Invalid or expired token',
+        message: "Invalid or expired token",
       };
     }
 
     // 2. Hash password (use bcrypt in real code)
-    const bcrypt = require('bcryptjs');
+    const bcrypt = require("bcryptjs");
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // 3. Update user password
@@ -348,10 +350,10 @@ export async function controllerExampleResetPassword(
 
     return {
       success: true,
-      message: 'Password reset successfully',
+      message: "Password reset successfully",
     };
   } catch (error) {
-    console.error('Error resetting password:', error);
+    console.error("Error resetting password:", error);
     throw error;
   }
 }
@@ -363,20 +365,20 @@ export async function controllerExampleResetPassword(
  * GET /auth/verify-email?token=xxx
  */
 export async function controllerExampleVerifyEmail(
-  token: string
+  token: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
     // 1. Verify token
     const tokenService = new EmailTokenService();
     const verifiedToken = await tokenService.verifyEmailToken(
       token,
-      'email_verification'
+      "email_verification",
     );
 
     if (!verifiedToken) {
       return {
         success: false,
-        message: 'Invalid or expired verification link',
+        message: "Invalid or expired verification link",
       };
     }
 
@@ -398,10 +400,10 @@ export async function controllerExampleVerifyEmail(
 
     return {
       success: true,
-      message: 'Email verified successfully',
+      message: "Email verified successfully",
     };
   } catch (error) {
-    console.error('Error verifying email:', error);
+    console.error("Error verifying email:", error);
     throw error;
   }
 }

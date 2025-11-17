@@ -20,22 +20,27 @@ export class AuthRouter {
     this.router.post(
       "/register",
       authRateLimiter,
-      this.authController.register.bind(this.authController)
+      this.authController.register.bind(this.authController),
     );
     this.router.post(
       "/login",
       authRateLimiter,
-      this.authController.login.bind(this.authController)
+      this.authController.login.bind(this.authController),
     );
     this.router.post(
       "/request-password-reset",
       authRateLimiter,
-      this.authController.requestPasswordReset.bind(this.authController)
+      this.authController.requestPasswordReset.bind(this.authController),
     );
     this.router.post(
       "/reset-password",
       authRateLimiter,
-      this.authController.resetPassword.bind(this.authController)
+      this.authController.resetPassword.bind(this.authController),
+    );
+    this.router.post(
+      "/accept-invitation/:token",
+      authRateLimiter,
+      this.authController.acceptInvitation.bind(this.authController),
     );
 
     // Protected routes (require authentication)
@@ -43,13 +48,20 @@ export class AuthRouter {
       "/profile",
       authenticate,
       apiRateLimiter,
-      this.authController.getProfile.bind(this.authController)
+      this.authController.getProfile.bind(this.authController),
+    );
+    // Add /me endpoint as alias for /profile (required by frontend)
+    this.router.get(
+      "/me",
+      authenticate,
+      apiRateLimiter,
+      this.authController.getProfile.bind(this.authController),
     );
     this.router.post(
       "/change-password",
       authenticate,
       sensitiveRateLimiter,
-      this.authController.changePassword.bind(this.authController)
+      this.authController.changePassword.bind(this.authController),
     );
   }
 }

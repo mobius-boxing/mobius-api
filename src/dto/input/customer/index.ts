@@ -1,2 +1,2 @@
-export * from './CustomerCreateInputDTO';
-export * from './CustomerUpdateInputDTO';
+export * from "./CustomerCreateInputDTO";
+export * from "./CustomerUpdateInputDTO";

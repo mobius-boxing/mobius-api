@@ -1,10 +1,10 @@
-import * as sgMail from '@sendgrid/mail';
+import sgMail from "@sendgrid/mail";
 import {
   invitationEmailTemplate,
   welcomeEmailTemplate,
   passwordResetEmailTemplate,
   emailVerificationTemplate,
-} from '../templates/email-templates';
+} from "../templates/email-templates";
 
 export class EmailService {
   private isConfigured: boolean;
@@ -15,19 +15,21 @@ export class EmailService {
   constructor() {
     // Check if SendGrid API key is configured
     const apiKey = process.env.SENDGRID_API_KEY;
-    this.isConfigured = !!apiKey && apiKey.trim() !== '';
+    this.isConfigured = !!apiKey && apiKey.trim() !== "";
 
     if (this.isConfigured) {
       sgMail.setApiKey(apiKey as string);
-      console.log('✓ SendGrid email service initialized');
+      console.log("✓ SendGrid email service initialized");
     } else {
-      console.warn('⚠ SendGrid API key not configured. Emails will be logged only.');
+      console.warn(
+        "⚠ SendGrid API key not configured. Emails will be logged only.",
+      );
     }
 
     // Set email configuration from environment variables
-    this.fromEmail = process.env.EMAIL_FROM || 'noreply@mobius-tms.com';
-    this.fromName = process.env.EMAIL_FROM_NAME || 'Mobius';
-    this.frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    this.fromEmail = process.env.EMAIL_FROM || "noreply@mobius-tms.com";
+    this.fromName = process.env.EMAIL_FROM_NAME || "Mobius";
+    this.frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
   }
 
   /**
@@ -52,20 +54,22 @@ export class EmailService {
         await sgMail.send(emailData);
         console.log(`✓ Email sent to ${to}: ${subject}`);
       } catch (error: any) {
-        console.error('✗ Error sending email:', error);
+        console.error("✗ Error sending email:", error);
         if (error.response) {
-          console.error('SendGrid error details:', error.response.body);
+          console.error("SendGrid error details:", error.response.body);
         }
-        throw new Error('Failed to send email');
+        throw new Error("Failed to send email");
       }
     } else {
       // Graceful degradation: log email instead of sending
-      console.log('\n====== EMAIL (NOT SENT - SendGrid not configured) ======');
-      console.log('To:', to);
-      console.log('From:', `${this.fromName} <${this.fromEmail}>`);
-      console.log('Subject:', subject);
-      console.log('HTML Preview:', html.substring(0, 200) + '...');
-      console.log('=========================================================\n');
+      console.log("\n====== EMAIL (NOT SENT - SendGrid not configured) ======");
+      console.log("To:", to);
+      console.log("From:", `${this.fromName} <${this.fromEmail}>`);
+      console.log("Subject:", subject);
+      console.log("HTML Preview:", html.substring(0, 200) + "...");
+      console.log(
+        "=========================================================\n",
+      );
     }
   }
 
@@ -80,12 +84,12 @@ export class EmailService {
   public async sendInvitationEmail(
     email: string,
     companyName: string,
-    role: 'member' | 'admin',
+    role: "member" | "admin",
     token: string,
-    firstName?: string
+    firstName?: string,
   ): Promise<void> {
     try {
-      const actionUrl = `${this.frontendUrl}/accept-invitation?token=${token}`;
+      const actionUrl = `${this.frontendUrl}/accept-invitation/${token}`;
 
       const html = invitationEmailTemplate({
         firstName,
@@ -94,11 +98,11 @@ export class EmailService {
         actionUrl,
       });
 
-      const subject = `You've been invited to join ${companyName} on Mobius`;
+      const subject = `Has sido invitado a unirte a ${companyName} en Mobius`;
 
       await this.send(email, subject, html);
     } catch (error) {
-      console.error('Error sending invitation email:', error);
+      console.error("Error sending invitation email:", error);
       throw error;
     }
   }
@@ -108,17 +112,20 @@ export class EmailService {
    * @param email - Recipient email address
    * @param firstName - User's first name
    */
-  public async sendWelcomeEmail(email: string, firstName: string): Promise<void> {
+  public async sendWelcomeEmail(
+    email: string,
+    firstName: string,
+  ): Promise<void> {
     try {
       const html = welcomeEmailTemplate({
         firstName,
       });
 
-      const subject = 'Welcome to Mobius!';
+      const subject = "¡Bienvenido a Mobius!";
 
       await this.send(email, subject, html);
     } catch (error) {
-      console.error('Error sending welcome email:', error);
+      console.error("Error sending welcome email:", error);
       throw error;
     }
   }
@@ -132,7 +139,7 @@ export class EmailService {
   public async sendPasswordResetEmail(
     email: string,
     token: string,
-    firstName?: string
+    firstName?: string,
   ): Promise<void> {
     try {
       const actionUrl = `${this.frontendUrl}/reset-password?token=${token}`;
@@ -143,11 +150,11 @@ export class EmailService {
         actionUrl,
       });
 
-      const subject = 'Reset Your Mobius Password';
+      const subject = "Restablece tu Contraseña de Mobius";
 
       await this.send(email, subject, html);
     } catch (error) {
-      console.error('Error sending password reset email:', error);
+      console.error("Error sending password reset email:", error);
       throw error;
     }
   }
@@ -161,7 +168,7 @@ export class EmailService {
   public async sendEmailVerificationEmail(
     email: string,
     token: string,
-    firstName?: string
+    firstName?: string,
   ): Promise<void> {
     try {
       const actionUrl = `${this.frontendUrl}/verify-email?token=${token}`;
@@ -172,11 +179,11 @@ export class EmailService {
         actionUrl,
       });
 
-      const subject = 'Verify Your Mobius Email Address';
+      const subject = "Verifica tu Correo Electrónico de Mobius";
 
       await this.send(email, subject, html);
     } catch (error) {
-      console.error('Error sending email verification email:', error);
+      console.error("Error sending email verification email:", error);
       throw error;
     }
   }

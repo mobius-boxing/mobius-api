@@ -59,7 +59,8 @@ export const errorMiddleware = (
     if (err.code === "23503") {
       return res.status(400).json({
         success: false,
-        message: "Referenced record does not exist or cannot be deleted because it is referenced by other records.",
+        message:
+          "Referenced record does not exist or cannot be deleted because it is referenced by other records.",
         code: "FOREIGN_KEY_VIOLATION",
       });
     }
@@ -155,8 +156,7 @@ export const errorMiddleware = (
     500;
 
   const message =
-    err.message ||
-    "An unexpected error occurred. Please try again later.";
+    err.message || "An unexpected error occurred. Please try again later.";
 
   res.status(statusError).json({
     success: false,

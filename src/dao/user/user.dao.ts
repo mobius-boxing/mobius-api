@@ -12,15 +12,14 @@ export class UserDAO implements IBaseDAO<IUser> {
     const knex = KnexManager.getConnection();
     const [user] = await knex(this.tableName)
       .insert({
-        uuid: item.uuid,
         email: item.email,
         password: item.password,
-        first_name: item.firstName,
-        last_name: item.lastName,
+        firstName: item.firstName,
+        lastName: item.lastName,
         role: item.role,
-        company_id: item.companyId,
-        is_active: item.isActive ?? true,
-        email_verified: item.emailVerified ?? false,
+        companyId: item.companyId,
+        isActive: item.isActive ?? true,
+        emailVerified: item.emailVerified ?? false,
       })
       .returning("*");
 
@@ -28,7 +27,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
-   * Get user by ID
+   * Get user by numeric ID
    */
   async getById(id: number): Promise<IUser | null> {
     const knex = KnexManager.getConnection();
@@ -38,7 +37,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
-   * Get user by UUID
+   * Get user by UUID string
    */
   async getByUuid(uuid: string): Promise<IUser | null> {
     const knex = KnexManager.getConnection();
@@ -48,7 +47,21 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
-   * Update user by ID
+   * Get user numeric ID by UUID string
+   * Used for converting UUID foreign keys to database IDs
+   */
+  async getIdByUuid(uuid: string): Promise<number | null> {
+    const knex = KnexManager.getConnection();
+    const user = await knex(this.tableName)
+      .where("uuid", uuid)
+      .select("id")
+      .first();
+
+    return user ? user.id : null;
+  }
+
+  /**
+   * Update user by numeric ID
    */
   async update(id: number, item: Partial<IUser>): Promise<IUser | null> {
     const knex = KnexManager.getConnection();
@@ -56,15 +69,15 @@ export class UserDAO implements IBaseDAO<IUser> {
 
     if (item.email !== undefined) updateData.email = item.email;
     if (item.password !== undefined) updateData.password = item.password;
-    if (item.firstName !== undefined) updateData.first_name = item.firstName;
-    if (item.lastName !== undefined) updateData.last_name = item.lastName;
+    if (item.firstName !== undefined) updateData.firstName = item.firstName;
+    if (item.lastName !== undefined) updateData.lastName = item.lastName;
     if (item.role !== undefined) updateData.role = item.role;
-    if (item.companyId !== undefined) updateData.company_id = item.companyId;
-    if (item.isActive !== undefined) updateData.is_active = item.isActive;
+    if (item.companyId !== undefined) updateData.companyId = item.companyId;
+    if (item.isActive !== undefined) updateData.isActive = item.isActive;
     if (item.emailVerified !== undefined)
-      updateData.email_verified = item.emailVerified;
+      updateData.emailVerified = item.emailVerified;
 
-    updateData.updated_at = knex.fn.now();
+    updateData.updatedAt = knex.fn.now();
 
     const [user] = await knex(this.tableName)
       .where("id", id)
@@ -75,7 +88,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
-   * Delete user by ID
+   * Delete user by numeric ID
    */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
@@ -94,7 +107,7 @@ export class UserDAO implements IBaseDAO<IUser> {
     const [users, totalResult] = await Promise.all([
       knex(this.tableName)
         .select("*")
-        .orderBy("created_at", "desc")
+        .orderBy("createdAt", "desc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),
@@ -124,17 +137,40 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
+   * Get user by email with company information (using to_jsonb for join)
+   */
+  async getUserByEmailWithCompany(
+    email: string,
+  ): Promise<IUserWithCompany | null> {
+    const knex = KnexManager.getConnection();
+
+    const user = await knex(this.tableName)
+      .select("users.*", knex.raw("to_jsonb(companies.*) as company"))
+      .leftJoin("companies", "users.companyId", "companies.id")
+      .where("users.email", email)
+      .first();
+
+    if (!user) return null;
+
+    const mapped = this.mapToInterface(user);
+    // Remove password from response
+    const { password, ...userWithoutPassword } = mapped;
+
+    return {
+      ...userWithoutPassword,
+      company: user.company,
+    } as IUserWithCompany;
+  }
+
+  /**
    * Get user with company by UUID (using to_jsonb for join)
    */
   async getUserWithCompany(uuid: string): Promise<IUserWithCompany | null> {
     const knex = KnexManager.getConnection();
 
     const user = await knex(this.tableName)
-      .select(
-        "users.*",
-        knex.raw("to_jsonb(companies.*) as company")
-      )
-      .leftJoin("companies", "users.company_id", "companies.id")
+      .select("users.*", knex.raw("to_jsonb(companies.*) as company"))
+      .leftJoin("companies", "users.companyId", "companies.id")
       .where("users.uuid", uuid)
       .first();
 
@@ -159,14 +195,14 @@ export class UserDAO implements IBaseDAO<IUser> {
       uuid: record.uuid,
       email: record.email,
       password: record.password,
-      firstName: record.first_name ?? record.firstName,
-      lastName: record.last_name ?? record.lastName,
+      firstName: record.firstName,
+      lastName: record.lastName,
       role: record.role,
-      companyId: record.company_id ?? record.companyId,
-      isActive: record.is_active ?? record.isActive,
-      emailVerified: record.email_verified ?? record.emailVerified,
-      createdAt: record.created_at ?? record.createdAt,
-      updatedAt: record.updated_at ?? record.updatedAt,
+      companyId: record.companyId,
+      isActive: record.isActive,
+      emailVerified: record.emailVerified,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     };
   }
 }

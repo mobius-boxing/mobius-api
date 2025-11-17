@@ -47,7 +47,10 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
   /**
    * Update email token by ID
    */
-  async update(id: number, item: Partial<IEmailToken>): Promise<IEmailToken | null> {
+  async update(
+    id: number,
+    item: Partial<IEmailToken>,
+  ): Promise<IEmailToken | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
 
@@ -80,7 +83,10 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
   /**
    * Get all email tokens with pagination
    */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IEmailToken>> {
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IEmailToken>> {
     const knex = KnexManager.getConnection();
     const offset = (page - 1) * limit;
 
@@ -111,9 +117,7 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
    */
   async getByToken(token: string): Promise<IEmailToken | null> {
     const knex = KnexManager.getConnection();
-    const emailToken = await knex(this.tableName)
-      .where("token", token)
-      .first();
+    const emailToken = await knex(this.tableName).where("token", token).first();
 
     return emailToken ? this.mapToInterface(emailToken) : null;
   }
@@ -121,7 +125,10 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
   /**
    * Get valid (unused and not expired) token for a user by type
    */
-  async getValidToken(userId: number, type: 'email_verification' | 'password_reset'): Promise<IEmailToken | null> {
+  async getValidToken(
+    userId: number,
+    type: "email_verification" | "password_reset",
+  ): Promise<IEmailToken | null> {
     const knex = KnexManager.getConnection();
     const token = await knex(this.tableName)
       .where("userId", userId)

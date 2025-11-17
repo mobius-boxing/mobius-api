@@ -50,7 +50,10 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
   /**
    * Update invitation by ID
    */
-  async update(id: number, item: Partial<IInvitation>): Promise<IInvitation | null> {
+  async update(
+    id: number,
+    item: Partial<IInvitation>,
+  ): Promise<IInvitation | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
 
@@ -86,7 +89,10 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
   /**
    * Get all invitations with pagination
    */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IInvitation>> {
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IInvitation>> {
     const knex = KnexManager.getConnection();
     const offset = (page - 1) * limit;
 
@@ -117,9 +123,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
    */
   async getByToken(token: string): Promise<IInvitation | null> {
     const knex = KnexManager.getConnection();
-    const invitation = await knex(this.tableName)
-      .where("token", token)
-      .first();
+    const invitation = await knex(this.tableName).where("token", token).first();
 
     return invitation ? this.mapToInterface(invitation) : null;
   }

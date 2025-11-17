@@ -14,8 +14,17 @@
     "strictPropertyInitialization": true,
     "noImplicitThis": true,
     "alwaysStrict": true,
-    "noUnusedLocals": true,
+    "noUnusedLocals": false,
     "skipLibCheck": true,
     "downlevelIteration": true
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "knexfile.ts",
+    "knexfile.js",
+    "migrations",
+    "seeds"
+  ]
 }

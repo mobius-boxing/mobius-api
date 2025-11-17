@@ -1,15 +1,22 @@
 import { Request, Response, NextFunction } from "express";
 import { IBaseController } from "../../types.d";
-import { paginationHelper, inputValidator, IInputValidator } from "@sundaysf/utils";
+import {
+  paginationHelper,
+  inputValidator,
+  IInputValidator,
+} from "@sundaysf/utils";
 import { CustomerCategoryDAO } from "../../dao/customer-category/customer-category.dao";
+import { CompanyDAO } from "../../dao/company/company.dao";
 import { ICustomerCategory } from "../../interfaces/customer-category/customer-category.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
-import { CustomerCategoryCreateInputDTO, CustomerCategoryUpdateInputDTO } from "../../dto/input/customerCategory";
+import {
+  CustomerCategoryCreateInputDTO,
+  CustomerCategoryUpdateInputDTO,
+} from "../../dto/input/customerCategory";
 
 export class CustomerCategoryController implements IBaseController {
-  private _customerCategoryDAO: CustomerCategoryDAO =
-    new CustomerCategoryDAO();
+  private _customerCategoryDAO: CustomerCategoryDAO = new CustomerCategoryDAO();
 
   /**
    * Get all customer categories with pagination
@@ -17,12 +24,17 @@ export class CustomerCategoryController implements IBaseController {
   public async getAll(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const { page, limit } = paginationHelper(req);
+
+      // Extract companyId - SuperAdmin sees all, others see only their company
+      const user = (req as any).user;
+      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+
       const result: IDataPaginator<ICustomerCategory> =
-        await this._customerCategoryDAO.getAll(page, limit);
+        await this._customerCategoryDAO.getAll(page, limit, companyId);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);
@@ -35,11 +47,16 @@ export class CustomerCategoryController implements IBaseController {
   public async getByUuid(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const { uuid } = req.params;
-      const result = await this._customerCategoryDAO.getByUuid(uuid);
+
+      // Extract companyId - SuperAdmin sees all, others see only their company
+      const user = (req as any).user;
+      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+
+      const result = await this._customerCategoryDAO.getByUuid(uuid, companyId);
 
       if (!result) {
         res.status(404).json({
@@ -64,10 +81,62 @@ export class CustomerCategoryController implements IBaseController {
   public async create(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const data = req.body;
+      const user = (req as any).user;
+
+      // Determine companyId based on user role
+      let companyIdNumeric: number;
+
+      if (user.role === "superAdmin") {
+        // SuperAdmin can create for any company - companyId must be provided in request
+        if (!data.companyId) {
+          res.status(400).json({
+            success: false,
+            message: "SuperAdmin must specify a company",
+          });
+          return;
+        }
+        // CompanyId from frontend might be UUID or numeric - convert if needed
+        const companyDAO = new CompanyDAO();
+        const numericId =
+          typeof data.companyId === "string"
+            ? await companyDAO.getIdByUuid(data.companyId)
+            : data.companyId;
+        if (!numericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid company",
+          });
+          return;
+        }
+        companyIdNumeric = numericId;
+      } else {
+        // Regular user - extract from token (cannot be changed)
+        if (!user.companyId) {
+          res.status(400).json({
+            success: false,
+            message: "User must belong to a company to create customer categories",
+          });
+          return;
+        }
+        // Convert company UUID from token to numeric ID
+        const companyDAO = new CompanyDAO();
+        const numericId = await companyDAO.getIdByUuid(user.companyId);
+        if (!numericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid company",
+          });
+          return;
+        }
+        companyIdNumeric = numericId;
+      }
+
+      // Inject the resolved companyId
+      data.companyId = companyIdNumeric;
 
       // Validate input using DTO
       const inputDTO = new CustomerCategoryCreateInputDTO(data).build();
@@ -77,9 +146,9 @@ export class CustomerCategoryController implements IBaseController {
         return next(new Error(validation.message));
       }
 
+      // Generate UUID server-side
       const dataToCreate: ICustomerCategory = {
         uuid: uuidv4(),
-        customerCategoryUuid: uuidv4(),
         name: inputDTO.name,
         companyId: inputDTO.companyId,
       };
@@ -101,14 +170,21 @@ export class CustomerCategoryController implements IBaseController {
   public async update(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const { uuid } = req.params;
       const data = req.body;
 
-      // Get customer category by UUID to find its ID
-      const existing = await this._customerCategoryDAO.getByUuid(uuid);
+      // Extract companyId - SuperAdmin sees all, others see only their company
+      const user = (req as any).user;
+      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+
+      // Get customer category by UUID to find its ID and verify ownership
+      const existing = await this._customerCategoryDAO.getByUuid(
+        uuid,
+        companyId,
+      );
       if (!existing || !existing.id) {
         res.status(404).json({
           success: false,
@@ -127,7 +203,7 @@ export class CustomerCategoryController implements IBaseController {
 
       const result = await this._customerCategoryDAO.update(
         existing.id,
-        inputDTO
+        inputDTO,
       );
 
       res.status(200).json({
@@ -145,13 +221,20 @@ export class CustomerCategoryController implements IBaseController {
   public async delete(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const { uuid } = req.params;
 
-      // Get customer category by UUID to find its ID
-      const existing = await this._customerCategoryDAO.getByUuid(uuid);
+      // Extract companyId - SuperAdmin sees all, others see only their company
+      const user = (req as any).user;
+      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+
+      // Get customer category by UUID to find its ID and verify ownership
+      const existing = await this._customerCategoryDAO.getByUuid(
+        uuid,
+        companyId,
+      );
       if (!existing || !existing.id) {
         res.status(404).json({
           success: false,

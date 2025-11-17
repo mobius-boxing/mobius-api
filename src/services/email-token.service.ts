@@ -1,7 +1,7 @@
-import { v4 as uuidv4 } from 'uuid';
-import { randomBytes } from 'crypto';
-import { EmailTokenDAO } from '../dao/email-token/email-token.dao';
-import { IEmailToken } from '../interfaces/email-token/email-token.interfaces';
+import { v4 as uuidv4 } from "uuid";
+import { randomBytes } from "crypto";
+import { EmailTokenDAO } from "../dao/email-token/email-token.dao";
+import { IEmailToken } from "../interfaces/email-token/email-token.interfaces";
 
 export class EmailTokenService {
   private emailTokenDAO: EmailTokenDAO;
@@ -15,7 +15,7 @@ export class EmailTokenService {
    * @returns Hex string token (32 bytes = 64 characters)
    */
   private generateSecureToken(): string {
-    return randomBytes(32).toString('hex');
+    return randomBytes(32).toString("hex");
   }
 
   /**
@@ -26,7 +26,7 @@ export class EmailTokenService {
    */
   public async generateEmailToken(
     userId: number,
-    type: 'email_verification' | 'password_reset'
+    type: "email_verification" | "password_reset",
   ): Promise<IEmailToken> {
     try {
       // Generate secure random token
@@ -34,10 +34,10 @@ export class EmailTokenService {
 
       // Calculate expiry time based on type
       const expiresAt = new Date();
-      if (type === 'password_reset') {
+      if (type === "password_reset") {
         // 24 hours for password reset
         expiresAt.setHours(expiresAt.getHours() + 24);
-      } else if (type === 'email_verification') {
+      } else if (type === "email_verification") {
         // 48 hours for email verification
         expiresAt.setHours(expiresAt.getHours() + 48);
       }
@@ -57,8 +57,8 @@ export class EmailTokenService {
 
       return createdToken;
     } catch (error) {
-      console.error('Error generating email token:', error);
-      throw new Error('Failed to generate email token');
+      console.error("Error generating email token:", error);
+      throw new Error("Failed to generate email token");
     }
   }
 
@@ -70,40 +70,45 @@ export class EmailTokenService {
    */
   public async verifyEmailToken(
     tokenString: string,
-    type: 'email_verification' | 'password_reset'
+    type: "email_verification" | "password_reset",
   ): Promise<IEmailToken | null> {
     try {
       // Get token from database
       const token = await this.emailTokenDAO.getByToken(tokenString);
 
       if (!token) {
-        console.warn('Token not found:', tokenString);
+        console.warn("Token not found:", tokenString);
         return null;
       }
 
       // Verify token type matches
       if (token.type !== type) {
-        console.warn('Token type mismatch. Expected:', type, 'Got:', token.type);
+        console.warn(
+          "Token type mismatch. Expected:",
+          type,
+          "Got:",
+          token.type,
+        );
         return null;
       }
 
       // Check if token is already used
       if (token.isUsed) {
-        console.warn('Token already used:', tokenString);
+        console.warn("Token already used:", tokenString);
         return null;
       }
 
       // Check if token is expired
       const now = new Date();
       if (token.expiresAt && new Date(token.expiresAt) < now) {
-        console.warn('Token expired:', tokenString, 'Expiry:', token.expiresAt);
+        console.warn("Token expired:", tokenString, "Expiry:", token.expiresAt);
         return null;
       }
 
       return token;
     } catch (error) {
-      console.error('Error verifying email token:', error);
-      throw new Error('Failed to verify email token');
+      console.error("Error verifying email token:", error);
+      throw new Error("Failed to verify email token");
     }
   }
 
@@ -117,7 +122,7 @@ export class EmailTokenService {
       const token = await this.emailTokenDAO.getByToken(tokenString);
 
       if (!token || !token.id) {
-        console.warn('Token not found for invalidation:', tokenString);
+        console.warn("Token not found for invalidation:", tokenString);
         return false;
       }
 
@@ -126,8 +131,8 @@ export class EmailTokenService {
 
       return true;
     } catch (error) {
-      console.error('Error invalidating token:', error);
-      throw new Error('Failed to invalidate token');
+      console.error("Error invalidating token:", error);
+      throw new Error("Failed to invalidate token");
     }
   }
 
@@ -139,13 +144,13 @@ export class EmailTokenService {
    */
   public async getValidTokenForUser(
     userId: number,
-    type: 'email_verification' | 'password_reset'
+    type: "email_verification" | "password_reset",
   ): Promise<IEmailToken | null> {
     try {
       return await this.emailTokenDAO.getValidToken(userId, type);
     } catch (error) {
-      console.error('Error getting valid token:', error);
-      throw new Error('Failed to get valid token');
+      console.error("Error getting valid token:", error);
+      throw new Error("Failed to get valid token");
     }
   }
 
@@ -157,7 +162,7 @@ export class EmailTokenService {
    */
   public async invalidateAllUserTokens(
     userId: number,
-    type: 'email_verification' | 'password_reset'
+    type: "email_verification" | "password_reset",
   ): Promise<void> {
     try {
       // This would require a custom DAO method to invalidate multiple tokens
@@ -168,7 +173,7 @@ export class EmailTokenService {
         await this.invalidateToken(validToken.token);
       }
     } catch (error) {
-      console.error('Error invalidating user tokens:', error);
+      console.error("Error invalidating user tokens:", error);
       // Don't throw - this is a cleanup operation
     }
   }
@@ -182,10 +187,10 @@ export class EmailTokenService {
     try {
       // This would require a custom DAO method
       // For now, return 0 as placeholder
-      console.log('Cleanup expired tokens - Not implemented yet');
+      console.log("Cleanup expired tokens - Not implemented yet");
       return 0;
     } catch (error) {
-      console.error('Error cleaning up expired tokens:', error);
+      console.error("Error cleaning up expired tokens:", error);
       return 0;
     }
   }

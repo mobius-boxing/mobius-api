@@ -11,6 +11,7 @@ The Mobius API v2 email service provides a robust email sending system with HTML
 Handles sending emails via SendGrid with graceful degradation when SendGrid is not configured.
 
 #### Features:
+
 - SendGrid integration
 - Graceful degradation (logs emails if API key not set)
 - HTML email templates with Mobius branding
@@ -19,51 +20,54 @@ Handles sending emails via SendGrid with graceful degradation when SendGrid is n
 #### Methods:
 
 **sendInvitationEmail(email, companyName, role, token, firstName?)**
+
 ```typescript
 const emailService = new EmailService();
 await emailService.sendInvitationEmail(
-  'user@example.com',
-  'Acme Corp',
-  'admin',
-  'abc123def456',
-  'John'
+  "user@example.com",
+  "Acme Corp",
+  "admin",
+  "abc123def456",
+  "John",
 );
 ```
 
 **sendWelcomeEmail(email, firstName)**
+
 ```typescript
-await emailService.sendWelcomeEmail(
-  'user@example.com',
-  'John'
-);
+await emailService.sendWelcomeEmail("user@example.com", "John");
 ```
 
 **sendPasswordResetEmail(email, token, firstName?)**
+
 ```typescript
 await emailService.sendPasswordResetEmail(
-  'user@example.com',
-  'reset_token_123',
-  'John'
+  "user@example.com",
+  "reset_token_123",
+  "John",
 );
 ```
 
 **sendEmailVerificationEmail(email, token, firstName?)**
+
 ```typescript
 await emailService.sendEmailVerificationEmail(
-  'user@example.com',
-  'verify_token_123',
-  'John'
+  "user@example.com",
+  "verify_token_123",
+  "John",
 );
 ```
 
 **isReady()** - Check if SendGrid is configured
+
 ```typescript
 if (emailService.isReady()) {
-  console.log('Email service ready to send');
+  console.log("Email service ready to send");
 }
 ```
 
 **getStatus()** - Get configuration status
+
 ```typescript
 const status = emailService.getStatus();
 // Returns: { configured, fromEmail, fromName, frontendUrl }
@@ -74,6 +78,7 @@ const status = emailService.getStatus();
 Manages email tokens for password resets and email verification.
 
 #### Features:
+
 - Cryptographically secure token generation (32 bytes hex)
 - Token expiry management (24h for reset, 48h for verification)
 - Token validation and verification
@@ -82,6 +87,7 @@ Manages email tokens for password resets and email verification.
 #### Methods:
 
 **generateEmailToken(userId, type)**
+
 ```typescript
 const tokenService = new EmailTokenService();
 const token = await tokenService.generateEmailToken(
@@ -92,21 +98,24 @@ const token = await tokenService.generateEmailToken(
 ```
 
 **verifyEmailToken(tokenString, type)**
+
 ```typescript
 const token = await tokenService.verifyEmailToken(
-  'abc123def456',
-  'password_reset'
+  "abc123def456",
+  "password_reset",
 );
 // Returns: IEmailToken if valid, null if invalid/expired
 ```
 
 **invalidateToken(tokenString)**
+
 ```typescript
-const success = await tokenService.invalidateToken('abc123def456');
+const success = await tokenService.invalidateToken("abc123def456");
 // Returns: boolean
 ```
 
 **getValidTokenForUser(userId, type)**
+
 ```typescript
 const token = await tokenService.getValidTokenForUser(
   userId: 123,
@@ -116,6 +125,7 @@ const token = await tokenService.getValidTokenForUser(
 ```
 
 **invalidateAllUserTokens(userId, type)**
+
 ```typescript
 await tokenService.invalidateAllUserTokens(
   userId: 123,
@@ -129,23 +139,23 @@ await tokenService.invalidateAllUserTokens(
 ### Password Reset Flow
 
 ```typescript
-import { EmailService } from './services/email.service';
-import { EmailTokenService } from './services/email-token.service';
-import { UserDAO } from './dao/user/user.dao';
+import { EmailService } from "./services/email.service";
+import { EmailTokenService } from "./services/email-token.service";
+import { UserDAO } from "./dao/user/user.dao";
 
 // 1. User requests password reset
 const userDAO = new UserDAO();
-const user = await userDAO.getByEmail('user@example.com');
+const user = await userDAO.getByEmail("user@example.com");
 
 if (!user || !user.id) {
-  throw new Error('User not found');
+  throw new Error("User not found");
 }
 
 // 2. Generate reset token
 const tokenService = new EmailTokenService();
 const tokenRecord = await tokenService.generateEmailToken(
   user.id,
-  'password_reset'
+  "password_reset",
 );
 
 // 3. Send reset email
@@ -153,17 +163,17 @@ const emailService = new EmailService();
 await emailService.sendPasswordResetEmail(
   user.email,
   tokenRecord.token,
-  user.firstName
+  user.firstName,
 );
 
 // 4. User clicks link and submits new password
 const verifiedToken = await tokenService.verifyEmailToken(
   tokenFromUrl,
-  'password_reset'
+  "password_reset",
 );
 
 if (!verifiedToken) {
-  throw new Error('Invalid or expired token');
+  throw new Error("Invalid or expired token");
 }
 
 // 5. Update password and invalidate token
@@ -176,19 +186,19 @@ await tokenService.invalidateToken(tokenFromUrl);
 ```typescript
 // 1. User registers
 const user = await userDAO.create({
-  email: 'newuser@example.com',
+  email: "newuser@example.com",
   password: hashedPassword,
-  firstName: 'John',
-  lastName: 'Doe',
-  role: 'member',
-  emailVerified: false
+  firstName: "John",
+  lastName: "Doe",
+  role: "member",
+  emailVerified: false,
 });
 
 // 2. Generate verification token
 const tokenService = new EmailTokenService();
 const tokenRecord = await tokenService.generateEmailToken(
   user.id!,
-  'email_verification'
+  "email_verification",
 );
 
 // 3. Send verification email
@@ -196,17 +206,17 @@ const emailService = new EmailService();
 await emailService.sendEmailVerificationEmail(
   user.email,
   tokenRecord.token,
-  user.firstName
+  user.firstName,
 );
 
 // 4. User clicks verification link
 const verifiedToken = await tokenService.verifyEmailToken(
   tokenFromUrl,
-  'email_verification'
+  "email_verification",
 );
 
 if (!verifiedToken) {
-  throw new Error('Invalid or expired token');
+  throw new Error("Invalid or expired token");
 }
 
 // 5. Mark email as verified and invalidate token
@@ -220,16 +230,16 @@ await tokenService.invalidateToken(tokenFromUrl);
 // 1. Admin invites user
 const inviteToken = await tokenService.generateEmailToken(
   newUserId,
-  'email_verification' // or create a separate 'invitation' type
+  "email_verification", // or create a separate 'invitation' type
 );
 
 // 2. Send invitation email
 await emailService.sendInvitationEmail(
-  'invitee@example.com',
-  'Acme Corp',
-  'admin',
+  "invitee@example.com",
+  "Acme Corp",
+  "admin",
   inviteToken.token,
-  'Jane'
+  "Jane",
 );
 
 // 3. User accepts invitation and sets up account
@@ -277,6 +287,7 @@ All templates are located in `src/templates/email-templates.ts` and feature:
 ## Graceful Degradation
 
 When `SENDGRID_API_KEY` is not set:
+
 - Email service initializes successfully
 - Emails are logged to console instead of being sent
 - Development can continue without SendGrid account
@@ -288,23 +299,23 @@ When `SENDGRID_API_KEY` is not set:
 // Check if email service is ready
 const emailService = new EmailService();
 const status = emailService.getStatus();
-console.log('Email service status:', status);
+console.log("Email service status:", status);
 
 if (!emailService.isReady()) {
-  console.warn('SendGrid not configured - emails will be logged only');
+  console.warn("SendGrid not configured - emails will be logged only");
 }
 
 // Test token generation
 const tokenService = new EmailTokenService();
-const testToken = await tokenService.generateEmailToken(1, 'password_reset');
-console.log('Generated token:', testToken.token);
+const testToken = await tokenService.generateEmailToken(1, "password_reset");
+console.log("Generated token:", testToken.token);
 
 // Test token verification
 const verified = await tokenService.verifyEmailToken(
   testToken.token,
-  'password_reset'
+  "password_reset",
 );
-console.log('Token valid:', verified !== null);
+console.log("Token valid:", verified !== null);
 ```
 
 ## Production Setup
@@ -319,18 +330,21 @@ console.log('Token valid:', verified !== null);
 ## Troubleshooting
 
 ### Emails not sending in production:
+
 - Verify `SENDGRID_API_KEY` is set correctly
 - Check SendGrid sender verification status
 - Review SendGrid dashboard for delivery failures
 - Check API rate limits
 
 ### Invalid token errors:
+
 - Check token hasn't expired
 - Verify token type matches
 - Ensure token hasn't been used already
 - Check userId matches the token
 
 ### Email formatting issues:
+
 - Templates are HTML-based and responsive
 - Test with different email clients
 - Use SendGrid's template testing features

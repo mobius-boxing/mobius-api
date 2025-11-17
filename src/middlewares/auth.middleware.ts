@@ -6,11 +6,10 @@ import { UserDAO } from "../dao";
  * JWT Payload interface
  */
 interface IJWTPayload {
-  userId: number;
-  uuid: string;
+  userId: string;
   email: string;
   role: "member" | "admin" | "superAdmin";
-  companyId?: number;
+  companyId?: string;
   iat?: number;
   exp?: number;
 }
@@ -48,7 +47,7 @@ export const authenticate = async (
 
     // Verify user still exists and is active
     const userDAO = new UserDAO();
-    const user = await userDAO.getById(decoded.userId);
+    const user = await userDAO.getByUuid(decoded.userId);
 
     if (!user) {
       res.status(401).json({
@@ -67,9 +66,8 @@ export const authenticate = async (
     }
 
     // Attach user info to request
-    req.user = {
+    (req as any).user = {
       userId: decoded.userId,
-      uuid: decoded.uuid,
       email: decoded.email,
       role: decoded.role,
       companyId: decoded.companyId,
@@ -110,12 +108,11 @@ export const optionalAuth = async (
 
     // Verify user exists and is active
     const userDAO = new UserDAO();
-    const user = await userDAO.getById(decoded.userId);
+    const user = await userDAO.getByUuid(decoded.userId);
 
     if (user && user.isActive) {
-      req.user = {
+      (req as any).user = {
         userId: decoded.userId,
-        uuid: decoded.uuid,
         email: decoded.email,
         role: decoded.role,
         companyId: decoded.companyId,
@@ -133,9 +130,11 @@ export const optionalAuth = async (
  * Require specific roles - Returns 403 if user doesn't have required role
  * @param roles - Array of allowed roles
  */
-export const requireRole = (roles: Array<"member" | "admin" | "superAdmin">) => {
+export const requireRole = (
+  roles: Array<"member" | "admin" | "superAdmin">,
+) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
+    if (!(req as any).user) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -143,10 +142,11 @@ export const requireRole = (roles: Array<"member" | "admin" | "superAdmin">) => 
       return;
     }
 
-    if (!roles.includes(req.user.role)) {
+    if (!roles.includes((req as any).user.role)) {
       res.status(403).json({
         success: false,
-        message: "Insufficient permissions. Required role: " + roles.join(" or "),
+        message:
+          "Insufficient permissions. Required role: " + roles.join(" or "),
       });
       return;
     }
@@ -178,7 +178,7 @@ export const requireSameCompany = (
   res: Response,
   next: NextFunction,
 ): void => {
-  if (!req.user) {
+  if (!(req as any).user) {
     res.status(401).json({
       success: false,
       message: "Authentication required.",
@@ -187,7 +187,7 @@ export const requireSameCompany = (
   }
 
   // SuperAdmins can access any company
-  if (req.user.role === "superAdmin") {
+  if ((req as any).user.role === "superAdmin") {
     next();
     return;
   }
@@ -204,17 +204,12 @@ export const requireSameCompany = (
     return;
   }
 
-  // Convert to number for comparison
-  const companyId =
-    typeof resourceCompanyId === "string"
-      ? parseInt(resourceCompanyId, 10)
-      : resourceCompanyId;
-
-  // Check if user belongs to the same company
-  if (req.user.companyId !== companyId) {
+  // Check if user belongs to the same company (both are UUIDs as strings)
+  if ((req as any).user.companyId !== resourceCompanyId) {
     res.status(403).json({
       success: false,
-      message: "Access denied. You can only access resources from your own company.",
+      message:
+        "Access denied. You can only access resources from your own company.",
     });
     return;
   }
@@ -224,15 +219,14 @@ export const requireSameCompany = (
 
 /**
  * Generate JWT token for user
- * @param user - User object with id, uuid, email, role, and companyId
+ * @param user - User object with id, email, role, and companyId
  * @returns JWT token string
  */
 export const generateToken = (user: {
-  id?: number;
-  uuid?: string;
+  id?: string;
   email: string;
   role: "member" | "admin" | "superAdmin";
-  companyId?: number;
+  companyId?: string;
 }): string => {
   const jwtSecret = process.env.JWT_SECRET;
   const jwtExpire = process.env.JWT_EXPIRE || "5h";
@@ -243,11 +237,12 @@ export const generateToken = (user: {
 
   const payload: IJWTPayload = {
     userId: user.id!,
-    uuid: user.uuid!,
     email: user.email,
     role: user.role,
     companyId: user.companyId,
   };
 
-  return jwt.sign(payload, jwtSecret, { expiresIn: jwtExpire });
+  return jwt.sign(payload, jwtSecret, {
+    expiresIn: jwtExpire as string,
+  } as jwt.SignOptions);
 };

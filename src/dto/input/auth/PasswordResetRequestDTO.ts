@@ -1,11 +1,11 @@
 export class PasswordResetRequestDTO {
-    email: string;
+  email: string;
 
-    constructor(data: any) {
-        this.email = data.email;
-    }
+  constructor(data: any) {
+    this.email = data.email;
+  }
 
-    public build(): this {
-        return this;
-    }
+  public build(): this {
+    return this;
+  }
 }

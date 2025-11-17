@@ -13,9 +13,8 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     const [category] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
-        customer_category_uuid: item.customerCategoryUuid,
         name: item.name,
-        company_id: item.companyId,
+        companyId: item.companyId,
       })
       .returning("*");
 
@@ -35,24 +34,53 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   /**
    * Get customer category by UUID
    */
-  async getByUuid(uuid: string): Promise<ICustomerCategory | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ICustomerCategory | null> {
     const knex = KnexManager.getConnection();
-    const category = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+
+    // Filter by company UUID if provided
+    if (companyUuid) {
+      query
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
+    const category = await query.select(`${this.tableName}.*`).first();
 
     return category ? this.mapToInterface(category) : null;
   }
 
   /**
+   * Get customer category numeric ID by UUID string
+   * Used for converting UUID foreign keys to database IDs
+   */
+  async getIdByUuid(uuid: string): Promise<number | null> {
+    const knex = KnexManager.getConnection();
+    const category = await knex(this.tableName)
+      .where("uuid", uuid)
+      .select("id")
+      .first();
+
+    return category ? category.id : null;
+  }
+
+  /**
    * Update customer category by ID
    */
-  async update(id: number, item: Partial<ICustomerCategory>): Promise<ICustomerCategory | null> {
+  async update(
+    id: number,
+    item: Partial<ICustomerCategory>,
+  ): Promise<ICustomerCategory | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
 
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.companyId !== undefined) updateData.company_id = item.companyId;
+    if (item.companyId !== undefined) updateData.companyId = item.companyId;
 
-    updateData.updated_at = knex.fn.now();
+    updateData.updatedAt = knex.fn.now();
 
     const [category] = await knex(this.tableName)
       .where("id", id)
@@ -75,17 +103,34 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   /**
    * Get all customer categories with pagination
    */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<ICustomerCategory>> {
+  async getAll(
+    page: number,
+    limit: number,
+    companyUuid?: string,
+  ): Promise<IDataPaginator<ICustomerCategory>> {
     const knex = KnexManager.getConnection();
     const offset = (page - 1) * limit;
 
+    const query = knex(this.tableName);
+    const countQuery = knex(this.tableName);
+
+    // Filter by company UUID if provided
+    if (companyUuid) {
+      query
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     const [categories, totalResult] = await Promise.all([
-      knex(this.tableName)
-        .select("*")
-        .orderBy("name", "asc")
+      query
+        .select(`${this.tableName}.*`)
+        .orderBy(`${this.tableName}.name`, "asc")
         .limit(limit)
         .offset(offset),
-      knex(this.tableName).count("* as count").first(),
+      countQuery.count("* as count").first(),
     ]);
 
     const totalCount = parseInt(totalResult?.count as string) || 0;
@@ -108,11 +153,10 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     return {
       id: record.id,
       uuid: record.uuid,
-      customerCategoryUuid: record.customer_category_uuid ?? record.customerCategoryUuid,
       name: record.name,
-      companyId: record.company_id ?? record.companyId,
-      createdAt: record.created_at ?? record.createdAt,
-      updatedAt: record.updated_at ?? record.updatedAt,
+      companyId: record.companyId,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     };
   }
 }

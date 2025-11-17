@@ -1,61 +1,73 @@
 # Middleware Quick Reference Card
 
 ## Import
+
 ```typescript
 import {
   // Auth
-  authenticate, optionalAuth, requireRole, requireSuperAdmin,
-  requireAdmin, requireSameCompany, generateToken,
+  authenticate,
+  optionalAuth,
+  requireRole,
+  requireSuperAdmin,
+  requireAdmin,
+  requireSameCompany,
+  generateToken,
   // Validation
-  validateDTO, validate, validateUUID, validatePagination,
+  validateDTO,
+  validate,
+  validateUUID,
+  validatePagination,
   validateRequiredFields,
   // Rate Limiting
-  createRateLimiter, authRateLimiter, apiRateLimiter,
-  publicRateLimiter, sensitiveRateLimiter,
+  createRateLimiter,
+  authRateLimiter,
+  apiRateLimiter,
+  publicRateLimiter,
+  sensitiveRateLimiter,
   // Error
-  errorMiddleware
-} from '../middlewares';
+  errorMiddleware,
+} from "../middlewares";
 ```
 
 ---
 
 ## Authentication
 
-| Middleware | Purpose | Usage |
-|------------|---------|-------|
-| `authenticate` | JWT required | `router.get('/profile', authenticate, ...)` |
-| `optionalAuth` | JWT optional | `router.get('/public', optionalAuth, ...)` |
-| `requireSuperAdmin()` | SuperAdmin only | `router.post('/admin', authenticate, requireSuperAdmin(), ...)` |
-| `requireAdmin()` | Admin+ only | `router.delete('/:id', authenticate, requireAdmin(), ...)` |
-| `requireRole([roles])` | Custom roles | `router.put('/:id', authenticate, requireRole(['admin', 'superAdmin']), ...)` |
-| `requireSameCompany` | Same company | `router.get('/:companyId/data', authenticate, requireSameCompany, ...)` |
-| `generateToken(user)` | Create JWT | `const token = generateToken({ id, uuid, email, role, companyId })` |
+| Middleware             | Purpose         | Usage                                                                         |
+| ---------------------- | --------------- | ----------------------------------------------------------------------------- |
+| `authenticate`         | JWT required    | `router.get('/profile', authenticate, ...)`                                   |
+| `optionalAuth`         | JWT optional    | `router.get('/public', optionalAuth, ...)`                                    |
+| `requireSuperAdmin()`  | SuperAdmin only | `router.post('/admin', authenticate, requireSuperAdmin(), ...)`               |
+| `requireAdmin()`       | Admin+ only     | `router.delete('/:id', authenticate, requireAdmin(), ...)`                    |
+| `requireRole([roles])` | Custom roles    | `router.put('/:id', authenticate, requireRole(['admin', 'superAdmin']), ...)` |
+| `requireSameCompany`   | Same company    | `router.get('/:companyId/data', authenticate, requireSameCompany, ...)`       |
+| `generateToken(user)`  | Create JWT      | `const token = generateToken({ id, uuid, email, role, companyId })`           |
 
 ---
 
 ## Validation
 
-| Middleware | Purpose | Usage |
-|------------|---------|-------|
-| `validateDTO(DTO)` | Class-validator DTO | `router.post('/', validateDTO(CreateDTO), ...)` |
-| `validateDTO(DTO, 'query')` | Validate query params | `router.get('/', validateDTO(SearchDTO, 'query'), ...)` |
-| `validateUUID()` | UUID in :uuid param | `router.get('/:uuid', validateUUID(), ...)` |
-| `validateUUID('id')` | UUID in :id param | `router.get('/:id', validateUUID('id'), ...)` |
-| `validatePagination` | page/limit params | `router.get('/', validatePagination, ...)` |
-| `validateRequiredFields([])` | Required body fields | `router.post('/login', validateRequiredFields(['email', 'password']), ...)` |
-| `validate(fn)` | Custom validation | `router.post('/', validate((req) => { ... }), ...)` |
+| Middleware                   | Purpose               | Usage                                                                       |
+| ---------------------------- | --------------------- | --------------------------------------------------------------------------- |
+| `validateDTO(DTO)`           | Class-validator DTO   | `router.post('/', validateDTO(CreateDTO), ...)`                             |
+| `validateDTO(DTO, 'query')`  | Validate query params | `router.get('/', validateDTO(SearchDTO, 'query'), ...)`                     |
+| `validateUUID()`             | UUID in :uuid param   | `router.get('/:uuid', validateUUID(), ...)`                                 |
+| `validateUUID('id')`         | UUID in :id param     | `router.get('/:id', validateUUID('id'), ...)`                               |
+| `validatePagination`         | page/limit params     | `router.get('/', validatePagination, ...)`                                  |
+| `validateRequiredFields([])` | Required body fields  | `router.post('/login', validateRequiredFields(['email', 'password']), ...)` |
+| `validate(fn)`               | Custom validation     | `router.post('/', validate((req) => { ... }), ...)`                         |
 
 ---
 
 ## Rate Limiting
 
-| Middleware | Limit | Window | Usage |
-|------------|-------|--------|-------|
-| `authRateLimiter` | 5 req | 1 min | `router.post('/login', authRateLimiter, ...)` |
-| `apiRateLimiter` | 100 req | 15 min | `router.use(apiRateLimiter)` |
-| `publicRateLimiter` | 200 req | 15 min | `router.get('/public', publicRateLimiter, ...)` |
-| `sensitiveRateLimiter` | 3 req | 5 min | `router.delete('/account', sensitiveRateLimiter, ...)` |
-| `createRateLimiter(max, min)` | Custom | Custom | `createRateLimiter(50, 10)` |
+| Middleware                    | Limit   | Window | Usage                                                  |
+| ----------------------------- | ------- | ------ | ------------------------------------------------------ |
+| `authRateLimiter`             | 5 req   | 1 min  | `router.post('/login', authRateLimiter, ...)`          |
+| `apiRateLimiter`              | 100 req | 15 min | `router.use(apiRateLimiter)`                           |
+| `publicRateLimiter`           | 200 req | 15 min | `router.get('/public', publicRateLimiter, ...)`        |
+| `sensitiveRateLimiter`        | 3 req   | 5 min  | `router.delete('/account', sensitiveRateLimiter, ...)` |
+| `createRateLimiter(max, min)` | Custom  | Custom | `createRateLimiter(50, 10)`                            |
 
 ---
 
@@ -78,63 +90,75 @@ req.user = {
 ## Common Patterns
 
 ### Public Registration
+
 ```typescript
-router.post('/register',
+router.post(
+  "/register",
   authRateLimiter,
   validateDTO(RegisterDTO),
-  controller.register
+  controller.register,
 );
 ```
 
 ### Protected Get All
+
 ```typescript
-router.get('/',
+router.get(
+  "/",
   authenticate,
   requireAdmin(),
   validatePagination,
   apiRateLimiter,
-  controller.getAll
+  controller.getAll,
 );
 ```
 
 ### Protected Get One
+
 ```typescript
-router.get('/:uuid',
+router.get(
+  "/:uuid",
   authenticate,
   validateUUID(),
   requireSameCompany,
-  controller.getByUuid
+  controller.getByUuid,
 );
 ```
 
 ### Protected Create
+
 ```typescript
-router.post('/',
+router.post(
+  "/",
   authenticate,
   validateDTO(CreateDTO),
   apiRateLimiter,
-  controller.create
+  controller.create,
 );
 ```
 
 ### Protected Update
+
 ```typescript
-router.put('/:uuid',
+router.put(
+  "/:uuid",
   authenticate,
   validateUUID(),
   validateDTO(UpdateDTO),
   requireSameCompany,
-  controller.update
+  controller.update,
 );
 ```
 
 ### Protected Delete
+
 ```typescript
-router.delete('/:uuid',
+router.delete(
+  "/:uuid",
   authenticate,
   requireAdmin(),
   validateUUID(),
-  controller.delete
+  controller.delete,
 );
 ```
 
@@ -142,15 +166,15 @@ router.delete('/:uuid',
 
 ## Error Codes (Automatic)
 
-| Error Type | Code | Status | Message |
-|------------|------|--------|---------|
-| Token expired | `TOKEN_EXPIRED` | 401 | "Token has expired. Please login again." |
-| Invalid token | `INVALID_TOKEN` | 401 | "Invalid token. Please login again." |
-| Unique violation | `DUPLICATE_ENTRY` | 409 | "email already exists. Please use a different value." |
-| Foreign key | `FOREIGN_KEY_VIOLATION` | 400 | "Referenced record does not exist..." |
-| Not null | `NOT_NULL_VIOLATION` | 400 | "field is required and cannot be null." |
-| Validation | `VALIDATION_ERROR` | 400 | "Validation failed" |
-| Rate limit | - | 429 | "Too many requests. Please try again after X seconds." |
+| Error Type       | Code                    | Status | Message                                                |
+| ---------------- | ----------------------- | ------ | ------------------------------------------------------ |
+| Token expired    | `TOKEN_EXPIRED`         | 401    | "Token has expired. Please login again."               |
+| Invalid token    | `INVALID_TOKEN`         | 401    | "Invalid token. Please login again."                   |
+| Unique violation | `DUPLICATE_ENTRY`       | 409    | "email already exists. Please use a different value."  |
+| Foreign key      | `FOREIGN_KEY_VIOLATION` | 400    | "Referenced record does not exist..."                  |
+| Not null         | `NOT_NULL_VIOLATION`    | 400    | "field is required and cannot be null."                |
+| Validation       | `VALIDATION_ERROR`      | 400    | "Validation failed"                                    |
+| Rate limit       | -                       | 429    | "Too many requests. Please try again after X seconds." |
 
 ---
 
@@ -182,8 +206,8 @@ router.METHOD('/path',
 ## Generate Token Example
 
 ```typescript
-import { generateToken } from '../middlewares';
-import bcrypt from 'bcryptjs';
+import { generateToken } from "../middlewares";
+import bcrypt from "bcryptjs";
 
 const user = await userDAO.getUserByEmail(email);
 const isValid = await bcrypt.compare(password, user.password);
@@ -194,7 +218,7 @@ if (isValid) {
     uuid: user.uuid,
     email: user.email,
     role: user.role,
-    companyId: user.companyId
+    companyId: user.companyId,
   });
 
   res.json({ success: true, token });
@@ -206,7 +230,7 @@ if (isValid) {
 ## DTO Example with class-validator
 
 ```typescript
-import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional } from "class-validator";
 
 export class CreateUserDTO {
   @IsEmail()
@@ -228,7 +252,7 @@ export class CreateUserDTO {
 }
 
 // Usage
-router.post('/users', validateDTO(CreateUserDTO), controller.create);
+router.post("/users", validateDTO(CreateUserDTO), controller.create);
 ```
 
 ---
@@ -243,5 +267,6 @@ npm install --save-dev @types/jsonwebtoken @types/bcryptjs
 ---
 
 For detailed documentation, see:
+
 - `README.md` - Complete documentation
 - `EXAMPLES.md` - Code examples and best practices

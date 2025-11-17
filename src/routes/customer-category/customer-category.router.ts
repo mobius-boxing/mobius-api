@@ -25,8 +25,8 @@ export class CustomerCategoryRouter {
       validatePagination,
       apiRateLimiter,
       this.customerCategoryController.getAll.bind(
-        this.customerCategoryController
-      )
+        this.customerCategoryController,
+      ),
     );
     this.router.get(
       "/:uuid",
@@ -34,8 +34,8 @@ export class CustomerCategoryRouter {
       validateUUID(),
       apiRateLimiter,
       this.customerCategoryController.getByUuid.bind(
-        this.customerCategoryController
-      )
+        this.customerCategoryController,
+      ),
     );
     this.router.post(
       "/",
@@ -43,8 +43,8 @@ export class CustomerCategoryRouter {
       requireAdmin(),
       apiRateLimiter,
       this.customerCategoryController.create.bind(
-        this.customerCategoryController
-      )
+        this.customerCategoryController,
+      ),
     );
     this.router.put(
       "/:uuid",
@@ -53,8 +53,8 @@ export class CustomerCategoryRouter {
       validateUUID(),
       apiRateLimiter,
       this.customerCategoryController.update.bind(
-        this.customerCategoryController
-      )
+        this.customerCategoryController,
+      ),
     );
     this.router.delete(
       "/:uuid",
@@ -63,8 +63,8 @@ export class CustomerCategoryRouter {
       validateUUID(),
       sensitiveRateLimiter,
       this.customerCategoryController.delete.bind(
-        this.customerCategoryController
-      )
+        this.customerCategoryController,
+      ),
     );
   }
 }

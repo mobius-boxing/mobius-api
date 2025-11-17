@@ -13,13 +13,15 @@ import {
   RegisterInputDTO,
   ChangePasswordDTO,
   PasswordResetRequestDTO,
-  PasswordResetDTO
+  PasswordResetDTO,
 } from "../../dto/input/auth";
+import { EmailService } from "../../services/email.service";
 
 export class AuthController {
   private _userDAO: UserDAO = new UserDAO();
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _emailTokenDAO: EmailTokenDAO = new EmailTokenDAO();
+  private _emailService: EmailService = new EmailService();
 
   /**
    * Register a new user
@@ -27,7 +29,7 @@ export class AuthController {
   public async register(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const data = req.body;
@@ -41,7 +43,9 @@ export class AuthController {
       }
 
       // Validate invitation token
-      const invitation = await this._invitationDAO.getByToken(inputDTO.invitationToken);
+      const invitation = await this._invitationDAO.getByToken(
+        inputDTO.invitationToken,
+      );
       if (!invitation) {
         res.status(400).json({
           success: false,
@@ -83,7 +87,6 @@ export class AuthController {
 
       // Create user
       const userToCreate: IUser = {
-        uuid: uuidv4(),
         email: inputDTO.email,
         password: hashedPassword,
         firstName: inputDTO.firstName,
@@ -122,7 +125,7 @@ export class AuthController {
   public async login(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const data = req.body;
@@ -135,9 +138,11 @@ export class AuthController {
         return next(new Error(validation.message));
       }
 
-      // Find user by email
-      const user = await this._userDAO.getUserByEmail(inputDTO.email);
-      if (!user) {
+      // Find user by email with company information
+      const userWithCompany = await this._userDAO.getUserByEmailWithCompany(
+        inputDTO.email,
+      );
+      if (!userWithCompany) {
         res.status(401).json({
           success: false,
           message: "Invalid credentials",
@@ -146,7 +151,7 @@ export class AuthController {
       }
 
       // Check if user is active
-      if (!user.isActive) {
+      if (!userWithCompany.isActive) {
         res.status(403).json({
           success: false,
           message: "Account is inactive",
@@ -154,8 +159,20 @@ export class AuthController {
         return;
       }
 
-      // Verify password
-      const isPasswordValid = await bcrypt.compare(inputDTO.password, user.password);
+      // Verify password (need to get full user with password for validation)
+      const userFull = await this._userDAO.getUserByEmail(inputDTO.email);
+      if (!userFull) {
+        res.status(401).json({
+          success: false,
+          message: "Invalid credentials",
+        });
+        return;
+      }
+
+      const isPasswordValid = await bcrypt.compare(
+        inputDTO.password,
+        userFull.password,
+      );
       if (!isPasswordValid) {
         res.status(401).json({
           success: false,
@@ -165,25 +182,30 @@ export class AuthController {
       }
 
       // Generate JWT token
+      const jwtSecret = process.env.JWT_SECRET || "";
+      const jwtExpire = process.env.JWT_EXPIRE || "24h";
       const token = jwt.sign(
         {
-          userId: user.id,
-          uuid: user.uuid,
-          email: user.email,
-          role: user.role,
-          companyId: user.companyId,
+          userId: userWithCompany.uuid,
+          email: userWithCompany.email,
+          role: userWithCompany.role,
+          companyId: userWithCompany.company?.uuid,
         },
-        process.env.JWT_SECRET as string,
-        { expiresIn: process.env.JWT_EXPIRE || "24h" }
+        jwtSecret,
+        { expiresIn: jwtExpire as string } as jwt.SignOptions,
       );
 
-      // Remove password from response
-      const { password: _, ...userWithoutPassword } = user;
+      // Prepare user response with companyName
+      const { company, ...userWithoutCompany } = userWithCompany;
+      const userResponse = {
+        ...userWithoutCompany,
+        companyName: company?.name || undefined,
+      };
 
       res.status(200).json({
         success: true,
         data: {
-          user: userWithoutPassword,
+          user: userResponse,
           token,
         },
       });
@@ -198,7 +220,7 @@ export class AuthController {
   public async getProfile(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       // Assuming user is attached to request by auth middleware
@@ -212,7 +234,7 @@ export class AuthController {
         return;
       }
 
-      const user = await this._userDAO.getById(userId);
+      const user = await this._userDAO.getByUuid(userId);
       if (!user) {
         res.status(404).json({
           success: false,
@@ -239,7 +261,7 @@ export class AuthController {
   public async changePassword(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const userId = (req as any).user?.userId;
@@ -262,7 +284,7 @@ export class AuthController {
       }
 
       // Get current user
-      const user = await this._userDAO.getById(userId);
+      const user = await this._userDAO.getByUuid(userId);
       if (!user) {
         res.status(404).json({
           success: false,
@@ -274,7 +296,7 @@ export class AuthController {
       // Verify current password
       const isPasswordValid = await bcrypt.compare(
         inputDTO.currentPassword,
-        user.password
+        user.password,
       );
       if (!isPasswordValid) {
         res.status(401).json({
@@ -300,12 +322,135 @@ export class AuthController {
   }
 
   /**
+   * Accept invitation and create user with auto-login
+   */
+  public async acceptInvitation(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { token } = req.params;
+      const { firstName, lastName, password } = req.body;
+
+      // Validate required fields
+      if (!firstName || !lastName || !password) {
+        res.status(400).json({
+          success: false,
+          message: "First name, last name, and password are required",
+        });
+        return;
+      }
+
+      // Validate invitation token
+      const invitation = await this._invitationDAO.getByToken(token);
+      if (!invitation) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid invitation token",
+        });
+        return;
+      }
+
+      // Check if invitation is expired
+      if (new Date(invitation.expiresAt) < new Date()) {
+        res.status(400).json({
+          success: false,
+          message: "Invitation has expired",
+        });
+        return;
+      }
+
+      // Check if invitation is already used
+      if (invitation.isUsed) {
+        res.status(400).json({
+          success: false,
+          message: "Invitation has already been used",
+        });
+        return;
+      }
+
+      // Check if user already exists
+      const existingUser = await this._userDAO.getUserByEmail(invitation.email);
+      if (existingUser) {
+        res.status(400).json({
+          success: false,
+          message: "User with this email already exists",
+        });
+        return;
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Create user
+      const userToCreate: IUser = {
+        uuid: uuidv4(),
+        email: invitation.email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        role: invitation.role,
+        companyId: invitation.companyId,
+        isActive: true,
+        emailVerified: false,
+      };
+
+      const user = await this._userDAO.create(userToCreate);
+
+      // Mark invitation as used
+      if (invitation.id) {
+        await this._invitationDAO.update(invitation.id, {
+          isUsed: true,
+          acceptedAt: new Date(),
+        });
+      }
+
+      // Get user with company information for token
+      const userWithCompany = await this._userDAO.getUserByEmailWithCompany(
+        invitation.email,
+      );
+
+      // Generate JWT token for auto-login
+      const jwtSecret = process.env.JWT_SECRET || "";
+      const jwtExpire = process.env.JWT_EXPIRE || "24h";
+      const authToken = jwt.sign(
+        {
+          userId: userWithCompany?.uuid || user.uuid,
+          email: user.email,
+          role: user.role,
+          companyId: userWithCompany?.company?.uuid,
+        },
+        jwtSecret,
+        { expiresIn: jwtExpire as string } as jwt.SignOptions,
+      );
+
+      // Prepare user response with company info
+      const { password: _, ...userWithoutPassword } = user;
+      const userResponse = {
+        ...userWithoutPassword,
+        companyName: userWithCompany?.company?.name,
+      };
+
+      res.status(200).json({
+        success: true,
+        data: {
+          user: userResponse,
+          token: authToken,
+        },
+      });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
    * Request password reset
    */
   public async requestPasswordReset(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const data = req.body;
@@ -340,14 +485,22 @@ export class AuthController {
         uuid: uuidv4(),
         userId: user.id,
         token: token,
-        type: 'password_reset',
+        type: "password_reset",
         expiresAt: expiresAt,
         isUsed: false,
       });
 
-      // TODO: Send email with reset link
-      // In production, you would send an email here with the token
-      // Example: await emailService.sendPasswordResetEmail(user.email, token);
+      // Send password reset email
+      try {
+        await this._emailService.sendPasswordResetEmail(
+          user.email,
+          token,
+          user.firstName,
+        );
+      } catch (emailError) {
+        console.error("Error sending password reset email:", emailError);
+        // Don't fail the request if email fails - token is still created
+      }
 
       res.status(200).json({
         success: true,
@@ -364,7 +517,7 @@ export class AuthController {
   public async resetPassword(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const data = req.body;
@@ -406,7 +559,7 @@ export class AuthController {
       }
 
       // Check if token is for password reset
-      if (emailToken.type !== 'password_reset') {
+      if (emailToken.type !== "password_reset") {
         res.status(400).json({
           success: false,
           message: "Invalid token type",

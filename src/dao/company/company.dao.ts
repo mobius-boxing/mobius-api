@@ -12,7 +12,6 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
     const knex = KnexManager.getConnection();
     const [company] = await knex(this.tableName)
       .insert({
-        uuid: item.uuid,
         name: item.name,
         description: item.description,
         isActive: item.isActive ?? true,
@@ -23,7 +22,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   /**
-   * Get company by ID
+   * Get company by numeric ID
    */
   async getById(id: number): Promise<ICompany | null> {
     const knex = KnexManager.getConnection();
@@ -33,7 +32,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   /**
-   * Get company by UUID
+   * Get company by UUID string
    */
   async getByUuid(uuid: string): Promise<ICompany | null> {
     const knex = KnexManager.getConnection();
@@ -43,17 +42,32 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   /**
-   * Update company by ID
+   * Get company numeric ID by UUID string
+   * Used for converting JWT token's company UUID to database ID
+   */
+  async getIdByUuid(uuid: string): Promise<number | null> {
+    const knex = KnexManager.getConnection();
+    const company = await knex(this.tableName)
+      .where("uuid", uuid)
+      .select("id")
+      .first();
+
+    return company ? company.id : null;
+  }
+
+  /**
+   * Update company by numeric ID
    */
   async update(id: number, item: Partial<ICompany>): Promise<ICompany | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
 
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
     if (item.isActive !== undefined) updateData.isActive = item.isActive;
 
-    updateData.updated_at = knex.fn.now();
+    updateData.updatedAt = knex.fn.now();
 
     const [company] = await knex(this.tableName)
       .where("id", id)
@@ -64,7 +78,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   /**
-   * Delete company by ID
+   * Delete company by numeric ID
    */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
@@ -83,7 +97,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
     const [companies, totalResult] = await Promise.all([
       knex(this.tableName)
         .select("*")
-        .orderBy("created_at", "desc")
+        .orderBy("createdAt", "desc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),
@@ -109,11 +123,8 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
     const knex = KnexManager.getConnection();
 
     const company = await knex(this.tableName)
-      .select(
-        "companies.*",
-        knex.raw("COUNT(users.id)::int as user_count")
-      )
-      .leftJoin("users", "companies.id", "users.company_id")
+      .select("companies.*", knex.raw("COUNT(users.id)::int as user_count"))
+      .leftJoin("users", "companies.id", "users.companyId")
       .where("companies.uuid", uuid)
       .groupBy("companies.id")
       .first();
@@ -136,8 +147,8 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
       name: record.name,
       description: record.description,
       isActive: record.isActive,
-      createdAt: record.created_at ?? record.createdAt,
-      updatedAt: record.updated_at ?? record.updatedAt,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     };
   }
 }

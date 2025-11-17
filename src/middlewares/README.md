@@ -18,100 +18,119 @@ Location: `src/middlewares/auth.middleware.ts`
 ### Functions
 
 #### `authenticate()`
+
 Verifies JWT token from Authorization header and attaches user to `req.user`.
 
 **Usage:**
-```typescript
-import { authenticate } from '../middlewares';
 
-router.get('/profile', authenticate, controller.getProfile);
+```typescript
+import { authenticate } from "../middlewares";
+
+router.get("/profile", authenticate, controller.getProfile);
 ```
 
 **Response on failure:**
+
 - Status: 401
 - Body: `{ success: false, message: "Authentication required. No token provided." }`
 
 ---
 
 #### `optionalAuth()`
+
 Non-blocking authentication. Sets `req.user` if token is present but continues if missing.
 
 **Usage:**
-```typescript
-import { optionalAuth } from '../middlewares';
 
-router.get('/products', optionalAuth, controller.getProducts);
+```typescript
+import { optionalAuth } from "../middlewares";
+
+router.get("/products", optionalAuth, controller.getProducts);
 ```
 
 ---
 
 #### `requireRole(['admin', 'superAdmin'])`
+
 Role-based access control. Ensures authenticated user has one of the specified roles.
 
 **Usage:**
-```typescript
-import { authenticate, requireRole } from '../middlewares';
 
-router.delete('/users/:uuid',
+```typescript
+import { authenticate, requireRole } from "../middlewares";
+
+router.delete(
+  "/users/:uuid",
   authenticate,
-  requireRole(['admin', 'superAdmin']),
-  controller.deleteUser
+  requireRole(["admin", "superAdmin"]),
+  controller.deleteUser,
 );
 ```
 
 **Response on failure:**
+
 - Status: 403
 - Body: `{ success: false, message: "Insufficient permissions. Required role: admin or superAdmin" }`
 
 ---
 
 #### `requireSuperAdmin()`
+
 Shorthand for requiring SuperAdmin role only.
 
 **Usage:**
-```typescript
-import { authenticate, requireSuperAdmin } from '../middlewares';
 
-router.post('/companies',
+```typescript
+import { authenticate, requireSuperAdmin } from "../middlewares";
+
+router.post(
+  "/companies",
   authenticate,
   requireSuperAdmin(),
-  controller.createCompany
+  controller.createCompany,
 );
 ```
 
 ---
 
 #### `requireAdmin()`
+
 Shorthand for requiring Admin or SuperAdmin role.
 
 **Usage:**
-```typescript
-import { authenticate, requireAdmin } from '../middlewares';
 
-router.put('/settings',
+```typescript
+import { authenticate, requireAdmin } from "../middlewares";
+
+router.put(
+  "/settings",
   authenticate,
   requireAdmin(),
-  controller.updateSettings
+  controller.updateSettings,
 );
 ```
 
 ---
 
 #### `requireSameCompany()`
+
 Ensures user belongs to the same company as the resource. SuperAdmins can access any company.
 
 **Usage:**
-```typescript
-import { authenticate, requireSameCompany } from '../middlewares';
 
-router.get('/company/:companyId/customers',
+```typescript
+import { authenticate, requireSameCompany } from "../middlewares";
+
+router.get(
+  "/company/:companyId/customers",
   authenticate,
   requireSameCompany,
-  controller.getCustomers
+  controller.getCustomers,
 );
 ```
 
 **Notes:**
+
 - Looks for company ID in `req.params.companyId`, `req.body.companyId`, or `req.query.companyId`
 - SuperAdmins bypass this check
 - Returns 403 if user's company doesn't match resource company
@@ -119,24 +138,27 @@ router.get('/company/:companyId/customers',
 ---
 
 #### `generateToken(user)`
+
 Utility function to generate JWT tokens.
 
 **Usage:**
+
 ```typescript
-import { generateToken } from '../middlewares';
+import { generateToken } from "../middlewares";
 
 const token = generateToken({
   id: user.id,
   uuid: user.uuid,
   email: user.email,
   role: user.role,
-  companyId: user.companyId
+  companyId: user.companyId,
 });
 
 res.json({ success: true, token });
 ```
 
 **Environment Variables Required:**
+
 - `JWT_SECRET` - Secret key for signing tokens
 - `JWT_EXPIRE` - Token expiration time (default: "5h")
 
@@ -149,16 +171,19 @@ Location: `src/middlewares/validation.middleware.ts`
 ### Functions
 
 #### `validateDTO(DTOClass, source?)`
+
 Generic DTO validation using class-validator decorators.
 
 **Parameters:**
+
 - `DTOClass` - The DTO class to validate against
 - `source` - Where to get data from: `'body'` (default), `'query'`, or `'params'`
 
 **Usage with DTO:**
+
 ```typescript
 // Create DTO with class-validator decorators
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, MinLength } from "class-validator";
 
 export class CreateUserDTO {
   @IsEmail()
@@ -176,16 +201,14 @@ export class CreateUserDTO {
 }
 
 // Use in router
-import { validateDTO } from '../middlewares';
-import { CreateUserDTO } from '../dto/create-user.dto';
+import { validateDTO } from "../middlewares";
+import { CreateUserDTO } from "../dto/create-user.dto";
 
-router.post('/users',
-  validateDTO(CreateUserDTO),
-  controller.createUser
-);
+router.post("/users", validateDTO(CreateUserDTO), controller.createUser);
 ```
 
 **Response on validation failure:**
+
 ```json
 {
   "success": false,
@@ -206,62 +229,77 @@ router.post('/users',
 ---
 
 #### `validate(validationFn)`
+
 Simple validation without DTO classes.
 
 **Usage:**
-```typescript
-import { validate } from '../middlewares';
 
-router.get('/:id',
+```typescript
+import { validate } from "../middlewares";
+
+router.get(
+  "/:id",
   validate((req) => {
-    if (!req.params.id) throw new Error('ID is required');
-    if (isNaN(Number(req.params.id))) throw new Error('ID must be a number');
+    if (!req.params.id) throw new Error("ID is required");
+    if (isNaN(Number(req.params.id))) throw new Error("ID must be a number");
   }),
-  controller.getById
+  controller.getById,
 );
 ```
 
 ---
 
 #### `validateUUID(paramName?)`
+
 Validates UUID v4 format in route parameters.
 
 **Usage:**
-```typescript
-import { validateUUID } from '../middlewares';
 
-router.get('/users/:uuid', validateUUID(), controller.getByUuid);
-router.get('/companies/:companyUuid', validateUUID('companyUuid'), controller.getCompany);
+```typescript
+import { validateUUID } from "../middlewares";
+
+router.get("/users/:uuid", validateUUID(), controller.getByUuid);
+router.get(
+  "/companies/:companyUuid",
+  validateUUID("companyUuid"),
+  controller.getCompany,
+);
 ```
 
 ---
 
 #### `validatePagination()`
+
 Validates pagination query parameters (`page` and `limit`).
 
 **Usage:**
-```typescript
-import { validatePagination } from '../middlewares';
 
-router.get('/users', validatePagination, controller.getAll);
+```typescript
+import { validatePagination } from "../middlewares";
+
+router.get("/users", validatePagination, controller.getAll);
 ```
 
 **Rules:**
+
 - `page` must be a positive integer (≥ 1)
 - `limit` must be a positive integer between 1 and 100
 
 ---
 
 #### `validateRequiredFields(fields)`
+
 Validates that specific fields exist in request body.
 
 **Usage:**
-```typescript
-import { validateRequiredFields } from '../middlewares';
 
-router.post('/login',
-  validateRequiredFields(['email', 'password']),
-  controller.login
+```typescript
+import { validateRequiredFields } from "../middlewares";
+
+router.post(
+  "/login",
+  validateRequiredFields(["email", "password"]),
+  controller.login,
 );
 ```
 
@@ -274,37 +312,40 @@ Location: `src/middlewares/rate-limit.middleware.ts`
 ### Functions
 
 #### `createRateLimiter(max, windowMinutes, message?)`
+
 Create custom rate limiter.
 
 **Parameters:**
+
 - `max` - Maximum requests allowed in the window
 - `windowMinutes` - Time window in minutes
 - `message` - Optional custom error message
 
 **Usage:**
+
 ```typescript
-import { createRateLimiter } from '../middlewares';
+import { createRateLimiter } from "../middlewares";
 
 // Allow 100 requests per 15 minutes
-router.post('/api/data',
-  createRateLimiter(100, 15),
-  controller.getData
-);
+router.post("/api/data", createRateLimiter(100, 15), controller.getData);
 
 // Allow 5 requests per minute with custom message
-router.post('/reset-password',
-  createRateLimiter(5, 1, 'Too many password reset attempts'),
-  controller.resetPassword
+router.post(
+  "/reset-password",
+  createRateLimiter(5, 1, "Too many password reset attempts"),
+  controller.resetPassword,
 );
 ```
 
 **Response Headers:**
+
 - `X-RateLimit-Limit` - Maximum requests allowed
 - `X-RateLimit-Remaining` - Remaining requests in current window
 - `X-RateLimit-Reset` - When the rate limit resets (ISO timestamp)
 - `Retry-After` - Seconds until rate limit resets (only when limit exceeded)
 
 **Response on limit exceeded:**
+
 ```json
 {
   "success": false,
@@ -318,47 +359,51 @@ router.post('/reset-password',
 ### Preset Rate Limiters
 
 #### `authRateLimiter`
+
 For authentication endpoints (5 requests/minute)
 
 ```typescript
-import { authRateLimiter } from '../middlewares';
+import { authRateLimiter } from "../middlewares";
 
-router.post('/login', authRateLimiter, controller.login);
-router.post('/register', authRateLimiter, controller.register);
+router.post("/login", authRateLimiter, controller.login);
+router.post("/register", authRateLimiter, controller.register);
 ```
 
 ---
 
 #### `apiRateLimiter`
+
 Standard API endpoints (100 requests/15 minutes)
 
 ```typescript
-import { apiRateLimiter } from '../middlewares';
+import { apiRateLimiter } from "../middlewares";
 
-router.use('/api', apiRateLimiter);
+router.use("/api", apiRateLimiter);
 ```
 
 ---
 
 #### `publicRateLimiter`
+
 Public endpoints (200 requests/15 minutes)
 
 ```typescript
-import { publicRateLimiter } from '../middlewares';
+import { publicRateLimiter } from "../middlewares";
 
-router.get('/public/status', publicRateLimiter, controller.getStatus);
+router.get("/public/status", publicRateLimiter, controller.getStatus);
 ```
 
 ---
 
 #### `sensitiveRateLimiter`
+
 Sensitive operations (3 requests/5 minutes)
 
 ```typescript
-import { sensitiveRateLimiter } from '../middlewares';
+import { sensitiveRateLimiter } from "../middlewares";
 
-router.delete('/account', sensitiveRateLimiter, controller.deleteAccount);
-router.post('/export-data', sensitiveRateLimiter, controller.exportData);
+router.delete("/account", sensitiveRateLimiter, controller.deleteAccount);
+router.post("/export-data", sensitiveRateLimiter, controller.exportData);
 ```
 
 ---
@@ -366,22 +411,24 @@ router.post('/export-data', sensitiveRateLimiter, controller.exportData);
 ### Utility Functions
 
 #### `clearRateLimit(identifier)`
+
 Clear rate limit for specific identifier.
 
 ```typescript
-import { clearRateLimit } from '../middlewares';
+import { clearRateLimit } from "../middlewares";
 
-clearRateLimit('user:123');
-clearRateLimit('ip:192.168.1.1');
+clearRateLimit("user:123");
+clearRateLimit("ip:192.168.1.1");
 ```
 
 ---
 
 #### `clearAllRateLimits()`
+
 Clear all rate limits (useful for testing).
 
 ```typescript
-import { clearAllRateLimits } from '../middlewares';
+import { clearAllRateLimits } from "../middlewares";
 
 clearAllRateLimits();
 ```
@@ -389,12 +436,13 @@ clearAllRateLimits();
 ---
 
 #### `getRateLimitStatus(identifier)`
+
 Get current rate limit status.
 
 ```typescript
-import { getRateLimitStatus } from '../middlewares';
+import { getRateLimitStatus } from "../middlewares";
 
-const status = getRateLimitStatus('user:123');
+const status = getRateLimitStatus("user:123");
 // Returns: { count: 5, resetTime: 1234567890 } or null
 ```
 
@@ -409,11 +457,13 @@ Location: `src/middlewares/error/error.middleware.ts`
 The error middleware automatically handles:
 
 #### JWT Errors
+
 - `TokenExpiredError` → 401: "Token has expired. Please login again."
 - `JsonWebTokenError` → 401: "Invalid token. Please login again."
 - `NotBeforeError` → 401: "Token not active yet."
 
 #### Database Errors (PostgreSQL)
+
 - `23505` (Unique Constraint) → 409: "email already exists. Please use a different value."
 - `23503` (Foreign Key) → 400: "Referenced record does not exist..."
 - `23502` (Not Null) → 400: "field is required and cannot be null."
@@ -423,9 +473,11 @@ The error middleware automatically handles:
 - `42703` (Undefined Column) → 500: "Database column not found."
 
 #### Validation Errors
+
 All validation errors return 400 with formatted error details.
 
 #### File Upload Errors (Multer)
+
 - `LIMIT_FILE_SIZE` → 400: "File size exceeds the allowed limit."
 - `LIMIT_FILE_COUNT` → 400: "Too many files uploaded."
 
@@ -450,7 +502,9 @@ In development (`NODE_ENV=development`), error responses include stack traces:
   "success": false,
   "message": "Error message",
   "stack": "Error stack trace...",
-  "details": { /* Full error object */ }
+  "details": {
+    /* Full error object */
+  }
 }
 ```
 
@@ -461,7 +515,7 @@ In development (`NODE_ENV=development`), error responses include stack traces:
 Here's a complete example using all middleware types:
 
 ```typescript
-import { Router } from 'express';
+import { Router } from "express";
 import {
   authenticate,
   requireAdmin,
@@ -471,10 +525,10 @@ import {
   validatePagination,
   apiRateLimiter,
   authRateLimiter,
-} from '../middlewares';
-import { UserController } from '../controllers/user.controller';
-import { CreateUserDTO } from '../dto/create-user.dto';
-import { UpdateUserDTO } from '../dto/update-user.dto';
+} from "../middlewares";
+import { UserController } from "../controllers/user.controller";
+import { CreateUserDTO } from "../dto/create-user.dto";
+import { UpdateUserDTO } from "../dto/update-user.dto";
 
 export class UserRouter {
   private _router: Router;
@@ -488,52 +542,52 @@ export class UserRouter {
   private initRoutes(): void {
     // Public route with rate limiting
     this._router.post(
-      '/register',
+      "/register",
       authRateLimiter,
       validateDTO(CreateUserDTO),
-      this._controller.register.bind(this._controller)
+      this._controller.register.bind(this._controller),
     );
 
     // Protected routes
     this._router.get(
-      '/',
+      "/",
       authenticate,
       requireAdmin(),
       validatePagination,
       apiRateLimiter,
-      this._controller.getAll.bind(this._controller)
+      this._controller.getAll.bind(this._controller),
     );
 
     this._router.get(
-      '/:uuid',
+      "/:uuid",
       authenticate,
       validateUUID(),
-      this._controller.getByUuid.bind(this._controller)
+      this._controller.getByUuid.bind(this._controller),
     );
 
     this._router.post(
-      '/',
+      "/",
       authenticate,
       requireAdmin(),
       validateDTO(CreateUserDTO),
-      this._controller.create.bind(this._controller)
+      this._controller.create.bind(this._controller),
     );
 
     this._router.put(
-      '/:uuid',
+      "/:uuid",
       authenticate,
       validateUUID(),
       validateDTO(UpdateUserDTO),
       requireSameCompany,
-      this._controller.update.bind(this._controller)
+      this._controller.update.bind(this._controller),
     );
 
     this._router.delete(
-      '/:uuid',
+      "/:uuid",
       authenticate,
       requireAdmin(),
       validateUUID(),
-      this._controller.delete.bind(this._controller)
+      this._controller.delete.bind(this._controller),
     );
   }
 
@@ -569,7 +623,7 @@ declare global {
         userId: number;
         uuid: string;
         email: string;
-        role: 'member' | 'admin' | 'superAdmin';
+        role: "member" | "admin" | "superAdmin";
         companyId?: number;
       };
     }

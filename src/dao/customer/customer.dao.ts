@@ -13,19 +13,18 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const [customer] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
-        company_id: item.companyId,
-        customer_uuid: item.customerUuid,
+        companyId: item.companyId,
         name: item.name,
         supplier_code: item.supplierCode,
-        sales_person_id: item.salesPersonId,
-        category_id: item.categoryId,
+        salesPersonId: item.salesPersonId,
+        categoryId: item.categoryId,
         active: item.active ?? true,
-        legal_name: item.legalName,
+        legalName: item.legalName,
         address: item.address,
-        trade_name: item.tradeName,
+        tradeName: item.tradeName,
         contacts: JSON.stringify(item.contacts || []),
-        delivery_locations: JSON.stringify(item.deliveryLocations || []),
-        delivery_days: JSON.stringify(item.deliveryDays || []),
+        deliveryLocations: JSON.stringify(item.deliveryLocations || []),
+        deliveryDays: JSON.stringify(item.deliveryDays || []),
       })
       .returning("*");
 
@@ -45,33 +44,67 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   /**
    * Get customer by UUID
    */
-  async getByUuid(uuid: string): Promise<ICustomer | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ICustomer | null> {
     const knex = KnexManager.getConnection();
-    const customer = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+
+    // Filter by company UUID if provided
+    if (companyUuid) {
+      query
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
+    const customer = await query.select(`${this.tableName}.*`).first();
 
     return customer ? this.mapToInterface(customer) : null;
   }
 
   /**
+   * Get customer numeric ID by UUID string
+   * Used for converting UUID foreign keys to database IDs
+   */
+  async getIdByUuid(uuid: string): Promise<number | null> {
+    const knex = KnexManager.getConnection();
+    const customer = await knex(this.tableName)
+      .where("uuid", uuid)
+      .select("id")
+      .first();
+
+    return customer ? customer.id : null;
+  }
+
+  /**
    * Update customer by ID
    */
-  async update(id: number, item: Partial<ICustomer>): Promise<ICustomer | null> {
+  async update(
+    id: number,
+    item: Partial<ICustomer>,
+  ): Promise<ICustomer | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
 
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.supplierCode !== undefined) updateData.supplier_code = item.supplierCode;
-    if (item.salesPersonId !== undefined) updateData.sales_person_id = item.salesPersonId;
-    if (item.categoryId !== undefined) updateData.category_id = item.categoryId;
+    if (item.supplierCode !== undefined)
+      updateData.supplier_code = item.supplierCode;
+    if (item.salesPersonId !== undefined)
+      updateData.salesPersonId = item.salesPersonId;
+    if (item.categoryId !== undefined) updateData.categoryId = item.categoryId;
     if (item.active !== undefined) updateData.active = item.active;
-    if (item.legalName !== undefined) updateData.legal_name = item.legalName;
+    if (item.legalName !== undefined) updateData.legalName = item.legalName;
     if (item.address !== undefined) updateData.address = item.address;
-    if (item.tradeName !== undefined) updateData.trade_name = item.tradeName;
-    if (item.contacts !== undefined) updateData.contacts = JSON.stringify(item.contacts);
-    if (item.deliveryLocations !== undefined) updateData.delivery_locations = JSON.stringify(item.deliveryLocations);
-    if (item.deliveryDays !== undefined) updateData.delivery_days = JSON.stringify(item.deliveryDays);
+    if (item.tradeName !== undefined) updateData.tradeName = item.tradeName;
+    if (item.contacts !== undefined)
+      updateData.contacts = JSON.stringify(item.contacts);
+    if (item.deliveryLocations !== undefined)
+      updateData.deliveryLocations = JSON.stringify(item.deliveryLocations);
+    if (item.deliveryDays !== undefined)
+      updateData.deliveryDays = JSON.stringify(item.deliveryDays);
 
-    updateData.updated_at = knex.fn.now();
+    updateData.updatedAt = knex.fn.now();
 
     const [customer] = await knex(this.tableName)
       .where("id", id)
@@ -94,17 +127,34 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   /**
    * Get all customers with pagination
    */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<ICustomer>> {
+  async getAll(
+    page: number,
+    limit: number,
+    companyUuid?: string,
+  ): Promise<IDataPaginator<ICustomer>> {
     const knex = KnexManager.getConnection();
     const offset = (page - 1) * limit;
 
+    const query = knex(this.tableName);
+    const countQuery = knex(this.tableName);
+
+    // Filter by company UUID if provided
+    if (companyUuid) {
+      query
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     const [customers, totalResult] = await Promise.all([
-      knex(this.tableName)
-        .select("*")
-        .orderBy("created_at", "desc")
+      query
+        .select(`${this.tableName}.*`)
+        .orderBy(`${this.tableName}.createdAt`, "desc")
         .limit(limit)
         .offset(offset),
-      knex(this.tableName).count("* as count").first(),
+      countQuery.count("* as count").first(),
     ]);
 
     const totalCount = parseInt(totalResult?.count as string) || 0;
@@ -123,21 +173,36 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   /**
    * Get customer with related details (company, category, salesPerson) using to_jsonb
    */
-  async getCustomerWithDetails(uuid: string): Promise<ICustomer | null> {
+  async getCustomerWithDetails(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ICustomer | null> {
     const knex = KnexManager.getConnection();
 
-    const customer = await knex(this.tableName)
+    const query = knex(this.tableName)
       .select(
         "customers.*",
         knex.raw("to_jsonb(companies.*) as company"),
         knex.raw("to_jsonb(customer_categories.*) as category"),
-        knex.raw(`to_jsonb(row(users.id, users.uuid, users.email, users.first_name, users.last_name, users.role)::record) as sales_person`)
+        knex.raw(
+          `to_jsonb(row(users.id, users.uuid, users.email, users.first_name, users.last_name, users.role)::record) as sales_person`,
+        ),
       )
-      .leftJoin("companies", "customers.company_id", "companies.id")
-      .leftJoin("customer_categories", "customers.category_id", "customer_categories.id")
-      .leftJoin("users", "customers.sales_person_id", "users.id")
-      .where("customers.uuid", uuid)
-      .first();
+      .leftJoin("companies", "customers.companyId", "companies.id")
+      .leftJoin(
+        "customer_categories",
+        "customers.categoryId",
+        "customer_categories.id",
+      )
+      .leftJoin("users", "customers.salesPersonId", "users.id")
+      .where("customers.uuid", uuid);
+
+    // Filter by company UUID if provided
+    if (companyUuid) {
+      query.where("companies.uuid", companyUuid);
+    }
+
+    const customer = await query.first();
 
     if (!customer) return null;
 
@@ -160,36 +225,44 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
     try {
       if (record.contacts) {
-        contacts = typeof record.contacts === 'string' ? JSON.parse(record.contacts) : record.contacts;
+        contacts =
+          typeof record.contacts === "string"
+            ? JSON.parse(record.contacts)
+            : record.contacts;
       }
-      if (record.delivery_locations) {
-        deliveryLocations = typeof record.delivery_locations === 'string' ? JSON.parse(record.delivery_locations) : record.delivery_locations;
+      if (record.deliveryLocations) {
+        deliveryLocations =
+          typeof record.deliveryLocations === "string"
+            ? JSON.parse(record.deliveryLocations)
+            : record.deliveryLocations;
       }
-      if (record.delivery_days) {
-        deliveryDays = typeof record.delivery_days === 'string' ? JSON.parse(record.delivery_days) : record.delivery_days;
+      if (record.deliveryDays) {
+        deliveryDays =
+          typeof record.deliveryDays === "string"
+            ? JSON.parse(record.deliveryDays)
+            : record.deliveryDays;
       }
     } catch (error) {
-      console.error('Error parsing customer JSON fields:', error);
+      console.error("Error parsing customer JSON fields:", error);
     }
 
     return {
       id: record.id,
       uuid: record.uuid,
-      companyId: record.company_id ?? record.companyId,
-      customerUuid: record.customer_uuid ?? record.customerUuid,
+      companyId: record.companyId,
       name: record.name,
-      supplierCode: record.supplier_code ?? record.supplierCode,
-      salesPersonId: record.sales_person_id ?? record.salesPersonId,
-      categoryId: record.category_id ?? record.categoryId,
+      supplierCode: record.supplier_code,
+      salesPersonId: record.salesPersonId,
+      categoryId: record.categoryId,
       active: record.active ?? true,
-      legalName: record.legal_name ?? record.legalName,
+      legalName: record.legalName,
       address: record.address,
-      tradeName: record.trade_name ?? record.tradeName,
+      tradeName: record.tradeName,
       contacts,
       deliveryLocations,
       deliveryDays,
-      createdAt: record.created_at ?? record.createdAt,
-      updatedAt: record.updated_at ?? record.updatedAt,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     };
   }
 }

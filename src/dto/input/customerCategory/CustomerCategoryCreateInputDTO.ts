@@ -1,15 +1,16 @@
 export class CustomerCategoryCreateInputDTO {
-    customerCategoryUuid: string;
-    name: string;
-    companyId: number;
+  name: string;
+  companyId: number;
 
-    constructor(data: any) {
-        this.customerCategoryUuid = data.customerCategoryUuid;
-        this.name = data.name;
-        this.companyId = data.companyId;
-    }
+  constructor(data: any) {
+    this.name = data.name;
+    this.companyId =
+      typeof data.companyId === "string"
+        ? parseInt(data.companyId, 10)
+        : data.companyId;
+  }
 
-    public build(): this {
-        return this;
-    }
+  public build(): this {
+    return this;
+  }
 }

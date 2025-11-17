@@ -16,7 +16,7 @@ declare global {
         userId: number;
         uuid: string;
         email: string;
-        role: 'member' | 'admin' | 'superAdmin';
+        role: "member" | "admin" | "superAdmin";
         companyId?: number;
       };
     }

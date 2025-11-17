@@ -5,7 +5,320 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "25678071"
   },
-  "item": [],
+  "item": [
+    {
+      "name": "warehouse",
+      "item": [
+        {
+          "name": "GET ALL",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/warehouse",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "warehouse"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET BY UUID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/warehouse/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "warehouse", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "UPDATE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/warehouse/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "warehouse", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CREATE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/warehouse",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "warehouse"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/warehouse/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "warehouse", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "paper-coil",
+      "item": [
+        {
+          "name": "GET ALL",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-coil",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-coil"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET BY UUID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-coil/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-coil", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "UPDATE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-coil/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-coil", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CREATE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-coil",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-coil"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-coil/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-coil", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
   "event": [
     {
       "listen": "prerequest",
