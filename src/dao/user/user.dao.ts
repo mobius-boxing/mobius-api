@@ -98,7 +98,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
-   * Get all users with pagination
+   * Get all users with pagination (includes company name)
    */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IUser>> {
     const knex = KnexManager.getConnection();
@@ -106,8 +106,9 @@ export class UserDAO implements IBaseDAO<IUser> {
 
     const [users, totalResult] = await Promise.all([
       knex(this.tableName)
-        .select("*")
-        .orderBy("createdAt", "desc")
+        .select(`${this.tableName}.*`, "companies.name as companyName")
+        .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
+        .orderBy(`${this.tableName}.createdAt`, "desc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),
@@ -117,7 +118,7 @@ export class UserDAO implements IBaseDAO<IUser> {
 
     return {
       success: true,
-      data: users.map((user) => this.mapToInterface(user)),
+      data: users.map((user) => this.mapToInterfaceWithCompanyName(user)),
       page,
       limit,
       count: users.length,
@@ -203,6 +204,16 @@ export class UserDAO implements IBaseDAO<IUser> {
       emailVerified: record.emailVerified,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
+    };
+  }
+
+  /**
+   * Map database record to interface with company name
+   */
+  private mapToInterfaceWithCompanyName(record: any): IUser & { companyName?: string } {
+    return {
+      ...this.mapToInterface(record),
+      companyName: record.companyName || undefined,
     };
   }
 }

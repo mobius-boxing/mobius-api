@@ -162,6 +162,29 @@ export class UsersController implements IBaseController {
         return;
       }
 
+      // Handle empty string companyId (e.g., superadmin with no company selected)
+      // Convert empty string to undefined so it doesn't get processed
+      if (data.companyId === '' || data.companyId === null) {
+        data.companyId = undefined;
+      }
+
+      // Convert companyId from UUID to numeric ID if provided
+      if (data.companyId !== undefined) {
+        const isNumeric = /^\d+$/.test(String(data.companyId));
+        if (!isNumeric) {
+          // It's a UUID - convert to numeric ID
+          const company = await this._companyDAO.getByUuid(data.companyId);
+          if (!company || !company.id) {
+            res.status(400).json({
+              success: false,
+              message: "Invalid company ID",
+            });
+            return;
+          }
+          data.companyId = company.id;
+        }
+      }
+
       // Validate input using DTO
       const inputDTO = new UserUpdateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
