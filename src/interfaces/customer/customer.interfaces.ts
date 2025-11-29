@@ -45,6 +45,7 @@ export interface ICustomer {
   categoryId?: number;
   active?: boolean;
   legalName?: string;
+  legalCode?: string;
   address?: string;
   tradeName?: string;
   contacts?: IContactInfo[];

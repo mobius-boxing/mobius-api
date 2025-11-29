@@ -20,6 +20,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
         categoryId: item.categoryId,
         active: item.active ?? true,
         legalName: item.legalName,
+        legal_code: item.legalCode,
         address: item.address,
         tradeName: item.tradeName,
         contacts: JSON.stringify(item.contacts || []),
@@ -95,6 +96,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     if (item.categoryId !== undefined) updateData.categoryId = item.categoryId;
     if (item.active !== undefined) updateData.active = item.active;
     if (item.legalName !== undefined) updateData.legalName = item.legalName;
+    if (item.legalCode !== undefined) updateData.legal_code = item.legalCode;
     if (item.address !== undefined) updateData.address = item.address;
     if (item.tradeName !== undefined) updateData.tradeName = item.tradeName;
     if (item.contacts !== undefined)
@@ -256,6 +258,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       categoryId: record.categoryId,
       active: record.active ?? true,
       legalName: record.legalName,
+      legalCode: record.legal_code,
       address: record.address,
       tradeName: record.tradeName,
       contacts,

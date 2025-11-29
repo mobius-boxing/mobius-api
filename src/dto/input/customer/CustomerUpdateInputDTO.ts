@@ -6,6 +6,7 @@ export class CustomerUpdateInputDTO {
   salesPersonId?: number;
   categoryId?: number;
   legalName?: string;
+  legalCode?: string;
   address?: string;
   tradeName?: string;
   contacts?: any;
@@ -32,6 +33,7 @@ export class CustomerUpdateInputDTO {
           ? parseInt(data.categoryId, 10)
           : data.categoryId;
     if (data.legalName !== undefined) this.legalName = data.legalName;
+    if (data.legalCode !== undefined) this.legalCode = data.legalCode;
     if (data.address !== undefined) this.address = data.address;
     if (data.tradeName !== undefined) this.tradeName = data.tradeName;
     if (data.contacts !== undefined) this.contacts = data.contacts;

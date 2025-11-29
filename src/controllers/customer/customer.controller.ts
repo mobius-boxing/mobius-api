@@ -11,7 +11,7 @@ import { UserDAO } from "../../dao/user/user.dao";
 import { CustomerCategoryDAO } from "../../dao/customer-category/customer-category.dao";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import { IDataPaginator } from "../../database/d.types";
-import { v4 as uuidv4 } from "uuid";
+import { v4 as uuidv4, validate as isUUID } from "uuid";
 import {
   CustomerCreateInputDTO,
   CustomerUpdateInputDTO,
@@ -145,31 +145,41 @@ export class CustomerController implements IBaseController {
 
       // Convert UUID foreign keys to numeric IDs BEFORE passing to DTO
       if (data.salesPersonId && typeof data.salesPersonId === "string") {
-        const userDAO = new UserDAO();
-        const userNumericId = await userDAO.getIdByUuid(data.salesPersonId);
-        if (!userNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid sales person",
-          });
-          return;
+        if (isUUID(data.salesPersonId)) {
+          const userDAO = new UserDAO();
+          const userNumericId = await userDAO.getIdByUuid(data.salesPersonId);
+          if (!userNumericId) {
+            res.status(400).json({
+              success: false,
+              message: "Invalid sales person",
+            });
+            return;
+          }
+          data.salesPersonId = userNumericId;
+        } else {
+          // Assume it's a numeric ID string
+          data.salesPersonId = parseInt(data.salesPersonId, 10);
         }
-        data.salesPersonId = userNumericId;
       }
 
       if (data.categoryId && typeof data.categoryId === "string") {
-        const categoryDAO = new CustomerCategoryDAO();
-        const categoryNumericId = await categoryDAO.getIdByUuid(
-          data.categoryId,
-        );
-        if (!categoryNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid category",
-          });
-          return;
+        if (isUUID(data.categoryId)) {
+          const categoryDAO = new CustomerCategoryDAO();
+          const categoryNumericId = await categoryDAO.getIdByUuid(
+            data.categoryId,
+          );
+          if (!categoryNumericId) {
+            res.status(400).json({
+              success: false,
+              message: "Invalid category",
+            });
+            return;
+          }
+          data.categoryId = categoryNumericId;
+        } else {
+          // Assume it's a numeric ID string
+          data.categoryId = parseInt(data.categoryId, 10);
         }
-        data.categoryId = categoryNumericId;
       }
 
       // Validate input using DTO
@@ -190,6 +200,7 @@ export class CustomerController implements IBaseController {
         categoryId: inputDTO.categoryId,
         active: true,
         legalName: inputDTO.legalName,
+        legalCode: inputDTO.legalCode,
         address: inputDTO.address,
         tradeName: inputDTO.tradeName,
         contacts: inputDTO.contacts || [],
@@ -236,31 +247,41 @@ export class CustomerController implements IBaseController {
 
       // Convert UUID foreign keys to numeric IDs BEFORE passing to DTO
       if (data.salesPersonId && typeof data.salesPersonId === "string") {
-        const userDAO = new UserDAO();
-        const userNumericId = await userDAO.getIdByUuid(data.salesPersonId);
-        if (!userNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid sales person",
-          });
-          return;
+        if (isUUID(data.salesPersonId)) {
+          const userDAO = new UserDAO();
+          const userNumericId = await userDAO.getIdByUuid(data.salesPersonId);
+          if (!userNumericId) {
+            res.status(400).json({
+              success: false,
+              message: "Invalid sales person",
+            });
+            return;
+          }
+          data.salesPersonId = userNumericId;
+        } else {
+          // Assume it's a numeric ID string
+          data.salesPersonId = parseInt(data.salesPersonId, 10);
         }
-        data.salesPersonId = userNumericId;
       }
 
       if (data.categoryId && typeof data.categoryId === "string") {
-        const categoryDAO = new CustomerCategoryDAO();
-        const categoryNumericId = await categoryDAO.getIdByUuid(
-          data.categoryId,
-        );
-        if (!categoryNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid category",
-          });
-          return;
+        if (isUUID(data.categoryId)) {
+          const categoryDAO = new CustomerCategoryDAO();
+          const categoryNumericId = await categoryDAO.getIdByUuid(
+            data.categoryId,
+          );
+          if (!categoryNumericId) {
+            res.status(400).json({
+              success: false,
+              message: "Invalid category",
+            });
+            return;
+          }
+          data.categoryId = categoryNumericId;
+        } else {
+          // Assume it's a numeric ID string
+          data.categoryId = parseInt(data.categoryId, 10);
         }
-        data.categoryId = categoryNumericId;
       }
 
       // Validate input using DTO
