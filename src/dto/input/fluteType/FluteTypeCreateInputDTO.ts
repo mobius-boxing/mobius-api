@@ -1,30 +1,38 @@
 export class FluteTypeCreateInputDTO {
   code: string;
-  description: string;
-  fluteFactor: number;
-  length: number;
-  width: number;
-  height: number;
+  description?: string;
+  fluteFactor?: number;
+  length?: number;
+  width?: number;
+  height?: number;
 
   constructor(data: any) {
     this.code = data.code;
     this.description = data.description;
     this.fluteFactor =
-      typeof data.fluteFactor === "string"
-        ? parseFloat(data.fluteFactor)
-        : data.fluteFactor;
+      data.fluteFactor !== undefined && data.fluteFactor !== null && data.fluteFactor !== ""
+        ? typeof data.fluteFactor === "string"
+          ? parseFloat(data.fluteFactor)
+          : data.fluteFactor
+        : undefined;
     this.length =
-      typeof data.length === "string"
-        ? parseFloat(data.length)
-        : data.length;
+      data.length !== undefined && data.length !== null && data.length !== ""
+        ? typeof data.length === "string"
+          ? parseFloat(data.length)
+          : data.length
+        : undefined;
     this.width =
-      typeof data.width === "string"
-        ? parseFloat(data.width)
-        : data.width;
+      data.width !== undefined && data.width !== null && data.width !== ""
+        ? typeof data.width === "string"
+          ? parseFloat(data.width)
+          : data.width
+        : undefined;
     this.height =
-      typeof data.height === "string"
-        ? parseFloat(data.height)
-        : data.height;
+      data.height !== undefined && data.height !== null && data.height !== ""
+        ? typeof data.height === "string"
+          ? parseFloat(data.height)
+          : data.height
+        : undefined;
   }
 
   public build(): this {
