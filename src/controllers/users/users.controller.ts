@@ -25,6 +25,7 @@ export class UsersController implements IBaseController {
 
   /**
    * Get all users with pagination
+   * SuperAdmins see all users, Admins see only users from their company
    */
   public async getAll(
     req: Request,
@@ -33,10 +34,29 @@ export class UsersController implements IBaseController {
   ): Promise<void> {
     try {
       const { page, limit } = paginationHelper(req);
-      const result: IDataPaginator<IUser> = await this._userDAO.getAll(
-        page,
-        limit,
-      );
+      const currentUser = (req as any).user;
+
+      let result: IDataPaginator<IUser>;
+
+      if (currentUser.role === "superAdmin") {
+        // SuperAdmin sees all users
+        result = await this._userDAO.getAll(page, limit);
+      } else {
+        // Admin sees only users from their company
+        const adminUser = await this._userDAO.getByUuid(currentUser.userId);
+        if (!adminUser || !adminUser.companyId) {
+          res.status(403).json({
+            success: false,
+            message: "Admin user must be assigned to a company",
+          });
+          return;
+        }
+        result = await this._userDAO.getAllByCompany(
+          adminUser.companyId,
+          page,
+          limit,
+        );
+      }
 
       // Remove passwords from all users
       result.data = result.data.map((user) => {

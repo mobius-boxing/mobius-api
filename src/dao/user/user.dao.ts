@@ -128,6 +128,44 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
+   * Get all users by company with pagination (includes company name)
+   */
+  async getAllByCompany(
+    companyId: number,
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IUser>> {
+    const knex = KnexManager.getConnection();
+    const offset = (page - 1) * limit;
+
+    const [users, totalResult] = await Promise.all([
+      knex(this.tableName)
+        .select(`${this.tableName}.*`, "companies.name as companyName")
+        .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
+        .where(`${this.tableName}.companyId`, companyId)
+        .orderBy(`${this.tableName}.createdAt`, "desc")
+        .limit(limit)
+        .offset(offset),
+      knex(this.tableName)
+        .where("companyId", companyId)
+        .count("* as count")
+        .first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: users.map((user) => this.mapToInterfaceWithCompanyName(user)),
+      page,
+      limit,
+      count: users.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
    * Get user by email
    */
   async getUserByEmail(email: string): Promise<IUser | null> {

@@ -32,7 +32,7 @@ export class UsersRouter {
     this.router.get(
       "/",
       authenticate,
-      requireSuperAdmin(),
+      requireAdmin(),
       validatePagination,
       apiRateLimiter,
       this.usersController.getAll.bind(this.usersController),
