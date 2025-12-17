@@ -2,6 +2,52 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🔴 CRITICAL: Read Before Creating ANY Entity
+
+**MANDATORY REQUIREMENTS for ALL new endpoints:**
+
+### 1. Read These Files FIRST (In Order):
+1. **`docs/main_endpoint_guide.md`** - Main endpoint implementation guide ⚠️ MUST READ for list pages
+2. **`docs/new_entity_guide.md`** - Complete step-by-step entity creation guide
+3. **`QUERY_BUILDER_GUIDE.md`** - Query builder technical documentation
+
+### 2. Default Rule for Main List Endpoints:
+
+**ALL new main list endpoints MUST include standardized query builder** unless explicitly told otherwise:
+
+✅ Filtering: `?field=value` (flat syntax)
+✅ Sorting: `?sortBy=field&sortOrder=asc|desc`
+✅ Search: `?search=keyword`
+✅ Pagination: `?page=1&limit=20`
+
+**Note**: Reserved parameters (not treated as filters): `page`, `limit`, `sortBy`, `sortOrder`, `search`
+
+### 3. Required Pattern:
+
+```typescript
+// DAO - Define OUTSIDE class
+const ENTITY_FILTERS: FilterConfigs = { ... };
+const ENTITY_SORTING: SortConfigs = { ... };
+const ENTITY_QUERY_CONFIG = createQueryConfig("table", { ... });
+
+// DAO method
+async getAllWithFilters(req: Request): Promise<IDataPaginator<T>> { ... }
+
+// Controller
+public async getAll(req: Request, res: Response, next: NextFunction) {
+  const result = await this._dao.getAllWithFilters(req);
+  res.status(200).json(result);
+}
+```
+
+### 4. Reference Implementation:
+- See `src/dao/warehouse/warehouse.dao.ts`
+- See `src/controllers/warehouse/warehouse.controller.ts`
+
+**Exceptions:** Only skip if explicitly told or non-list endpoint (getByUuid, etc.)
+
+---
+
 ## Commands
 
 ### Development

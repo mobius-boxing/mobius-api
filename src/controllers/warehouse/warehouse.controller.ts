@@ -18,7 +18,20 @@ export class WarehouseController implements IBaseController {
   private _warehouseDAO: WarehouseDAO = new WarehouseDAO();
 
   /**
-   * Get all warehouses with pagination
+   * Get all warehouses with pagination, filtering, sorting, and search
+   *
+   * Query params (flat syntax):
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=name&sortOrder=asc)
+   * - name, companyId, uuid: Filtering (e.g., ?companyId=5&name=Main)
+   * - search: Full-text search across name (e.g., ?search=warehouse)
+   *
+   * Examples:
+   * - GET /warehouses?page=1&limit=10
+   * - GET /warehouses?sortBy=createdAt&sortOrder=desc
+   * - GET /warehouses?companyId=3&name=Main
+   * - GET /warehouses?search=central
+   * - GET /warehouses?page=1&companyId=3&sortBy=name&sortOrder=asc
    */
   public async getAll(
     req: Request,
@@ -26,10 +39,8 @@ export class WarehouseController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
       const result: IDataPaginator<IWarehouse> =
-        await this._warehouseDAO.getAll(page, limit);
+        await this._warehouseDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);
@@ -89,6 +100,9 @@ export class WarehouseController implements IBaseController {
       const dataToCreate: IWarehouse = {
         uuid: uuidv4(),
         name: inputDTO.name,
+        gridRows: inputDTO.gridRows,
+        gridCols: inputDTO.gridCols,
+        companyId: inputDTO.companyId,
       };
 
       const result = await this._warehouseDAO.create(dataToCreate);
