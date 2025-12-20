@@ -108,15 +108,35 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
 
   /**
    * Map database record to interface
+   * SECURITY: Never expose numeric IDs to frontend - only UUIDs
    */
   private mapToInterface(record: any): ICorrugationClass {
     return {
-      id: record.id,
       uuid: record.uuid,
       code: record.code,
       description: record.description,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
+  }
+
+  /**
+   * Internal method to map with ID (for internal use only, never send to frontend)
+   */
+  private mapToInternalInterface(record: any): ICorrugationClass & { id: number } {
+    return {
+      id: record.id,
+      ...this.mapToInterface(record),
+    };
+  }
+
+  /**
+   * Get internal numeric ID by UUID (for internal use only, never expose to frontend)
+   * Used by controllers when they need to perform update/delete operations
+   */
+  async getIdByUuid(uuid: string): Promise<number | null> {
+    const knex = KnexManager.getConnection();
+    const record = await knex(this.tableName).select("id").where("uuid", uuid).first();
+    return record ? record.id : null;
   }
 }

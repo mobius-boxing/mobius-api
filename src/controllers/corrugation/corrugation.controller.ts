@@ -6,6 +6,7 @@ import {
   IInputValidator,
 } from "@sundaysf/utils";
 import { CorrugationDAO } from "../../dao/corrugation/corrugation.dao";
+import { CorrugationClassDAO } from "../../dao/corrugation-class/corrugation-class.dao";
 import { ICorrugation } from "../../interfaces/corrugation/corrugation.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
@@ -16,6 +17,7 @@ import {
 
 export class CorrugationController implements IBaseController {
   private _corrugationDAO: CorrugationDAO = new CorrugationDAO();
+  private _corrugationClassDAO: CorrugationClassDAO = new CorrugationClassDAO();
 
   /**
    * Get all corrugations with pagination
@@ -85,6 +87,20 @@ export class CorrugationController implements IBaseController {
         return next(new Error(validation.message));
       }
 
+      // SECURITY: Lookup corrugation class by UUID to get internal numeric ID
+      let corrugationClassId: number | undefined;
+      if (inputDTO.corrugationClassUuid) {
+        const classId = await this._corrugationClassDAO.getIdByUuid(inputDTO.corrugationClassUuid);
+        if (!classId) {
+          res.status(400).json({
+            success: false,
+            message: "Corrugation class not found",
+          });
+          return;
+        }
+        corrugationClassId = classId;
+      }
+
       // Generate UUID server-side
       const dataToCreate: ICorrugation = {
         uuid: uuidv4(),
@@ -93,7 +109,7 @@ export class CorrugationController implements IBaseController {
         theoreticalGrammage: inputDTO.theoreticalGrammage,
         suggestedWidth: inputDTO.suggestedWidth,
         caliper: inputDTO.caliper,
-        corrugationClassId: inputDTO.corrugationClassId,
+        corrugationClassId,
       };
 
       const result = await this._corrugationDAO.create(dataToCreate);
@@ -119,9 +135,9 @@ export class CorrugationController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      // Get corrugation by UUID to find its ID
-      const existing = await this._corrugationDAO.getByUuid(uuid);
-      if (!existing || !existing.id) {
+      // SECURITY: Get internal numeric ID by UUID (never expose ID to frontend)
+      const existingId = await this._corrugationDAO.getIdByUuid(uuid);
+      if (!existingId) {
         res.status(404).json({
           success: false,
           message: "Corrugation not found",
@@ -137,7 +153,23 @@ export class CorrugationController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      const result = await this._corrugationDAO.update(existing.id, inputDTO);
+      // SECURITY: Lookup corrugation class by UUID if provided
+      const updateData: any = { ...inputDTO };
+      delete updateData.corrugationClassUuid;
+
+      if (inputDTO.corrugationClassUuid) {
+        const corrugationClassId = await this._corrugationClassDAO.getIdByUuid(inputDTO.corrugationClassUuid);
+        if (!corrugationClassId) {
+          res.status(400).json({
+            success: false,
+            message: "Corrugation class not found",
+          });
+          return;
+        }
+        updateData.corrugationClassId = corrugationClassId;
+      }
+
+      const result = await this._corrugationDAO.update(existingId, updateData);
 
       res.status(200).json({
         success: true,
@@ -159,9 +191,9 @@ export class CorrugationController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Get corrugation by UUID to find its ID
-      const existing = await this._corrugationDAO.getByUuid(uuid);
-      if (!existing || !existing.id) {
+      // SECURITY: Get internal numeric ID by UUID (never expose ID to frontend)
+      const existingId = await this._corrugationDAO.getIdByUuid(uuid);
+      if (!existingId) {
         res.status(404).json({
           success: false,
           message: "Corrugation not found",
@@ -169,7 +201,7 @@ export class CorrugationController implements IBaseController {
         return;
       }
 
-      const result = await this._corrugationDAO.delete(existing.id);
+      const result = await this._corrugationDAO.delete(existingId);
 
       if (result) {
         res.status(200).json({

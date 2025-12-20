@@ -137,20 +137,49 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
 
   /**
    * Map database record to interface
+   * SECURITY: Never expose numeric IDs to frontend - only UUIDs
+   * Foreign keys (corrugationClassId) are replaced with the related object containing UUID
    */
   private mapToInterface(record: any): ICorrugation {
+    // Strip numeric ID from corrugationClass if present
+    let corrugationClass = undefined;
+    if (record.corrugationClass) {
+      const { id, ...classWithoutId } = record.corrugationClass;
+      corrugationClass = classWithoutId;
+    }
+
     return {
-      id: record.id,
       uuid: record.uuid,
       code: record.code,
       description: record.description,
       theoreticalGrammage: record.theoreticalGrammage ? parseFloat(record.theoreticalGrammage) : undefined,
       suggestedWidth: record.suggestedWidth ? parseFloat(record.suggestedWidth) : undefined,
       caliper: record.caliper ? parseFloat(record.caliper) : undefined,
-      corrugationClassId: record.corrugationClassId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
-      corrugationClass: record.corrugationClass,
+      // Include related object with UUID, not numeric foreign key
+      corrugationClass,
     };
+  }
+
+  /**
+   * Internal method to map with ID (for internal use only, never send to frontend)
+   */
+  private mapToInternalInterface(record: any): ICorrugation & { id: number; corrugationClassId?: number } {
+    return {
+      id: record.id,
+      corrugationClassId: record.corrugationClassId,
+      ...this.mapToInterface(record),
+    };
+  }
+
+  /**
+   * Get internal numeric ID by UUID (for internal use only, never expose to frontend)
+   * Used by controllers when they need to perform update/delete operations
+   */
+  async getIdByUuid(uuid: string): Promise<number | null> {
+    const knex = KnexManager.getConnection();
+    const record = await knex(this.tableName).select("id").where("uuid", uuid).first();
+    return record ? record.id : null;
   }
 }

@@ -4,7 +4,8 @@ export class CorrugationCreateInputDTO {
   theoreticalGrammage?: number;
   suggestedWidth?: number;
   caliper?: number;
-  corrugationClassId?: number;
+  // SECURITY: Accept UUID from frontend, not numeric ID
+  corrugationClassUuid?: string;
 
   constructor(data: any) {
     this.code = data.code;
@@ -24,10 +25,9 @@ export class CorrugationCreateInputDTO {
         ? parseFloat(data.caliper)
         : data.caliper;
     }
-    if (data.corrugationClassId !== undefined) {
-      this.corrugationClassId = typeof data.corrugationClassId === 'string'
-        ? parseInt(data.corrugationClassId, 10)
-        : data.corrugationClassId;
+    // Accept corrugationClassUuid from frontend
+    if (data.corrugationClassUuid !== undefined) {
+      this.corrugationClassUuid = data.corrugationClassUuid;
     }
   }
 

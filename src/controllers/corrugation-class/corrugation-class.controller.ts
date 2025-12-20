@@ -115,9 +115,9 @@ export class CorrugationClassController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      // Get corrugation class by UUID to find its ID
-      const existing = await this._corrugationClassDAO.getByUuid(uuid);
-      if (!existing || !existing.id) {
+      // SECURITY: Get internal numeric ID by UUID (never expose ID to frontend)
+      const existingId = await this._corrugationClassDAO.getIdByUuid(uuid);
+      if (!existingId) {
         res.status(404).json({
           success: false,
           message: "Corrugation class not found",
@@ -133,7 +133,7 @@ export class CorrugationClassController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      const result = await this._corrugationClassDAO.update(existing.id, inputDTO);
+      const result = await this._corrugationClassDAO.update(existingId, inputDTO);
 
       res.status(200).json({
         success: true,
@@ -155,9 +155,9 @@ export class CorrugationClassController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Get corrugation class by UUID to find its ID
-      const existing = await this._corrugationClassDAO.getByUuid(uuid);
-      if (!existing || !existing.id) {
+      // SECURITY: Get internal numeric ID by UUID (never expose ID to frontend)
+      const existingId = await this._corrugationClassDAO.getIdByUuid(uuid);
+      if (!existingId) {
         res.status(404).json({
           success: false,
           message: "Corrugation class not found",
@@ -165,7 +165,7 @@ export class CorrugationClassController implements IBaseController {
         return;
       }
 
-      const result = await this._corrugationClassDAO.delete(existing.id);
+      const result = await this._corrugationClassDAO.delete(existingId);
 
       if (result) {
         res.status(200).json({
