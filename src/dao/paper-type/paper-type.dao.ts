@@ -42,6 +42,18 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   }
 
   /**
+   * Get paper type internal ID by UUID
+   */
+  async getIdByUuid(uuid: string): Promise<number | null> {
+    const knex = KnexManager.getConnection();
+    const record = await knex(this.tableName)
+      .select("id")
+      .where("uuid", uuid)
+      .first();
+    return record ? record.id : null;
+  }
+
+  /**
    * Update paper type by ID
    */
   async update(
@@ -52,7 +64,8 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
 
     updateData.updatedAt = knex.fn.now();
 

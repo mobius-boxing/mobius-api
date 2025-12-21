@@ -317,6 +317,162 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "paper-sheet",
+      "item": [
+        {
+          "name": "GET ALL",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-sheet",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-sheet"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET BY UUID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-sheet/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-sheet", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "UPDATE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-sheet/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-sheet", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CREATE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-sheet",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-sheet"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{mobiusApiV2BearerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{mobiusApiV2BackendHost}}/api/paper-sheet/:uuid",
+              "host": ["{{mobiusApiV2BackendHost}}"],
+              "path": ["api", "paper-sheet", ":uuid"],
+              "variable": [
+                {
+                  "key": "uuid",
+                  "value": "<uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ],
   "event": [

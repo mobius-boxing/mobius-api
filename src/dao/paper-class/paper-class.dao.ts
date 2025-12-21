@@ -54,7 +54,8 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
 
     if (item.code !== undefined) updateData.code = item.code;
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.papers !== undefined) updateData.papers = JSON.stringify(item.papers);
+    if (item.papers !== undefined)
+      updateData.papers = JSON.stringify(item.papers);
 
     updateData.updatedAt = knex.fn.now();
 
@@ -117,7 +118,10 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
       uuid: record.uuid,
       code: record.code,
       name: record.name,
-      papers: typeof record.papers === "string" ? JSON.parse(record.papers) : record.papers,
+      papers:
+        typeof record.papers === "string"
+          ? JSON.parse(record.papers)
+          : record.papers,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

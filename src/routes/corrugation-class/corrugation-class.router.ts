@@ -25,7 +25,9 @@ export class CorrugationClassRouter {
       requireAdmin(),
       validatePagination,
       apiRateLimiter,
-      this.corrugationClassController.getAll.bind(this.corrugationClassController),
+      this.corrugationClassController.getAll.bind(
+        this.corrugationClassController,
+      ),
     );
     this.router.get(
       "/:uuid",
@@ -33,14 +35,18 @@ export class CorrugationClassRouter {
       requireAdmin(),
       validateUUID(),
       apiRateLimiter,
-      this.corrugationClassController.getByUuid.bind(this.corrugationClassController),
+      this.corrugationClassController.getByUuid.bind(
+        this.corrugationClassController,
+      ),
     );
     this.router.post(
       "/",
       authenticate,
       requireAdmin(),
       apiRateLimiter,
-      this.corrugationClassController.create.bind(this.corrugationClassController),
+      this.corrugationClassController.create.bind(
+        this.corrugationClassController,
+      ),
     );
     this.router.put(
       "/:uuid",
@@ -48,7 +54,9 @@ export class CorrugationClassRouter {
       requireAdmin(),
       validateUUID(),
       apiRateLimiter,
-      this.corrugationClassController.update.bind(this.corrugationClassController),
+      this.corrugationClassController.update.bind(
+        this.corrugationClassController,
+      ),
     );
     this.router.delete(
       "/:uuid",
@@ -56,7 +64,9 @@ export class CorrugationClassRouter {
       requireAdmin(),
       validateUUID(),
       sensitiveRateLimiter,
-      this.corrugationClassController.delete.bind(this.corrugationClassController),
+      this.corrugationClassController.delete.bind(
+        this.corrugationClassController,
+      ),
     );
   }
 }

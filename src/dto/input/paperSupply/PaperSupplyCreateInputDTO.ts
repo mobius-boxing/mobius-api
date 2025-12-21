@@ -5,6 +5,9 @@ export class PaperSupplyCreateInputDTO {
   name?: string;
   manufacturerId?: number;
   supplierId?: number;
+  paperTypeId?: number;
+  grammage?: number;
+  price?: number;
   minimumStock?: { pallets: number; boxes: number };
 
   constructor(data: any) {
@@ -25,6 +28,19 @@ export class PaperSupplyCreateInputDTO {
         typeof data.supplierId === "string"
           ? parseInt(data.supplierId, 10)
           : data.supplierId;
+    if (data.paperTypeId !== undefined)
+      this.paperTypeId =
+        typeof data.paperTypeId === "string"
+          ? parseInt(data.paperTypeId, 10)
+          : data.paperTypeId;
+    if (data.grammage !== undefined)
+      this.grammage =
+        typeof data.grammage === "string"
+          ? parseFloat(data.grammage)
+          : data.grammage;
+    if (data.price !== undefined)
+      this.price =
+        typeof data.price === "string" ? parseFloat(data.price) : data.price;
     if (data.minimumStock !== undefined) {
       this.minimumStock = data.minimumStock;
     } else {

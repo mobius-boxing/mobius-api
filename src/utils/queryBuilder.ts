@@ -24,11 +24,11 @@ export { createQueryConfig } from "../types/queryBuilder.types";
  * Reserved query parameter names that are NOT filters
  */
 const RESERVED_PARAMS = new Set([
-  'page',
-  'limit',
-  'sortBy',
-  'sortOrder',
-  'search',
+  "page",
+  "limit",
+  "sortBy",
+  "sortOrder",
+  "search",
 ]);
 
 /**
@@ -42,7 +42,8 @@ export function parseQueryParams(req: Request): ParsedQuery {
   const page = parseInt(req.query.page as string) || 1;
   const limit = Math.min(parseInt(req.query.limit as string) || 20, 100); // Max 100 items per page
   const sortBy = req.query.sortBy as string | undefined;
-  const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "desc" ? "desc" : "asc";
+  const sortOrder =
+    (req.query.sortOrder as string)?.toLowerCase() === "desc" ? "desc" : "asc";
   const search = req.query.search as string | undefined;
 
   // All non-reserved params are filters
@@ -205,11 +206,24 @@ export function buildQuery(
   }
 
   // Apply sorting
-  const defaultSort = config.defaultSort || { column: "created_at", order: "desc" as const };
+  const defaultSort = config.defaultSort || {
+    column: "created_at",
+    order: "desc" as const,
+  };
   if (config.sorting) {
-    applySorting(baseQuery, sortBy, sortOrder, config.sorting, defaultSort, config.tableName);
+    applySorting(
+      baseQuery,
+      sortBy,
+      sortOrder,
+      config.sorting,
+      defaultSort,
+      config.tableName,
+    );
   } else {
-    baseQuery.orderBy(`${config.tableName}.${defaultSort.column}`, defaultSort.order);
+    baseQuery.orderBy(
+      `${config.tableName}.${defaultSort.column}`,
+      defaultSort.order,
+    );
   }
 
   // Apply pagination

@@ -11,19 +11,22 @@ export class CorrugationUpdateInputDTO {
     if (data.code !== undefined) this.code = data.code;
     if (data.description !== undefined) this.description = data.description;
     if (data.theoreticalGrammage !== undefined) {
-      this.theoreticalGrammage = typeof data.theoreticalGrammage === 'string'
-        ? parseFloat(data.theoreticalGrammage)
-        : data.theoreticalGrammage;
+      this.theoreticalGrammage =
+        typeof data.theoreticalGrammage === "string"
+          ? parseFloat(data.theoreticalGrammage)
+          : data.theoreticalGrammage;
     }
     if (data.suggestedWidth !== undefined) {
-      this.suggestedWidth = typeof data.suggestedWidth === 'string'
-        ? parseFloat(data.suggestedWidth)
-        : data.suggestedWidth;
+      this.suggestedWidth =
+        typeof data.suggestedWidth === "string"
+          ? parseFloat(data.suggestedWidth)
+          : data.suggestedWidth;
     }
     if (data.caliper !== undefined) {
-      this.caliper = typeof data.caliper === 'string'
-        ? parseFloat(data.caliper)
-        : data.caliper;
+      this.caliper =
+        typeof data.caliper === "string"
+          ? parseFloat(data.caliper)
+          : data.caliper;
     }
     // Accept corrugationClassUuid from frontend
     if (data.corrugationClassUuid !== undefined) {

@@ -79,18 +79,21 @@ const WAREHOUSE_LOCATION_SORTING: SortConfigs = {
 /**
  * Warehouse location query builder configuration
  */
-const WAREHOUSE_LOCATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("warehouse_locations", {
-  filters: WAREHOUSE_LOCATION_FILTERS,
-  sorting: WAREHOUSE_LOCATION_SORTING,
-  search: {
-    columns: ["location_code"],
-    operator: "ILIKE",
+const WAREHOUSE_LOCATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "warehouse_locations",
+  {
+    filters: WAREHOUSE_LOCATION_FILTERS,
+    sorting: WAREHOUSE_LOCATION_SORTING,
+    search: {
+      columns: ["location_code"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "row",
+      order: "asc",
+    },
   },
-  defaultSort: {
-    column: "row",
-    order: "asc",
-  },
-});
+);
 
 export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   private tableName = "warehouse_locations";
@@ -121,9 +124,11 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   /**
    * Batch create warehouse locations (for warehouse creation/resize)
    */
-  async batchCreate(items: IWarehouseLocation[]): Promise<IWarehouseLocation[]> {
+  async batchCreate(
+    items: IWarehouseLocation[],
+  ): Promise<IWarehouseLocation[]> {
     const knex = KnexManager.getConnection();
-    const records = items.map(item => ({
+    const records = items.map((item) => ({
       uuid: item.uuid,
       warehouse_id: item.warehouseId,
       row: item.row,
@@ -135,11 +140,9 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
       metadata: item.metadata ? JSON.stringify(item.metadata) : null,
     }));
 
-    const locations = await knex(this.tableName)
-      .insert(records)
-      .returning("*");
+    const locations = await knex(this.tableName).insert(records).returning("*");
 
-    return locations.map(loc => this.mapToInterface(loc));
+    return locations.map((loc) => this.mapToInterface(loc));
   }
 
   /**
@@ -147,7 +150,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
    */
   async batchUpdate(
     warehouseId: number,
-    updates: Array<{ row: number; col: number; [key: string]: any }>
+    updates: Array<{ row: number; col: number; [key: string]: any }>,
   ): Promise<IWarehouseLocation[]> {
     const knex = KnexManager.getConnection();
     const results: IWarehouseLocation[] = [];
@@ -158,14 +161,21 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
         const { row, col, ...updateData } = update;
         const dbUpdateData: any = {};
 
-        if (updateData.status !== undefined) dbUpdateData.status = updateData.status;
-        if (updateData.locationType !== undefined) dbUpdateData.location_type = updateData.locationType;
-        if (updateData.locationCode !== undefined) dbUpdateData.location_code = updateData.locationCode;
+        if (updateData.status !== undefined)
+          dbUpdateData.status = updateData.status;
+        if (updateData.locationType !== undefined)
+          dbUpdateData.location_type = updateData.locationType;
+        if (updateData.locationCode !== undefined)
+          dbUpdateData.location_code = updateData.locationCode;
         if (updateData.capacity !== undefined) {
-          dbUpdateData.capacity = updateData.capacity ? JSON.stringify(updateData.capacity) : null;
+          dbUpdateData.capacity = updateData.capacity
+            ? JSON.stringify(updateData.capacity)
+            : null;
         }
         if (updateData.metadata !== undefined) {
-          dbUpdateData.metadata = updateData.metadata ? JSON.stringify(updateData.metadata) : null;
+          dbUpdateData.metadata = updateData.metadata
+            ? JSON.stringify(updateData.metadata)
+            : null;
         }
 
         dbUpdateData.updated_at = trx.fn.now();
@@ -220,14 +230,16 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   /**
    * Get all locations for a specific warehouse
    */
-  async getAllByWarehouseId(warehouseId: number): Promise<IWarehouseLocation[]> {
+  async getAllByWarehouseId(
+    warehouseId: number,
+  ): Promise<IWarehouseLocation[]> {
     const knex = KnexManager.getConnection();
     const locations = await knex(this.tableName)
       .where("warehouse_id", warehouseId)
       .orderBy("row", "asc")
       .orderBy("col", "asc");
 
-    return locations.map(loc => this.mapToInterface(loc));
+    return locations.map((loc) => this.mapToInterface(loc));
   }
 
   /**
@@ -241,13 +253,19 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
     const updateData: any = {};
 
     if (item.status !== undefined) updateData.status = item.status;
-    if (item.locationType !== undefined) updateData.location_type = item.locationType;
-    if (item.locationCode !== undefined) updateData.location_code = item.locationCode;
+    if (item.locationType !== undefined)
+      updateData.location_type = item.locationType;
+    if (item.locationCode !== undefined)
+      updateData.location_code = item.locationCode;
     if (item.capacity !== undefined) {
-      updateData.capacity = item.capacity ? JSON.stringify(item.capacity) : null;
+      updateData.capacity = item.capacity
+        ? JSON.stringify(item.capacity)
+        : null;
     }
     if (item.metadata !== undefined) {
-      updateData.metadata = item.metadata ? JSON.stringify(item.metadata) : null;
+      updateData.metadata = item.metadata
+        ? JSON.stringify(item.metadata)
+        : null;
     }
 
     updateData.updated_at = knex.fn.now();
@@ -275,7 +293,9 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
    */
   async deleteByWarehouseId(warehouseId: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
-    const deleted = await knex(this.tableName).where("warehouse_id", warehouseId).delete();
+    const deleted = await knex(this.tableName)
+      .where("warehouse_id", warehouseId)
+      .delete();
 
     return deleted > 0;
   }

@@ -10,7 +10,9 @@ export class FluteTypeCreateInputDTO {
     this.code = data.code;
     this.description = data.description;
     this.fluteFactor =
-      data.fluteFactor !== undefined && data.fluteFactor !== null && data.fluteFactor !== ""
+      data.fluteFactor !== undefined &&
+      data.fluteFactor !== null &&
+      data.fluteFactor !== ""
         ? typeof data.fluteFactor === "string"
           ? parseFloat(data.fluteFactor)
           : data.fluteFactor

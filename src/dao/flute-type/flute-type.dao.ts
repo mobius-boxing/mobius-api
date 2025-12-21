@@ -56,8 +56,10 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
-    if (item.fluteFactor !== undefined) updateData.fluteFactor = item.fluteFactor;
+    if (item.description !== undefined)
+      updateData.description = item.description;
+    if (item.fluteFactor !== undefined)
+      updateData.fluteFactor = item.fluteFactor;
     if (item.length !== undefined) updateData.length = item.length;
     if (item.width !== undefined) updateData.width = item.width;
     if (item.height !== undefined) updateData.height = item.height;
@@ -123,7 +125,9 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
       uuid: record.uuid,
       code: record.code,
       description: record.description,
-      fluteFactor: record.fluteFactor ? parseFloat(record.fluteFactor) : undefined,
+      fluteFactor: record.fluteFactor
+        ? parseFloat(record.fluteFactor)
+        : undefined,
       length: record.length ? parseFloat(record.length) : undefined,
       width: record.width ? parseFloat(record.width) : undefined,
       height: record.height ? parseFloat(record.height) : undefined,

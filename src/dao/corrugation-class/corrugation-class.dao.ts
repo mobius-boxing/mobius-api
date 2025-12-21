@@ -36,7 +36,9 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
    */
   async getByUuid(uuid: string): Promise<ICorrugationClass | null> {
     const knex = KnexManager.getConnection();
-    const corrugationClass = await knex(this.tableName).where("uuid", uuid).first();
+    const corrugationClass = await knex(this.tableName)
+      .where("uuid", uuid)
+      .first();
 
     return corrugationClass ? this.mapToInterface(corrugationClass) : null;
   }
@@ -52,7 +54,8 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -123,7 +126,9 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   /**
    * Internal method to map with ID (for internal use only, never send to frontend)
    */
-  private mapToInternalInterface(record: any): ICorrugationClass & { id: number } {
+  private mapToInternalInterface(
+    record: any,
+  ): ICorrugationClass & { id: number } {
     return {
       id: record.id,
       ...this.mapToInterface(record),
@@ -136,7 +141,10 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
    */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).select("id").where("uuid", uuid).first();
+    const record = await knex(this.tableName)
+      .select("id")
+      .where("uuid", uuid)
+      .first();
     return record ? record.id : null;
   }
 }

@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **MANDATORY REQUIREMENTS for ALL new endpoints:**
 
 ### 1. Read These Files FIRST (In Order):
+
 1. **`docs/main_endpoint_guide.md`** - Main endpoint implementation guide ⚠️ MUST READ for list pages
 2. **`docs/new_entity_guide.md`** - Complete step-by-step entity creation guide
 3. **`QUERY_BUILDER_GUIDE.md`** - Query builder technical documentation
@@ -41,6 +42,7 @@ public async getAll(req: Request, res: Response, next: NextFunction) {
 ```
 
 ### 4. Reference Implementation:
+
 - See `src/dao/warehouse/warehouse.dao.ts`
 - See `src/controllers/warehouse/warehouse.controller.ts`
 

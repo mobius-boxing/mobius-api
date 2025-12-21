@@ -9,7 +9,10 @@ export class WarehouseLocationCreateInputDTO {
   metadata?: any;
 
   constructor(data: any) {
-    this.warehouseId = typeof data.warehouseId === "string" ? parseInt(data.warehouseId, 10) : data.warehouseId;
+    this.warehouseId =
+      typeof data.warehouseId === "string"
+        ? parseInt(data.warehouseId, 10)
+        : data.warehouseId;
     this.row = typeof data.row === "string" ? parseInt(data.row, 10) : data.row;
     this.col = typeof data.col === "string" ? parseInt(data.col, 10) : data.col;
     this.status = data.status || "active";

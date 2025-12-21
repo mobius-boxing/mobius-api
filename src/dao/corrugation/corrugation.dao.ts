@@ -48,9 +48,13 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
             WHEN cc.id IS NOT NULL THEN to_jsonb(cc)
             ELSE NULL
           END as "corrugationClass"
-        `)
+        `),
       )
-      .leftJoin("corrugation_classes as cc", `${this.tableName}.corrugationClassId`, "cc.id")
+      .leftJoin(
+        "corrugation_classes as cc",
+        `${this.tableName}.corrugationClassId`,
+        "cc.id",
+      )
       .where(`${this.tableName}.uuid`, uuid)
       .first();
 
@@ -68,11 +72,15 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
-    if (item.theoreticalGrammage !== undefined) updateData.theoreticalGrammage = item.theoreticalGrammage;
-    if (item.suggestedWidth !== undefined) updateData.suggestedWidth = item.suggestedWidth;
+    if (item.description !== undefined)
+      updateData.description = item.description;
+    if (item.theoreticalGrammage !== undefined)
+      updateData.theoreticalGrammage = item.theoreticalGrammage;
+    if (item.suggestedWidth !== undefined)
+      updateData.suggestedWidth = item.suggestedWidth;
     if (item.caliper !== undefined) updateData.caliper = item.caliper;
-    if (item.corrugationClassId !== undefined) updateData.corrugationClassId = item.corrugationClassId;
+    if (item.corrugationClassId !== undefined)
+      updateData.corrugationClassId = item.corrugationClassId;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -113,9 +121,13 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
               WHEN cc.id IS NOT NULL THEN to_jsonb(cc)
               ELSE NULL
             END as "corrugationClass"
-          `)
+          `),
         )
-        .leftJoin("corrugation_classes as cc", `${this.tableName}.corrugationClassId`, "cc.id")
+        .leftJoin(
+          "corrugation_classes as cc",
+          `${this.tableName}.corrugationClassId`,
+          "cc.id",
+        )
         .orderBy(`${this.tableName}.code`, "asc")
         .limit(limit)
         .offset(offset),
@@ -152,8 +164,12 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
       uuid: record.uuid,
       code: record.code,
       description: record.description,
-      theoreticalGrammage: record.theoreticalGrammage ? parseFloat(record.theoreticalGrammage) : undefined,
-      suggestedWidth: record.suggestedWidth ? parseFloat(record.suggestedWidth) : undefined,
+      theoreticalGrammage: record.theoreticalGrammage
+        ? parseFloat(record.theoreticalGrammage)
+        : undefined,
+      suggestedWidth: record.suggestedWidth
+        ? parseFloat(record.suggestedWidth)
+        : undefined,
       caliper: record.caliper ? parseFloat(record.caliper) : undefined,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
@@ -165,7 +181,9 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   /**
    * Internal method to map with ID (for internal use only, never send to frontend)
    */
-  private mapToInternalInterface(record: any): ICorrugation & { id: number; corrugationClassId?: number } {
+  private mapToInternalInterface(
+    record: any,
+  ): ICorrugation & { id: number; corrugationClassId?: number } {
     return {
       id: record.id,
       corrugationClassId: record.corrugationClassId,
@@ -179,7 +197,10 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
    */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).select("id").where("uuid", uuid).first();
+    const record = await knex(this.tableName)
+      .select("id")
+      .where("uuid", uuid)
+      .first();
     return record ? record.id : null;
   }
 }

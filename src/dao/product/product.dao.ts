@@ -59,10 +59,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   /**
    * Update product by ID
    */
-  async update(
-    id: number,
-    item: Partial<IProduct>,
-  ): Promise<IProduct | null> {
+  async update(id: number, item: Partial<IProduct>): Promise<IProduct | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
 
@@ -148,10 +145,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     const knex = KnexManager.getConnection();
 
     const query = knex(this.tableName)
-      .select(
-        "products.*",
-        knex.raw("to_jsonb(customers.*) as customer"),
-      )
+      .select("products.*", knex.raw("to_jsonb(customers.*) as customer"))
       .leftJoin("customers", "products.customerId", "customers.id")
       .where("products.uuid", uuid);
 

@@ -248,7 +248,9 @@ export class UserDAO implements IBaseDAO<IUser> {
   /**
    * Map database record to interface with company name
    */
-  private mapToInterfaceWithCompanyName(record: any): IUser & { companyName?: string } {
+  private mapToInterfaceWithCompanyName(
+    record: any,
+  ): IUser & { companyName?: string } {
     return {
       ...this.mapToInterface(record),
       companyName: record.companyName || undefined,

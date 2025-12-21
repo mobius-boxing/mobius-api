@@ -12,7 +12,10 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import { Request } from "express";
-import { WarehouseLocationDAO, generateLocationCode } from "../warehouseLocation/warehouseLocation.dao";
+import {
+  WarehouseLocationDAO,
+  generateLocationCode,
+} from "../warehouseLocation/warehouseLocation.dao";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -46,18 +49,21 @@ const WAREHOUSE_SORTING: SortConfigs = {
 /**
  * Warehouse query builder configuration
  */
-const WAREHOUSE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("warehouses", {
-  filters: WAREHOUSE_FILTERS,
-  sorting: WAREHOUSE_SORTING,
-  search: {
-    columns: ["name"],
-    operator: "ILIKE",
+const WAREHOUSE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "warehouses",
+  {
+    filters: WAREHOUSE_FILTERS,
+    sorting: WAREHOUSE_SORTING,
+    search: {
+      columns: ["name"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "name",
+      order: "asc",
+    },
   },
-  defaultSort: {
-    column: "name",
-    order: "asc",
-  },
-});
+);
 
 export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   private tableName = "warehouses";
@@ -159,7 +165,8 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     const knex = KnexManager.getConnection();
 
     // Check if grid dimensions are being changed
-    const gridChanged = item.gridRows !== undefined || item.gridCols !== undefined;
+    const gridChanged =
+      item.gridRows !== undefined || item.gridCols !== undefined;
 
     if (gridChanged) {
       // Use transaction for atomic update
@@ -172,7 +179,8 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
         if (item.name !== undefined) updateData.name = item.name;
         if (item.gridRows !== undefined) updateData.grid_rows = item.gridRows;
         if (item.gridCols !== undefined) updateData.grid_cols = item.gridCols;
-        if (item.companyId !== undefined) updateData.company_id = item.companyId;
+        if (item.companyId !== undefined)
+          updateData.company_id = item.companyId;
         updateData.updated_at = trx.fn.now();
 
         const [updated] = await trx(this.tableName)
@@ -275,9 +283,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
    * Get all warehouses with advanced filtering, sorting, and search
    * Uses query builder for flexible querying
    */
-  async getAllWithFilters(
-    req: Request,
-  ): Promise<IDataPaginator<IWarehouse>> {
+  async getAllWithFilters(req: Request): Promise<IDataPaginator<IWarehouse>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 

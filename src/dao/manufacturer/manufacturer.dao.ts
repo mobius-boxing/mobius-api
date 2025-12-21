@@ -36,9 +36,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
    */
   async getByUuid(uuid: string): Promise<IManufacturer | null> {
     const knex = KnexManager.getConnection();
-    const manufacturer = await knex(this.tableName)
-      .where("uuid", uuid)
-      .first();
+    const manufacturer = await knex(this.tableName).where("uuid", uuid).first();
 
     return manufacturer ? this.mapToInterface(manufacturer) : null;
   }

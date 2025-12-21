@@ -17,21 +17,15 @@ export class FluteTypeUpdateInputDTO {
     }
     if (data.length !== undefined) {
       this.length =
-        typeof data.length === "string"
-          ? parseFloat(data.length)
-          : data.length;
+        typeof data.length === "string" ? parseFloat(data.length) : data.length;
     }
     if (data.width !== undefined) {
       this.width =
-        typeof data.width === "string"
-          ? parseFloat(data.width)
-          : data.width;
+        typeof data.width === "string" ? parseFloat(data.width) : data.width;
     }
     if (data.height !== undefined) {
       this.height =
-        typeof data.height === "string"
-          ? parseFloat(data.height)
-          : data.height;
+        typeof data.height === "string" ? parseFloat(data.height) : data.height;
     }
   }
 

@@ -7,13 +7,22 @@ export class WarehouseUpdateInputDTO {
   constructor(data: any) {
     if (data.name !== undefined) this.name = data.name;
     if (data.gridRows !== undefined) {
-      this.gridRows = typeof data.gridRows === "string" ? parseInt(data.gridRows, 10) : data.gridRows;
+      this.gridRows =
+        typeof data.gridRows === "string"
+          ? parseInt(data.gridRows, 10)
+          : data.gridRows;
     }
     if (data.gridCols !== undefined) {
-      this.gridCols = typeof data.gridCols === "string" ? parseInt(data.gridCols, 10) : data.gridCols;
+      this.gridCols =
+        typeof data.gridCols === "string"
+          ? parseInt(data.gridCols, 10)
+          : data.gridCols;
     }
     if (data.companyId !== undefined) {
-      this.companyId = typeof data.companyId === "string" ? parseInt(data.companyId, 10) : data.companyId;
+      this.companyId =
+        typeof data.companyId === "string"
+          ? parseInt(data.companyId, 10)
+          : data.companyId;
     }
   }
 

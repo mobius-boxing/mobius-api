@@ -1,6 +1,7 @@
 import { IManufacturer } from "../manufacturer/manufacturer.interfaces";
 import { ISupplier } from "../supplier/supplier.interfaces";
 import { ICompany } from "../company/company.interfaces";
+import { IPaperType } from "../paper-type/paper-type.interfaces";
 
 export interface IMinimumStock {
   pallets: number;
@@ -16,6 +17,9 @@ export interface IPaperSupply {
   name?: string;
   manufacturerId?: number;
   supplierId?: number;
+  paperTypeId?: number;
+  grammage?: number;
+  price?: number;
   minimumStock?: IMinimumStock;
   createdAt?: Date;
   updatedAt?: Date;
@@ -23,4 +27,5 @@ export interface IPaperSupply {
   manufacturer?: IManufacturer;
   supplier?: ISupplier;
   company?: ICompany;
+  paperType?: IPaperType;
 }
