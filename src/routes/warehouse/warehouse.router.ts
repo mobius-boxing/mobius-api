@@ -35,6 +35,14 @@ export class WarehouseRouter {
       apiRateLimiter,
       this.warehouseController.getByUuid.bind(this.warehouseController),
     );
+    this.router.get(
+      "/:uuid/stock",
+      authenticate,
+      requireAdmin(),
+      validateUUID(),
+      apiRateLimiter,
+      this.warehouseController.getWarehouseStock.bind(this.warehouseController),
+    );
     this.router.post(
       "/",
       authenticate,

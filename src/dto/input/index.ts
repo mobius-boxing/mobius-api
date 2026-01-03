@@ -39,3 +39,9 @@ export * from "./product";
 
 // Paper Supply DTOs
 export * from "./paperSupply";
+
+// Paper Stock DTOs
+export * from "./paperStock";
+
+// Sheet Stock DTOs
+export * from "./sheetStock";

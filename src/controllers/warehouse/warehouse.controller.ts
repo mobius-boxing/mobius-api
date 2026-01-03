@@ -6,6 +6,9 @@ import {
   IInputValidator,
 } from "@sundaysf/utils";
 import { WarehouseDAO } from "../../dao/warehouse/warehouse.dao";
+import { PaperStockDAO } from "../../dao/paper-stock/paper-stock.dao";
+import { SheetStockDAO } from "../../dao/sheet-stock/sheet-stock.dao";
+import { WarehouseLocationDAO } from "../../dao/warehouseLocation/warehouseLocation.dao";
 import { IWarehouse } from "../../interfaces/warehouse/warehouse.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
@@ -204,6 +207,139 @@ export class WarehouseController implements IBaseController {
         });
         return;
       }
+      next(err);
+    }
+  }
+
+  /**
+   * Get all stock (paper and sheet) for a warehouse, grouped by location
+   * GET /warehouse/:uuid/stock
+   */
+  public async getWarehouseStock(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { uuid } = req.params;
+
+      // Get warehouse by UUID
+      const warehouse = await this._warehouseDAO.getByUuid(uuid);
+      if (!warehouse || !warehouse.id) {
+        res.status(404).json({
+          success: false,
+          message: "Warehouse not found",
+        });
+        return;
+      }
+
+      const paperStockDAO = new PaperStockDAO();
+      const sheetStockDAO = new SheetStockDAO();
+      const warehouseLocationDAO = new WarehouseLocationDAO();
+
+      // Get all stock for this warehouse
+      const [paperStocks, sheetStocks, warehouseLocations] = await Promise.all([
+        paperStockDAO.getAllByWarehouseId(warehouse.id),
+        sheetStockDAO.getAllByWarehouseId(warehouse.id),
+        warehouseLocationDAO.getAllByWarehouseId(warehouse.id),
+      ]);
+
+      // Create a map of locationId to stock items
+      const stockByLocation: Record<
+        string,
+        {
+          locationId: number;
+          locationUuid: string;
+          locationCode: string;
+          row: number;
+          col: number;
+          locationType: string;
+          paperStock: any[];
+          sheetStock: any[];
+          totalItems: number;
+        }
+      > = {};
+
+      // Map locations for quick lookup
+      const locationMap = new Map<number, any>();
+      for (const loc of warehouseLocations) {
+        locationMap.set(loc.id!, loc);
+      }
+
+      // Track unassigned stock
+      const unassignedPaperStock: any[] = [];
+      const unassignedSheetStock: any[] = [];
+
+      // Group paper stock by location
+      for (const ps of paperStocks) {
+        if (ps.warehouseLocationId) {
+          const loc = locationMap.get(ps.warehouseLocationId);
+          if (loc) {
+            const key = String(ps.warehouseLocationId);
+            if (!stockByLocation[key]) {
+              stockByLocation[key] = {
+                locationId: loc.id,
+                locationUuid: loc.uuid,
+                locationCode: loc.locationCode,
+                row: loc.row,
+                col: loc.col,
+                locationType: loc.locationType || "storage",
+                paperStock: [],
+                sheetStock: [],
+                totalItems: 0,
+              };
+            }
+            stockByLocation[key].paperStock.push(ps);
+            stockByLocation[key].totalItems++;
+          } else {
+            unassignedPaperStock.push(ps);
+          }
+        } else {
+          unassignedPaperStock.push(ps);
+        }
+      }
+
+      // Group sheet stock by location
+      for (const ss of sheetStocks) {
+        if (ss.warehouseLocationId) {
+          const loc = locationMap.get(ss.warehouseLocationId);
+          if (loc) {
+            const key = String(ss.warehouseLocationId);
+            if (!stockByLocation[key]) {
+              stockByLocation[key] = {
+                locationId: loc.id,
+                locationUuid: loc.uuid,
+                locationCode: loc.locationCode,
+                row: loc.row,
+                col: loc.col,
+                locationType: loc.locationType || "storage",
+                paperStock: [],
+                sheetStock: [],
+                totalItems: 0,
+              };
+            }
+            stockByLocation[key].sheetStock.push(ss);
+            stockByLocation[key].totalItems++;
+          } else {
+            unassignedSheetStock.push(ss);
+          }
+        } else {
+          unassignedSheetStock.push(ss);
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          warehouse: warehouse,
+          locations: Object.values(stockByLocation),
+          unassignedPaperStock,
+          unassignedSheetStock,
+          totalPaperStock: paperStocks.length,
+          totalSheetStock: sheetStocks.length,
+        },
+      });
+    } catch (err: any) {
       next(err);
     }
   }
