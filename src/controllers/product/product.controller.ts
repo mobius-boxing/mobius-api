@@ -20,7 +20,10 @@ export class ProductController implements IBaseController {
   private _productDAO: ProductDAO = new ProductDAO();
 
   /**
-   * Get all products with pagination
+   * Get all products with pagination and filtering
+   * Uses query builder for flexible querying
+   * SuperAdmin: filters by companyId from query params (frontend sends selected company UUID)
+   * Regular users: always filtered by their assigned company
    */
   public async getAll(
     req: Request,
@@ -28,17 +31,16 @@ export class ProductController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
 
-      const result: IDataPaginator<IProduct> = await this._productDAO.getAll(
-        page,
-        limit,
-        companyId,
-      );
+      // For non-superAdmin users, enforce their company filter
+      if (user.role !== "superAdmin" && user.companyId) {
+        // Override/set the companyId query param with user's company UUID
+        req.query.companyId = user.companyId;
+      }
+
+      const result: IDataPaginator<IProduct> =
+        await this._productDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);

@@ -1,9 +1,75 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IProduct } from "../../interfaces/product/product.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * Product filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
+ */
+const PRODUCT_FILTERS: FilterConfigs = {
+  code: {
+    column: "code",
+    operator: "ILIKE",
+  },
+  clientCode: {
+    column: "clientCode",
+    operator: "ILIKE",
+  },
+  description: {
+    column: "description",
+    operator: "ILIKE",
+  },
+  customerId: {
+    column: "customerId",
+    operator: "=",
+    transform: (value: string) => parseInt(value, 10),
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * Product sort configuration
+ */
+const PRODUCT_SORTING: SortConfigs = {
+  code: { column: "code" },
+  clientCode: { column: "clientCode" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+};
+
+/**
+ * Product query builder configuration
+ */
+const PRODUCT_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("products", {
+  filters: PRODUCT_FILTERS,
+  sorting: PRODUCT_SORTING,
+  search: {
+    columns: ["code", "clientCode", "description"],
+    operator: "ILIKE",
+  },
+  defaultSort: {
+    column: "createdAt",
+    order: "desc",
+  },
+});
 
 export class ProductDAO implements IBaseDAO<IProduct> {
   private tableName = "products";
+  private queryConfig = PRODUCT_QUERY_CONFIG;
 
   /**
    * Create a new product
@@ -132,6 +198,61 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       count: products.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all products with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   * Handles companyId as UUID (joins with companies table)
+   */
+  async getAllWithFilters(req: Request): Promise<IDataPaginator<IProduct>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
+    // Build main query
+    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [products, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: products.map((product) => this.mapToInterface(product)),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: products.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 

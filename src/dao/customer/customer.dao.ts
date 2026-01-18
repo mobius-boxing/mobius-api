@@ -1,9 +1,84 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * Customer filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
+ */
+const CUSTOMER_FILTERS: FilterConfigs = {
+  name: {
+    column: "name",
+    operator: "ILIKE",
+  },
+  active: {
+    column: "active",
+    operator: "=",
+    transform: (value: string) => value === "true",
+  },
+  categoryId: {
+    column: "categoryId",
+    operator: "=",
+    transform: (value: string) => parseInt(value, 10),
+  },
+  salesPersonId: {
+    column: "salesPersonId",
+    operator: "=",
+    transform: (value: string) => parseInt(value, 10),
+  },
+  supplierCode: {
+    column: "supplier_code",
+    operator: "ILIKE",
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * Customer sort configuration
+ */
+const CUSTOMER_SORTING: SortConfigs = {
+  name: { column: "name" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+  supplierCode: { column: "supplier_code" },
+};
+
+/**
+ * Customer query builder configuration
+ */
+const CUSTOMER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "customers",
+  {
+    filters: CUSTOMER_FILTERS,
+    sorting: CUSTOMER_SORTING,
+    search: {
+      columns: ["name", "supplier_code", "legalName", "tradeName"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "createdAt",
+      order: "desc",
+    },
+  },
+);
 
 export class CustomerDAO implements IBaseDAO<ICustomer> {
   private tableName = "customers";
+  private queryConfig = CUSTOMER_QUERY_CONFIG;
 
   /**
    * Create a new customer
@@ -169,6 +244,61 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       count: customers.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all customers with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   * Handles companyId as UUID (joins with companies table)
+   */
+  async getAllWithFilters(req: Request): Promise<IDataPaginator<ICustomer>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
+    // Build main query
+    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [customers, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: customers.map((customer) => this.mapToInterface(customer)),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: customers.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 

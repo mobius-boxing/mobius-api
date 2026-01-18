@@ -1,9 +1,64 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICustomerCategory } from "../../interfaces/customer-category/customer-category.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * CustomerCategory filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
+ */
+const CUSTOMER_CATEGORY_FILTERS: FilterConfigs = {
+  name: {
+    column: "name",
+    operator: "ILIKE",
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * CustomerCategory sort configuration
+ */
+const CUSTOMER_CATEGORY_SORTING: SortConfigs = {
+  name: { column: "name" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+};
+
+/**
+ * CustomerCategory query builder configuration
+ */
+const CUSTOMER_CATEGORY_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "customer_categories",
+  {
+    filters: CUSTOMER_CATEGORY_FILTERS,
+    sorting: CUSTOMER_CATEGORY_SORTING,
+    search: {
+      columns: ["name"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "name",
+      order: "asc",
+    },
+  },
+);
 
 export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   private tableName = "customer_categories";
+  private queryConfig = CUSTOMER_CATEGORY_QUERY_CONFIG;
 
   /**
    * Create a new customer category
@@ -143,6 +198,63 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
       count: categories.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all customer categories with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   * Handles companyId as UUID (joins with companies table)
+   */
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<ICustomerCategory>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
+    // Build main query
+    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [categories, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: categories.map((category) => this.mapToInterface(category)),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: categories.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 

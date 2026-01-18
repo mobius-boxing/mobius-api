@@ -21,7 +21,10 @@ export class CustomerController implements IBaseController {
   private _customerDAO: CustomerDAO = new CustomerDAO();
 
   /**
-   * Get all customers with pagination
+   * Get all customers with pagination and filtering
+   * Uses query builder for flexible querying
+   * SuperAdmin: filters by companyId from query params (frontend sends selected company UUID)
+   * Regular users: always filtered by their assigned company
    */
   public async getAll(
     req: Request,
@@ -29,17 +32,16 @@ export class CustomerController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
 
-      const result: IDataPaginator<ICustomer> = await this._customerDAO.getAll(
-        page,
-        limit,
-        companyId,
-      );
+      // For non-superAdmin users, enforce their company filter
+      if (user.role !== "superAdmin" && user.companyId) {
+        // Override/set the companyId query param with user's company UUID
+        req.query.companyId = user.companyId;
+      }
+
+      const result: IDataPaginator<ICustomer> =
+        await this._customerDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);
