@@ -18,7 +18,14 @@ export class SupplierController implements IBaseController {
   private _supplierDAO: SupplierDAO = new SupplierDAO();
 
   /**
-   * Get all suppliers with pagination
+   * Get all suppliers with pagination, filtering, sorting, and search
+   *
+   * Query params (flat syntax):
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
+   * - code: Filter by supplier code (ILIKE)
+   * - suppliesSheets, suppliesElaborated, suppliesConsumables, suppliesPaper, suppliesTooling: Boolean filters (e.g., ?suppliesSheets=true)
+   * - search: Full-text search on code (e.g., ?search=TEST)
    */
   public async getAll(
     req: Request,
@@ -26,10 +33,8 @@ export class SupplierController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
       const result: IDataPaginator<ISupplier> =
-        await this._supplierDAO.getAll(page, limit);
+        await this._supplierDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);

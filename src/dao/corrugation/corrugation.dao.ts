@@ -1,9 +1,76 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICorrugation } from "../../interfaces/corrugation/corrugation.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * Corrugation filter configuration
+ */
+const CORRUGATION_FILTERS: FilterConfigs = {
+  code: {
+    column: "code",
+    operator: "ILIKE",
+  },
+  description: {
+    column: "description",
+    operator: "ILIKE",
+  },
+  corrugationClassId: {
+    column: "corrugationClassId",
+    operator: "=",
+    transform: (value: string) => parseInt(value, 10),
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * Corrugation sort configuration
+ */
+const CORRUGATION_SORTING: SortConfigs = {
+  code: { column: "code" },
+  description: { column: "description" },
+  theoreticalGrammage: { column: "theoreticalGrammage" },
+  suggestedWidth: { column: "suggestedWidth" },
+  caliper: { column: "caliper" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+};
+
+/**
+ * Corrugation query builder configuration
+ */
+const CORRUGATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "corrugations",
+  {
+    filters: CORRUGATION_FILTERS,
+    sorting: CORRUGATION_SORTING,
+    search: {
+      columns: ["code", "description"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "code",
+      order: "asc",
+    },
+  },
+);
 
 export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   private tableName = "corrugations";
+  private queryConfig = CORRUGATION_QUERY_CONFIG;
 
   /**
    * Create a new corrugation
@@ -104,6 +171,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
 
   /**
    * Get all corrugations with pagination
+   * @deprecated Use getAllWithFilters for advanced querying
    */
   async getAll(
     page: number,
@@ -144,6 +212,63 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
       count: corrugations.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all corrugations with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   *
+   * Supported query params:
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
+   * - code: Filter by code (ILIKE)
+   * - description: Filter by description (ILIKE)
+   * - corrugationClassId: Filter by corrugation class ID
+   * - search: Full-text search on code, description (e.g., ?search=TEST)
+   */
+  async getAllWithFilters(req: Request): Promise<IDataPaginator<ICorrugation>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Build main query with join for corrugation class
+    const dataQuery = knex(this.tableName)
+      .select(
+        `${this.tableName}.*`,
+        knex.raw(`
+          CASE
+            WHEN cc.id IS NOT NULL THEN to_jsonb(cc)
+            ELSE NULL
+          END as "corrugationClass"
+        `),
+      )
+      .leftJoin(
+        "corrugation_classes as cc",
+        `${this.tableName}.corrugationClassId`,
+        "cc.id",
+      );
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [corrugations, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: corrugations.map((item) => this.mapToInterface(item)),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: corrugations.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 

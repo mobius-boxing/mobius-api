@@ -1,10 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { PaperTypeDAO } from "../../dao/paper-type/paper-type.dao";
 import { IPaperType } from "../../interfaces/paper-type/paper-type.interfaces";
 import { IDataPaginator } from "../../database/d.types";
@@ -18,7 +14,14 @@ export class PaperTypeController implements IBaseController {
   private _paperTypeDAO: PaperTypeDAO = new PaperTypeDAO();
 
   /**
-   * Get all paper types with pagination
+   * Get all paper types with pagination, filtering, sorting, and search
+   *
+   * Query params:
+   * - page, limit: Pagination
+   * - sortBy, sortOrder: Sorting (code, description, createdAt, updatedAt)
+   * - code: Filter by code (ILIKE)
+   * - description: Filter by description (ILIKE)
+   * - search: Full-text search on code, description
    */
   public async getAll(
     req: Request,
@@ -26,10 +29,7 @@ export class PaperTypeController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
-      const result: IDataPaginator<IPaperType> =
-        await this._paperTypeDAO.getAll(page, limit);
+      const result = await this._paperTypeDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);

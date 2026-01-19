@@ -18,7 +18,13 @@ export class ManufacturerController implements IBaseController {
   private _manufacturerDAO: ManufacturerDAO = new ManufacturerDAO();
 
   /**
-   * Get all manufacturers with pagination
+   * Get all manufacturers with pagination, filtering, sorting, and search
+   *
+   * Query params (flat syntax):
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
+   * - code, name: Filter by manufacturer code or name (ILIKE)
+   * - search: Full-text search on code and name (e.g., ?search=TEST)
    */
   public async getAll(
     req: Request,
@@ -26,10 +32,8 @@ export class ManufacturerController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
       const result: IDataPaginator<IManufacturer> =
-        await this._manufacturerDAO.getAll(page, limit);
+        await this._manufacturerDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);

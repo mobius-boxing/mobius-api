@@ -1,9 +1,65 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICompany } from "../../interfaces/company/company.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * Company filter configuration
+ */
+const COMPANY_FILTERS: FilterConfigs = {
+  name: {
+    column: "name",
+    operator: "ILIKE",
+  },
+  isActive: {
+    column: "isActive",
+    operator: "=",
+    transform: (value: string) => value === "true",
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * Company sort configuration
+ */
+const COMPANY_SORTING: SortConfigs = {
+  name: { column: "name" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+};
+
+/**
+ * Company query builder configuration
+ */
+const COMPANY_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("companies", {
+  filters: COMPANY_FILTERS,
+  sorting: COMPANY_SORTING,
+  search: {
+    columns: ["name", "description"],
+    operator: "ILIKE",
+  },
+  defaultSort: {
+    column: "createdAt",
+    order: "desc",
+  },
+});
 
 export class CompanyDAO implements IBaseDAO<ICompany> {
   private tableName = "companies";
+  private queryConfig = COMPANY_QUERY_CONFIG;
 
   /**
    * Create a new company
@@ -89,6 +145,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
 
   /**
    * Get all companies with pagination
+   * @deprecated Use getAllWithFilters for advanced querying
    */
   async getAll(page: number, limit: number): Promise<IDataPaginator<ICompany>> {
     const knex = KnexManager.getConnection();
@@ -113,6 +170,48 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
       count: companies.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all companies with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   *
+   * Supported query params:
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=name&sortOrder=asc)
+   * - name: Filter by name (ILIKE)
+   * - isActive: Filter by active status (boolean)
+   * - search: Full-text search on name, description (e.g., ?search=TEST)
+   */
+  async getAllWithFilters(req: Request): Promise<IDataPaginator<ICompany>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Build main query
+    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [companies, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: companies.map((company) => this.mapToInterface(company)),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: companies.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 

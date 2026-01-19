@@ -1,10 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { CorrugationClassDAO } from "../../dao/corrugation-class/corrugation-class.dao";
 import { ICorrugationClass } from "../../interfaces/corrugation-class/corrugation-class.interfaces";
 import { IDataPaginator } from "../../database/d.types";
@@ -18,7 +14,14 @@ export class CorrugationClassController implements IBaseController {
   private _corrugationClassDAO: CorrugationClassDAO = new CorrugationClassDAO();
 
   /**
-   * Get all corrugation classes with pagination
+   * Get all corrugation classes with pagination, filtering, sorting, and search
+   *
+   * Query params:
+   * - page, limit: Pagination
+   * - sortBy, sortOrder: Sorting (code, description, createdAt, updatedAt)
+   * - code: Filter by code (ILIKE)
+   * - description: Filter by description (ILIKE)
+   * - search: Full-text search on code, description
    */
   public async getAll(
     req: Request,
@@ -26,10 +29,7 @@ export class CorrugationClassController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
-      const result: IDataPaginator<ICorrugationClass> =
-        await this._corrugationClassDAO.getAll(page, limit);
+      const result = await this._corrugationClassDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);

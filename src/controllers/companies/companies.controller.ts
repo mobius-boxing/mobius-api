@@ -1,10 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { ICompany } from "../../interfaces/company/company.interfaces";
 import { IDataPaginator } from "../../database/d.types";
@@ -18,7 +14,14 @@ export class CompaniesController implements IBaseController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
 
   /**
-   * Get all companies with pagination
+   * Get all companies with pagination, filtering, sorting, and search
+   *
+   * Query params:
+   * - page, limit: Pagination
+   * - sortBy, sortOrder: Sorting (name, createdAt, updatedAt)
+   * - name: Filter by name (ILIKE)
+   * - isActive: Filter by active status (boolean)
+   * - search: Full-text search on name, description
    */
   public async getAll(
     req: Request,
@@ -26,11 +29,7 @@ export class CompaniesController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-      const result: IDataPaginator<ICompany> = await this._companyDAO.getAll(
-        page,
-        limit,
-      );
+      const result = await this._companyDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);

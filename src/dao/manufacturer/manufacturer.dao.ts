@@ -1,9 +1,68 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IManufacturer } from "../../interfaces/manufacturer/manufacturer.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * Manufacturer filter configuration
+ */
+const MANUFACTURER_FILTERS: FilterConfigs = {
+  code: {
+    column: "code",
+    operator: "ILIKE",
+  },
+  name: {
+    column: "name",
+    operator: "ILIKE",
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * Manufacturer sort configuration
+ */
+const MANUFACTURER_SORTING: SortConfigs = {
+  code: { column: "code" },
+  name: { column: "name" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+};
+
+/**
+ * Manufacturer query builder configuration
+ */
+const MANUFACTURER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "manufacturers",
+  {
+    filters: MANUFACTURER_FILTERS,
+    sorting: MANUFACTURER_SORTING,
+    search: {
+      columns: ["code", "name"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "code",
+      order: "asc",
+    },
+  },
+);
 
 export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
   private tableName = "manufacturers";
+  private queryConfig = MANUFACTURER_QUERY_CONFIG;
 
   /**
    * Create a new manufacturer
@@ -90,6 +149,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
 
   /**
    * Get all manufacturers with pagination
+   * @deprecated Use getAllWithFilters for advanced querying
    */
   async getAll(
     page: number,
@@ -119,6 +179,51 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
       count: manufacturers.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all manufacturers with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   *
+   * Supported query params:
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
+   * - code, name: Filter by code or name (ILIKE)
+   * - search: Full-text search on code and name (e.g., ?search=TEST)
+   */
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IManufacturer>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Build main query
+    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [manufacturers, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: manufacturers.map((manufacturer) =>
+        this.mapToInterface(manufacturer),
+      ),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: manufacturers.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 

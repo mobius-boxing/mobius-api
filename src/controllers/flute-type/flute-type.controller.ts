@@ -1,10 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { FluteTypeDAO } from "../../dao/flute-type/flute-type.dao";
 import { IFluteType } from "../../interfaces/flute-type/flute-type.interfaces";
 import { IDataPaginator } from "../../database/d.types";
@@ -18,7 +14,14 @@ export class FluteTypeController implements IBaseController {
   private _fluteTypeDAO: FluteTypeDAO = new FluteTypeDAO();
 
   /**
-   * Get all flute types with pagination
+   * Get all flute types with pagination, filtering, sorting, and search
+   *
+   * Query params:
+   * - page, limit: Pagination
+   * - sortBy, sortOrder: Sorting (code, description, fluteFactor, length, width, height, createdAt, updatedAt)
+   * - code: Filter by code (ILIKE)
+   * - description: Filter by description (ILIKE)
+   * - search: Full-text search on code, description
    */
   public async getAll(
     req: Request,
@@ -26,10 +29,7 @@ export class FluteTypeController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
-      const result: IDataPaginator<IFluteType> =
-        await this._fluteTypeDAO.getAll(page, limit);
+      const result = await this._fluteTypeDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);

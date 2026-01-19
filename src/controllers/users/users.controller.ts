@@ -1,10 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { UserDAO } from "../../dao/user/user.dao";
 import { IUser } from "../../interfaces/user/user.interfaces";
 import { IDataPaginator } from "../../database/d.types";
@@ -24,8 +20,20 @@ export class UsersController implements IBaseController {
   private _emailService: EmailService = new EmailService();
 
   /**
-   * Get all users with pagination
+   * Get all users with pagination, filtering, sorting, and search
    * SuperAdmins see all users, Admins see only users from their company
+   *
+   * Query params:
+   * - page, limit: Pagination
+   * - sortBy, sortOrder: Sorting (email, firstName, lastName, role, isActive, createdAt, updatedAt)
+   * - email: Filter by email (ILIKE)
+   * - firstName: Filter by first name (ILIKE)
+   * - lastName: Filter by last name (ILIKE)
+   * - role: Filter by role (exact match)
+   * - companyId: Filter by company ID
+   * - isActive: Filter by active status (boolean)
+   * - emailVerified: Filter by email verified status (boolean)
+   * - search: Full-text search on email, firstName, lastName
    */
   public async getAll(
     req: Request,
@@ -33,14 +41,13 @@ export class UsersController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
       const currentUser = (req as any).user;
 
       let result: IDataPaginator<IUser>;
 
       if (currentUser.role === "superAdmin") {
         // SuperAdmin sees all users
-        result = await this._userDAO.getAll(page, limit);
+        result = await this._userDAO.getAllWithFilters(req);
       } else {
         // Admin sees only users from their company
         const adminUser = await this._userDAO.getByUuid(currentUser.userId);
@@ -51,10 +58,14 @@ export class UsersController implements IBaseController {
           });
           return;
         }
+        // For non-superAdmin, still use getAllWithFilters but the company filter
+        // will be applied by the DAO based on companyId in the query
+        // For now, fall back to getAllByCompany for company-scoped users
+        const { page = 1, limit = 20 } = req.query;
         result = await this._userDAO.getAllByCompany(
           adminUser.companyId,
-          page,
-          limit,
+          Number(page),
+          Number(limit),
         );
       }
 

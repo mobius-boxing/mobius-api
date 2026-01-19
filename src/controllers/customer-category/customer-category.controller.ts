@@ -14,6 +14,7 @@ import {
   CustomerCategoryCreateInputDTO,
   CustomerCategoryUpdateInputDTO,
 } from "../../dto/input/customerCategory";
+import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
 
 export class CustomerCategoryController implements IBaseController {
   private _customerCategoryDAO: CustomerCategoryDAO = new CustomerCategoryDAO();
@@ -30,13 +31,8 @@ export class CustomerCategoryController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const user = (req as any).user;
-
       // For non-superAdmin users, enforce their company filter
-      if (user.role !== "superAdmin" && user.companyId) {
-        // Override/set the companyId query param with user's company UUID
-        req.query.companyId = user.companyId;
-      }
+      enforceCompanyFilter(req);
 
       const result: IDataPaginator<ICustomerCategory> =
         await this._customerCategoryDAO.getAllWithFilters(req);
@@ -58,8 +54,7 @@ export class CustomerCategoryController implements IBaseController {
       const { uuid } = req.params;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       const result = await this._customerCategoryDAO.getByUuid(uuid, companyId);
 
@@ -182,8 +177,7 @@ export class CustomerCategoryController implements IBaseController {
       const data = req.body;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       // Get customer category by UUID to find its ID and verify ownership
       const existing = await this._customerCategoryDAO.getByUuid(
@@ -232,8 +226,7 @@ export class CustomerCategoryController implements IBaseController {
       const { uuid } = req.params;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       // Get customer category by UUID to find its ID and verify ownership
       const existing = await this._customerCategoryDAO.getByUuid(

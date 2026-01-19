@@ -16,6 +16,7 @@ import {
   CustomerCreateInputDTO,
   CustomerUpdateInputDTO,
 } from "../../dto/input/customer";
+import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
 
 export class CustomerController implements IBaseController {
   private _customerDAO: CustomerDAO = new CustomerDAO();
@@ -32,13 +33,8 @@ export class CustomerController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const user = (req as any).user;
-
       // For non-superAdmin users, enforce their company filter
-      if (user.role !== "superAdmin" && user.companyId) {
-        // Override/set the companyId query param with user's company UUID
-        req.query.companyId = user.companyId;
-      }
+      enforceCompanyFilter(req);
 
       const result: IDataPaginator<ICustomer> =
         await this._customerDAO.getAllWithFilters(req);
@@ -60,8 +56,7 @@ export class CustomerController implements IBaseController {
       const { uuid } = req.params;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       const result = await this._customerDAO.getByUuid(uuid, companyId);
 
@@ -234,8 +229,7 @@ export class CustomerController implements IBaseController {
       const data = req.body;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       // Get customer by UUID to find its ID and verify ownership
       const existing = await this._customerDAO.getByUuid(uuid, companyId);
@@ -317,8 +311,7 @@ export class CustomerController implements IBaseController {
       const { uuid } = req.params;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       // Get customer by UUID to find its ID and verify ownership
       const existing = await this._customerDAO.getByUuid(uuid, companyId);
@@ -372,8 +365,7 @@ export class CustomerController implements IBaseController {
       const { uuid } = req.params;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       const result = await this._customerDAO.getCustomerWithDetails(
         uuid,

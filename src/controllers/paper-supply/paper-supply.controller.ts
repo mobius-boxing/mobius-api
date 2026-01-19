@@ -16,6 +16,7 @@ import {
   PaperSupplyCreateInputDTO,
   PaperSupplyUpdateInputDTO,
 } from "../../dto/input/paperSupply";
+import { getCompanyFilterUuid } from "../../utils/companyScope";
 
 export class PaperSupplyController implements IBaseController {
   private _paperSupplyDAO: PaperSupplyDAO = new PaperSupplyDAO();
@@ -32,8 +33,7 @@ export class PaperSupplyController implements IBaseController {
       const { page, limit } = paginationHelper(req);
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       const result: IDataPaginator<IPaperSupply> =
         await this._paperSupplyDAO.getAll(page, limit, companyId);
@@ -55,8 +55,7 @@ export class PaperSupplyController implements IBaseController {
       const { uuid } = req.params;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       const result = await this._paperSupplyDAO.getByUuid(uuid, companyId);
 
@@ -215,8 +214,7 @@ export class PaperSupplyController implements IBaseController {
       const data = req.body;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       // Get paper supply by UUID to find its ID and verify ownership
       const existing = await this._paperSupplyDAO.getByUuid(uuid, companyId);
@@ -290,8 +288,7 @@ export class PaperSupplyController implements IBaseController {
       const { uuid } = req.params;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       // Get paper supply by UUID to find its ID and verify ownership
       const existing = await this._paperSupplyDAO.getByUuid(uuid, companyId);
@@ -345,8 +342,7 @@ export class PaperSupplyController implements IBaseController {
       const { uuid } = req.params;
 
       // Extract companyId - SuperAdmin sees all, others see only their company
-      const user = (req as any).user;
-      const companyId = user.role === "superAdmin" ? undefined : user.companyId;
+      const companyId = getCompanyFilterUuid(req);
 
       const result = await this._paperSupplyDAO.getWithDetails(
         uuid,

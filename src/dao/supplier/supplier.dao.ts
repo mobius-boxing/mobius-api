@@ -1,9 +1,85 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ISupplier } from "../../interfaces/supplier/supplier.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * Supplier filter configuration
+ */
+const SUPPLIER_FILTERS: FilterConfigs = {
+  code: {
+    column: "code",
+    operator: "ILIKE",
+  },
+  suppliesSheets: {
+    column: "suppliesSheets",
+    operator: "=",
+    transform: (value: string) => value === "true",
+  },
+  suppliesElaborated: {
+    column: "suppliesElaborated",
+    operator: "=",
+    transform: (value: string) => value === "true",
+  },
+  suppliesConsumables: {
+    column: "suppliesConsumables",
+    operator: "=",
+    transform: (value: string) => value === "true",
+  },
+  suppliesPaper: {
+    column: "suppliesPaper",
+    operator: "=",
+    transform: (value: string) => value === "true",
+  },
+  suppliesTooling: {
+    column: "suppliesTooling",
+    operator: "=",
+    transform: (value: string) => value === "true",
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * Supplier sort configuration
+ */
+const SUPPLIER_SORTING: SortConfigs = {
+  code: { column: "code" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+};
+
+/**
+ * Supplier query builder configuration
+ */
+const SUPPLIER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("suppliers", {
+  filters: SUPPLIER_FILTERS,
+  sorting: SUPPLIER_SORTING,
+  search: {
+    columns: ["code"],
+    operator: "ILIKE",
+  },
+  defaultSort: {
+    column: "code",
+    order: "asc",
+  },
+});
 
 export class SupplierDAO implements IBaseDAO<ISupplier> {
   private tableName = "suppliers";
+  private queryConfig = SUPPLIER_QUERY_CONFIG;
 
   /**
    * Create a new supplier
@@ -103,6 +179,7 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
 
   /**
    * Get all suppliers with pagination
+   * @deprecated Use getAllWithFilters for advanced querying
    */
   async getAll(
     page: number,
@@ -130,6 +207,48 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
       count: suppliers.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all suppliers with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   *
+   * Supported query params:
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
+   * - code: Filter by code (ILIKE)
+   * - suppliesSheets, suppliesElaborated, suppliesConsumables, suppliesPaper, suppliesTooling: Boolean filters
+   * - search: Full-text search on code (e.g., ?search=TEST)
+   */
+  async getAllWithFilters(req: Request): Promise<IDataPaginator<ISupplier>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Build main query
+    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [suppliers, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: suppliers.map((supplier) => this.mapToInterface(supplier)),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: suppliers.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 

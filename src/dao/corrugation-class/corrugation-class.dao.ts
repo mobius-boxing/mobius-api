@@ -1,9 +1,68 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICorrugationClass } from "../../interfaces/corrugation-class/corrugation-class.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * Corrugation Class filter configuration
+ */
+const CORRUGATION_CLASS_FILTERS: FilterConfigs = {
+  code: {
+    column: "code",
+    operator: "ILIKE",
+  },
+  description: {
+    column: "description",
+    operator: "ILIKE",
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * Corrugation Class sort configuration
+ */
+const CORRUGATION_CLASS_SORTING: SortConfigs = {
+  code: { column: "code" },
+  description: { column: "description" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+};
+
+/**
+ * Corrugation Class query builder configuration
+ */
+const CORRUGATION_CLASS_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "corrugation_classes",
+  {
+    filters: CORRUGATION_CLASS_FILTERS,
+    sorting: CORRUGATION_CLASS_SORTING,
+    search: {
+      columns: ["code", "description"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "code",
+      order: "asc",
+    },
+  },
+);
 
 export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   private tableName = "corrugation_classes";
+  private queryConfig = CORRUGATION_CLASS_QUERY_CONFIG;
 
   /**
    * Create a new corrugation class
@@ -79,6 +138,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
 
   /**
    * Get all corrugation classes with pagination
+   * @deprecated Use getAllWithFilters for advanced querying
    */
   async getAll(
     page: number,
@@ -106,6 +166,50 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
       count: corrugationClasses.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all corrugation classes with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   *
+   * Supported query params:
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
+   * - code: Filter by code (ILIKE)
+   * - description: Filter by description (ILIKE)
+   * - search: Full-text search on code, description (e.g., ?search=TEST)
+   */
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<ICorrugationClass>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Build main query
+    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [corrugationClasses, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: corrugationClasses.map((item) => this.mapToInterface(item)),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: corrugationClasses.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 

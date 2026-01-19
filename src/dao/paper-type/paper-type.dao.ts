@@ -1,9 +1,68 @@
 import KnexManager from "../../database/KnexConnection";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IPaperType } from "../../interfaces/paper-type/paper-type.interfaces";
+import {
+  parseQueryParams,
+  buildQuery,
+  buildCountQuery,
+  createQueryConfig,
+  type QueryBuilderConfig,
+  type ParsedQuery,
+  type FilterConfigs,
+  type SortConfigs,
+} from "../../utils/queryBuilder";
+import { Request } from "express";
+
+/**
+ * Paper Type filter configuration
+ */
+const PAPER_TYPE_FILTERS: FilterConfigs = {
+  code: {
+    column: "code",
+    operator: "ILIKE",
+  },
+  description: {
+    column: "description",
+    operator: "ILIKE",
+  },
+  uuid: {
+    column: "uuid",
+    operator: "=",
+  },
+};
+
+/**
+ * Paper Type sort configuration
+ */
+const PAPER_TYPE_SORTING: SortConfigs = {
+  code: { column: "code" },
+  description: { column: "description" },
+  createdAt: { column: "createdAt" },
+  updatedAt: { column: "updatedAt" },
+};
+
+/**
+ * Paper Type query builder configuration
+ */
+const PAPER_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "paper_types",
+  {
+    filters: PAPER_TYPE_FILTERS,
+    sorting: PAPER_TYPE_SORTING,
+    search: {
+      columns: ["code", "description"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "code",
+      order: "asc",
+    },
+  },
+);
 
 export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   private tableName = "paper_types";
+  private queryConfig = PAPER_TYPE_QUERY_CONFIG;
 
   /**
    * Create a new paper type
@@ -89,6 +148,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
 
   /**
    * Get all paper types with pagination
+   * @deprecated Use getAllWithFilters for advanced querying
    */
   async getAll(
     page: number,
@@ -116,6 +176,48 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
       count: paperTypes.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Get all paper types with advanced filtering, sorting, and search
+   * Uses query builder for flexible querying
+   *
+   * Supported query params:
+   * - page, limit: Pagination (e.g., ?page=1&limit=20)
+   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
+   * - code: Filter by code (ILIKE)
+   * - description: Filter by description (ILIKE)
+   * - search: Full-text search on code, description (e.g., ?search=TEST)
+   */
+  async getAllWithFilters(req: Request): Promise<IDataPaginator<IPaperType>> {
+    const knex = KnexManager.getConnection();
+    const parsedQuery: ParsedQuery = parseQueryParams(req);
+
+    // Build main query
+    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+    buildQuery(dataQuery, parsedQuery, this.queryConfig);
+
+    // Build count query (same filters, no pagination/sorting)
+    const countQuery = knex(this.tableName);
+    buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    // Execute both queries in parallel
+    const [paperTypes, totalResult] = await Promise.all([
+      dataQuery,
+      countQuery.count("* as count").first(),
+    ]);
+
+    const totalCount = parseInt(totalResult?.count as string) || 0;
+
+    return {
+      success: true,
+      data: paperTypes.map((paperType) => this.mapToInterface(paperType)),
+      page: parsedQuery.page,
+      limit: parsedQuery.limit,
+      count: paperTypes.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / parsedQuery.limit),
     };
   }
 
