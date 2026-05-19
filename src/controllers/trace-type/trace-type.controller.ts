@@ -13,9 +13,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * TraceType — CRUD with Co-scope-A. DAO has no getIdByUuid; base falls back.
- */
 export class TraceTypeController extends BaseCrudController<ITraceType> {
   protected dao = new TraceTypeDAO();
   protected options: BaseCrudOptions = {

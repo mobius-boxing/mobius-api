@@ -13,10 +13,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * FlapType — CRUD with Co-scope-A. DAO has no getIdByUuid; base falls back to
- * getByUuid()?.id transparently.
- */
 export class FlapTypeController extends BaseCrudController<IFlapType> {
   protected dao = new FlapTypeDAO();
   protected options: BaseCrudOptions = {

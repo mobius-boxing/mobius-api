@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Manufacturer filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const MANUFACTURER_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -32,9 +30,6 @@ const MANUFACTURER_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Manufacturer sort configuration
- */
 const MANUFACTURER_SORTING: SortConfigs = {
   code: { column: "code" },
   name: { column: "name" },
@@ -42,9 +37,6 @@ const MANUFACTURER_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Manufacturer query builder configuration
- */
 const MANUFACTURER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "manufacturers",
   {
@@ -65,9 +57,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
   private tableName = "manufacturers";
   private queryConfig = MANUFACTURER_QUERY_CONFIG;
 
-  /**
-   * Create a new manufacturer
-   */
   async create(item: IManufacturer): Promise<IManufacturer> {
     const knex = KnexManager.getConnection();
     const [manufacturer] = await knex(this.tableName)
@@ -82,9 +71,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     return this.mapToInterface(manufacturer);
   }
 
-  /**
-   * Get manufacturer by ID
-   */
   async getById(id: number): Promise<IManufacturer | null> {
     const knex = KnexManager.getConnection();
     const manufacturer = await knex(this.tableName).where("id", id).first();
@@ -92,9 +78,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     return manufacturer ? this.mapToInterface(manufacturer) : null;
   }
 
-  /**
-   * Get manufacturer by UUID
-   */
   async getByUuid(uuid: string): Promise<IManufacturer | null> {
     const knex = KnexManager.getConnection();
     const manufacturer = await knex(this.tableName).where("uuid", uuid).first();
@@ -102,10 +85,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     return manufacturer ? this.mapToInterface(manufacturer) : null;
   }
 
-  /**
-   * Get manufacturer numeric ID by UUID string
-   * Used for converting UUID foreign keys to database IDs
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const manufacturer = await knex(this.tableName)
@@ -116,9 +95,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     return manufacturer ? manufacturer.id : null;
   }
 
-  /**
-   * Update manufacturer by ID
-   */
   async update(
     id: number,
     item: Partial<IManufacturer>,
@@ -139,9 +115,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     return manufacturer ? this.mapToInterface(manufacturer) : null;
   }
 
-  /**
-   * Delete manufacturer by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -150,8 +123,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
   }
 
   /**
-   * Get all manufacturers with pagination
-   * @deprecated Use getAllWithFilters for advanced querying
+   * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(
     page: number,
@@ -184,30 +156,18 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     };
   }
 
-  /**
-   * Get all manufacturers with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   *
-   * Supported query params:
-   * - page, limit: Pagination (e.g., ?page=1&limit=20)
-   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
-   * - code, name: Filter by code or name (ILIKE)
-   * - search: Full-text search on code and name (e.g., ?search=TEST)
-   */
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IManufacturer>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -216,7 +176,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -227,7 +186,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [manufacturers, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -248,9 +206,6 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IManufacturer {
     return {
       id: record.id,

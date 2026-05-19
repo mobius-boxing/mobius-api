@@ -13,10 +13,6 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Consumable Stock filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
 const CONSUMABLE_STOCK_FILTERS: FilterConfigs = {
   warehouseId: {
     column: `"consumable_stock"."warehouseId"`,
@@ -185,16 +181,16 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // companyId arrives as a UUID; resolve via warehouses → companies join (consumable_stock has
+    // no direct companyId column).
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
     const dataQuery = this.buildJoinQuery(knex);
-    // Count query must also join with warehouses
+    // Count query must join warehouses too so the company-uuid filter resolves.
     const countQuery = knex(this.tableName)
       .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id");
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", "warehouses.company_id", "companies.id")

@@ -11,9 +11,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * PaperType — plain CRUD.
- */
 export class PaperTypeController extends BaseCrudController<IPaperType> {
   protected dao = new PaperTypeDAO();
   protected options: BaseCrudOptions = {

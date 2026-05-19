@@ -17,9 +17,6 @@ export class InvitationsController implements IBaseController {
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _companyDAO: CompanyDAO = new CompanyDAO();
 
-  /**
-   * Get invitation statistics
-   */
   public async getStats(
     req: Request,
     res: Response,
@@ -32,7 +29,6 @@ export class InvitationsController implements IBaseController {
 
       let query = knex("invitations");
 
-      // If companyId provided (as UUID), filter by company
       if (companyId) {
         const company = await this._companyDAO.getByUuid(companyId as string);
         if (company && company.id) {
@@ -40,7 +36,6 @@ export class InvitationsController implements IBaseController {
         }
       }
 
-      // Get counts
       const [
         totalResult,
         pendingResult,
@@ -77,9 +72,6 @@ export class InvitationsController implements IBaseController {
     }
   }
 
-  /**
-   * Get all invitations with pagination
-   */
   public async getAll(
     req: Request,
     res: Response,
@@ -95,9 +87,6 @@ export class InvitationsController implements IBaseController {
     }
   }
 
-  /**
-   * Get invitation by UUID
-   */
   public async getByUuid(
     req: Request,
     res: Response,
@@ -124,9 +113,6 @@ export class InvitationsController implements IBaseController {
     }
   }
 
-  /**
-   * Create a new invitation
-   */
   public async create(
     req: Request,
     res: Response,
@@ -135,7 +121,6 @@ export class InvitationsController implements IBaseController {
     try {
       const data = req.body;
 
-      // Validate input using DTO
       const inputDTO = new InvitationCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
@@ -143,10 +128,9 @@ export class InvitationsController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      // Generate secure token
       const token = crypto.randomBytes(32).toString("hex");
 
-      // Set expiration (default 7 days from now)
+      // Invitations expire 7 days after creation.
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
@@ -163,10 +147,6 @@ export class InvitationsController implements IBaseController {
 
       const result = await this._invitationDAO.create(dataToCreate);
 
-      // TODO: Send invitation email
-      // In production, you would send an email here with the invitation link
-      // Example: await emailService.sendInvitation(result.email, token);
-
       res.status(201).json({
         success: true,
         data: result,
@@ -176,9 +156,6 @@ export class InvitationsController implements IBaseController {
     }
   }
 
-  /**
-   * Update invitation by UUID
-   */
   public async update(
     req: Request,
     res: Response,
@@ -188,7 +165,6 @@ export class InvitationsController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      // Get invitation by UUID to find its ID
       const existing = await this._invitationDAO.getByUuid(uuid);
       if (!existing || !existing.id) {
         res.status(404).json({
@@ -217,9 +193,6 @@ export class InvitationsController implements IBaseController {
     }
   }
 
-  /**
-   * Delete invitation by UUID
-   */
   public async delete(
     req: Request,
     res: Response,
@@ -228,7 +201,6 @@ export class InvitationsController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Get invitation by UUID to find its ID
       const existing = await this._invitationDAO.getByUuid(uuid);
       if (!existing || !existing.id) {
         res.status(404).json({
@@ -256,9 +228,6 @@ export class InvitationsController implements IBaseController {
     }
   }
 
-  /**
-   * Get invitation by token
-   */
   public async getByToken(
     req: Request,
     res: Response,
@@ -276,7 +245,6 @@ export class InvitationsController implements IBaseController {
         return;
       }
 
-      // Check if invitation is expired
       if (new Date(result.expiresAt) < new Date()) {
         res.status(400).json({
           success: false,
@@ -285,7 +253,6 @@ export class InvitationsController implements IBaseController {
         return;
       }
 
-      // Check if invitation is already used
       if (result.isUsed) {
         res.status(400).json({
           success: false,
@@ -303,9 +270,6 @@ export class InvitationsController implements IBaseController {
     }
   }
 
-  /**
-   * Get active invitations for a company
-   */
   public async getActiveInvitations(
     req: Request,
     res: Response,
@@ -326,9 +290,6 @@ export class InvitationsController implements IBaseController {
     }
   }
 
-  /**
-   * Accept invitation
-   */
   public async acceptInvitation(
     req: Request,
     res: Response,
@@ -347,7 +308,6 @@ export class InvitationsController implements IBaseController {
         return;
       }
 
-      // Check if invitation is expired
       if (new Date(invitation.expiresAt) < new Date()) {
         res.status(400).json({
           success: false,
@@ -356,7 +316,6 @@ export class InvitationsController implements IBaseController {
         return;
       }
 
-      // Check if invitation is already used
       if (invitation.isUsed) {
         res.status(400).json({
           success: false,
@@ -365,7 +324,6 @@ export class InvitationsController implements IBaseController {
         return;
       }
 
-      // Mark invitation as used
       const result = await this._invitationDAO.update(invitation.id, {
         isUsed: true,
         acceptedAt: new Date(),

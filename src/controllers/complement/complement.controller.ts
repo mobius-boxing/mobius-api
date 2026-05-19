@@ -13,9 +13,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * Complement — CRUD with Co-scope-A (inline knex("companies") lookup).
- */
 export class ComplementController extends BaseCrudController<IComplement> {
   protected dao = new ComplementDAO();
   protected options: BaseCrudOptions = {

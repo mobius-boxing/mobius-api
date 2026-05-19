@@ -13,9 +13,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * GlueType — CRUD with Co-scope-A. DAO has no getIdByUuid; base falls back.
- */
 export class GlueTypeController extends BaseCrudController<IGlueType> {
   protected dao = new GlueTypeDAO();
   protected options: BaseCrudOptions = {

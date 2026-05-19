@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Glue Type filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const GLUE_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -32,9 +30,6 @@ const GLUE_TYPE_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Glue Type sort configuration
- */
 const GLUE_TYPE_SORTING: SortConfigs = {
   code: { column: "code" },
   description: { column: "description" },
@@ -42,9 +37,6 @@ const GLUE_TYPE_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Glue Type query builder configuration
- */
 const GLUE_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "glue_types",
   {
@@ -65,9 +57,6 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   private tableName = "glue_types";
   private queryConfig = GLUE_TYPE_QUERY_CONFIG;
 
-  /**
-   * Create a new glue type
-   */
   async create(item: IGlueType): Promise<IGlueType> {
     const knex = KnexManager.getConnection();
     const [glueType] = await knex(this.tableName)
@@ -82,9 +71,6 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     return this.mapToInterface(glueType);
   }
 
-  /**
-   * Get glue type by ID
-   */
   async getById(id: number): Promise<IGlueType | null> {
     const knex = KnexManager.getConnection();
     const glueType = await knex(this.tableName).where("id", id).first();
@@ -92,9 +78,6 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     return glueType ? this.mapToInterface(glueType) : null;
   }
 
-  /**
-   * Get glue type by UUID
-   */
   async getByUuid(uuid: string): Promise<IGlueType | null> {
     const knex = KnexManager.getConnection();
     const glueType = await knex(this.tableName).where("uuid", uuid).first();
@@ -102,9 +85,6 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     return glueType ? this.mapToInterface(glueType) : null;
   }
 
-  /**
-   * Update glue type by ID
-   */
   async update(id: number, item: Partial<IGlueType>): Promise<IGlueType | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
@@ -122,9 +102,6 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     return glueType ? this.mapToInterface(glueType) : null;
   }
 
-  /**
-   * Delete glue type by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -133,8 +110,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   }
 
   /**
-   * Get all glue types with pagination
-   * @deprecated Use getAllWithFilters for advanced querying
+   * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IGlueType>> {
     const knex = KnexManager.getConnection();
@@ -162,22 +138,16 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     };
   }
 
-  /**
-   * Get all glue types with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IGlueType>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -186,7 +156,6 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -197,7 +166,6 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [glueTypes, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -216,9 +184,6 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IGlueType {
     return {
       id: record.id,

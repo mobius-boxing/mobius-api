@@ -13,10 +13,7 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Consumable Type filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const CONSUMABLE_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -154,14 +151,13 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
     const countQuery = knex(this.tableName);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")

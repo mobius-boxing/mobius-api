@@ -16,32 +16,16 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * PaperStock — CRUD with 5 FK UUID→ID resolutions and a getByUuid override
- * that returns the enriched payload from dao.getWithDetails(uuid).
- *
- * FKs (numeric-id keyed DTO, no empty-string-clears semantics on update):
- *   - warehouseId, supplierId, manufacturerId, paperSupplyId, warehouseLocationId
- *
- * Frontend sends these as string UUIDs; controller resolves to numeric IDs
- * (mutates req.body in-place before DTO validation, mirroring original).
- */
 export class PaperStockController extends BaseCrudController<IPaperStock> {
   protected dao = new PaperStockDAO();
   protected options: BaseCrudOptions = {
     entityLabel: "Paper stock",
   };
 
-  /** Override: GET /:uuid returns the rich joined payload, not the bare row. */
   protected async getOneByUuid(uuid: string): Promise<IPaperStock | null> {
     return this.dao.getWithDetails(uuid);
   }
 
-  /**
-   * Resolve all 5 FK UUIDs → numeric IDs on the raw request body in-place,
-   * exactly as the original controller did. Returns true on success, false if
-   * an error response was already written.
-   */
   private async resolveForeignKeys(
     data: any,
     res: Response,
@@ -115,7 +99,6 @@ export class PaperStockController extends BaseCrudController<IPaperStock> {
     res: Response,
     next: NextFunction,
   ): Promise<any | null> {
-    // Original sequence: FK resolution BEFORE DTO validation.
     const ok = await this.resolveForeignKeys(req.body, res);
     if (!ok) return null;
 
@@ -127,7 +110,6 @@ export class PaperStockController extends BaseCrudController<IPaperStock> {
       return null;
     }
 
-    // Mirror original explicit-field create payload.
     return {
       warehouseId: inputDTO.warehouseId,
       warehouseLocationId: inputDTO.warehouseLocationId,
@@ -158,7 +140,6 @@ export class PaperStockController extends BaseCrudController<IPaperStock> {
       return null;
     }
 
-    // Original passes inputDTO directly to dao.update.
     return inputDTO;
   }
 }

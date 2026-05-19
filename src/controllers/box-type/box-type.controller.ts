@@ -13,16 +13,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * BoxType — CRUD with Co-scope-A (companyId attached on create via inline
- * knex("companies") lookup).
- *
- * Query params (getAll):
- * - page, limit: Pagination
- * - sortBy, sortOrder: Sorting (code|name|createdAt|updatedAt, asc|desc)
- * - code, name, uuid: Filtering (ILIKE for code/name, = for uuid)
- * - search: Full-text search across code and name
- */
 export class BoxTypeController extends BaseCrudController<IBoxType> {
   protected dao = new BoxTypeDAO();
   protected options: BaseCrudOptions = {
@@ -41,7 +31,6 @@ export class BoxTypeController extends BaseCrudController<IBoxType> {
       next(new Error(validation.message));
       return null;
     }
-    // Mirror original explicit shape — code/name only; companyId added in beforeCreate.
     return {
       code: inputDTO.code,
       name: inputDTO.name,

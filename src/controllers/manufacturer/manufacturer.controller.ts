@@ -11,9 +11,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * Manufacturer — plain CRUD with FK-catch on delete.
- */
 export class ManufacturerController extends BaseCrudController<IManufacturer> {
   protected dao = new ManufacturerDAO();
   protected options: BaseCrudOptions = {

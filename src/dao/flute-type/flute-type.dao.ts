@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Flute Type filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const FLUTE_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -32,9 +30,6 @@ const FLUTE_TYPE_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Flute Type sort configuration
- */
 const FLUTE_TYPE_SORTING: SortConfigs = {
   code: { column: "code" },
   description: { column: "description" },
@@ -46,9 +41,6 @@ const FLUTE_TYPE_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Flute Type query builder configuration
- */
 const FLUTE_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "flute_types",
   {
@@ -69,9 +61,6 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   private tableName = "flute_types";
   private queryConfig = FLUTE_TYPE_QUERY_CONFIG;
 
-  /**
-   * Create a new flute type
-   */
   async create(item: IFluteType): Promise<IFluteType> {
     const knex = KnexManager.getConnection();
     const [fluteType] = await knex(this.tableName)
@@ -90,9 +79,6 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     return this.mapToInterface(fluteType);
   }
 
-  /**
-   * Get flute type by ID
-   */
   async getById(id: number): Promise<IFluteType | null> {
     const knex = KnexManager.getConnection();
     const fluteType = await knex(this.tableName).where("id", id).first();
@@ -100,9 +86,6 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     return fluteType ? this.mapToInterface(fluteType) : null;
   }
 
-  /**
-   * Get flute type by UUID
-   */
   async getByUuid(uuid: string): Promise<IFluteType | null> {
     const knex = KnexManager.getConnection();
     const fluteType = await knex(this.tableName).where("uuid", uuid).first();
@@ -110,9 +93,6 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     return fluteType ? this.mapToInterface(fluteType) : null;
   }
 
-  /**
-   * Update flute type by ID
-   */
   async update(
     id: number,
     item: Partial<IFluteType>,
@@ -139,9 +119,6 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     return fluteType ? this.mapToInterface(fluteType) : null;
   }
 
-  /**
-   * Delete flute type by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -150,8 +127,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   }
 
   /**
-   * Get all flute types with pagination
-   * @deprecated Use getAllWithFilters for advanced querying
+   * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(
     page: number,
@@ -182,29 +158,16 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     };
   }
 
-  /**
-   * Get all flute types with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   *
-   * Supported query params:
-   * - page, limit: Pagination (e.g., ?page=1&limit=20)
-   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
-   * - code: Filter by code (ILIKE)
-   * - description: Filter by description (ILIKE)
-   * - search: Full-text search on code, description (e.g., ?search=TEST)
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IFluteType>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -213,7 +176,6 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -224,7 +186,6 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [fluteTypes, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -243,9 +204,6 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IFluteType {
     return {
       id: record.id,

@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Customer filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const CUSTOMER_FILTERS: FilterConfigs = {
   name: {
     column: "name",
@@ -47,9 +45,6 @@ const CUSTOMER_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Customer sort configuration
- */
 const CUSTOMER_SORTING: SortConfigs = {
   name: { column: "name" },
   createdAt: { column: "createdAt" },
@@ -57,9 +52,6 @@ const CUSTOMER_SORTING: SortConfigs = {
   supplierCode: { column: "supplier_code" },
 };
 
-/**
- * Customer query builder configuration
- */
 const CUSTOMER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "customers",
   {
@@ -80,9 +72,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   private tableName = "customers";
   private queryConfig = CUSTOMER_QUERY_CONFIG;
 
-  /**
-   * Create a new customer
-   */
   async create(item: ICustomer): Promise<ICustomer> {
     const knex = KnexManager.getConnection();
     const [customer] = await knex(this.tableName)
@@ -107,9 +96,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return this.mapToInterface(customer);
   }
 
-  /**
-   * Get customer by ID
-   */
   async getById(id: number): Promise<ICustomer | null> {
     const knex = KnexManager.getConnection();
     const customer = await knex(this.tableName).where("id", id).first();
@@ -117,9 +103,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return customer ? this.mapToInterface(customer) : null;
   }
 
-  /**
-   * Get customer by UUID
-   */
+  // companyUuid filter, when present, doubles as an ownership check (null if not in user's company).
   async getByUuid(
     uuid: string,
     companyUuid?: string,
@@ -127,7 +111,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const knex = KnexManager.getConnection();
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -139,10 +122,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return customer ? this.mapToInterface(customer) : null;
   }
 
-  /**
-   * Get customer numeric ID by UUID string
-   * Used for converting UUID foreign keys to database IDs
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const customer = await knex(this.tableName)
@@ -153,9 +132,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return customer ? customer.id : null;
   }
 
-  /**
-   * Update customer by ID
-   */
   async update(
     id: number,
     item: Partial<ICustomer>,
@@ -191,9 +167,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return customer ? this.mapToInterface(customer) : null;
   }
 
-  /**
-   * Delete customer by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -201,9 +174,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return deleted > 0;
   }
 
-  /**
-   * Get all customers with pagination
-   */
   async getAll(
     page: number,
     limit: number,
@@ -215,7 +185,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const query = knex(this.tableName);
     const countQuery = knex(this.tableName);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -247,23 +216,16 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     };
   }
 
-  /**
-   * Get all customers with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   * Handles companyId as UUID (joins with companies table)
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ICustomer>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -272,7 +234,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -283,7 +244,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [customers, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -302,9 +262,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     };
   }
 
-  /**
-   * Get customer with related details (company, category, salesPerson) using to_jsonb
-   */
   async getCustomerWithDetails(
     uuid: string,
     companyUuid?: string,
@@ -329,7 +286,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       .leftJoin("users", "customers.salesPersonId", "users.id")
       .where("customers.uuid", uuid);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query.where("companies.uuid", companyUuid);
     }
@@ -346,11 +302,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return mapped;
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): ICustomer {
-    // Parse JSON fields
     let contacts = [];
     let deliveryLocations = [];
     let deliveryDays = [];

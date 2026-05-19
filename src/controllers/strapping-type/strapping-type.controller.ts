@@ -13,9 +13,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * StrappingType — CRUD with Co-scope-A. DAO has no getIdByUuid; base falls back.
- */
 export class StrappingTypeController extends BaseCrudController<IStrappingType> {
   protected dao = new StrappingTypeDAO();
   protected options: BaseCrudOptions = {

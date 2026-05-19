@@ -16,7 +16,6 @@ export class AuthRouter {
   }
 
   private initRoutes(): void {
-    // Public routes with rate limiting
     this.router.post(
       "/register",
       authRateLimiter,
@@ -43,14 +42,13 @@ export class AuthRouter {
       this.authController.acceptInvitation.bind(this.authController),
     );
 
-    // Protected routes (require authentication)
     this.router.get(
       "/profile",
       authenticate,
       apiRateLimiter,
       this.authController.getProfile.bind(this.authController),
     );
-    // Add /me endpoint as alias for /profile (required by frontend)
+    // /me is an alias for /profile that the frontend expects to exist.
     this.router.get(
       "/me",
       authenticate,

@@ -11,7 +11,6 @@ export class WarehouseLocationRouter {
   }
 
   private initRoutes(): void {
-    // Generic location endpoints
     this._router.get(
       "/",
       this._warehouseLocationController.getAll.bind(
@@ -43,7 +42,6 @@ export class WarehouseLocationRouter {
       ),
     );
 
-    // Warehouse-specific location endpoints
     this._router.get(
       "/warehouse/:warehouseUuid",
       this._warehouseLocationController.getByWarehouse.bind(

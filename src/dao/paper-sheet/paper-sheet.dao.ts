@@ -13,10 +13,7 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Paper Sheet filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const PAPER_SHEET_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -63,9 +60,6 @@ const PAPER_SHEET_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Paper Sheet sort configuration
- */
 const PAPER_SHEET_SORTING: SortConfigs = {
   code: { column: "code" },
   name: { column: "name" },
@@ -76,9 +70,6 @@ const PAPER_SHEET_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Query builder configuration for paper sheets
- */
 const PAPER_SHEET_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "paper_sheets",
   {
@@ -99,9 +90,6 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
   private tableName = "paper_sheets";
   private queryConfig = PAPER_SHEET_QUERY_CONFIG;
 
-  /**
-   * Create a new paper sheet
-   */
   async create(item: IPaperSheet): Promise<IPaperSheet> {
     const knex = KnexManager.getConnection();
     const [paperSheet] = await knex(this.tableName)
@@ -123,9 +111,6 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     return this.mapToInterface(paperSheet);
   }
 
-  /**
-   * Get paper sheet by ID
-   */
   async getById(id: number): Promise<IPaperSheet | null> {
     const knex = KnexManager.getConnection();
     const paperSheet = await knex(this.tableName).where("id", id).first();
@@ -133,9 +118,6 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     return paperSheet ? this.mapToInterface(paperSheet) : null;
   }
 
-  /**
-   * Get paper sheet by UUID
-   */
   async getByUuid(uuid: string): Promise<IPaperSheet | null> {
     const knex = KnexManager.getConnection();
     const paperSheet = await knex(this.tableName).where("uuid", uuid).first();
@@ -143,9 +125,6 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     return paperSheet ? this.mapToInterface(paperSheet) : null;
   }
 
-  /**
-   * Get paper sheet internal ID by UUID
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const record = await knex(this.tableName)
@@ -155,9 +134,6 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     return record ? record.id : null;
   }
 
-  /**
-   * Update paper sheet by ID
-   */
   async update(
     id: number,
     item: Partial<IPaperSheet>,
@@ -189,9 +165,6 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     return paperSheet ? this.mapToInterface(paperSheet) : null;
   }
 
-  /**
-   * Delete paper sheet by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -199,9 +172,7 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     return deleted > 0;
   }
 
-  /**
-   * Get all paper sheets with pagination (legacy - for backward compatibility)
-   */
+  /** @deprecated Use getAllWithFilters for advanced querying */
   async getAll(
     page: number,
     limit: number,
@@ -251,19 +222,14 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     };
   }
 
-  /**
-   * Get all paper sheets with advanced filtering, sorting, and search
-   * This is the STANDARD method that should be used by controllers
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPaperSheet>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build data query with joins
     const dataQuery = knex(this.tableName)
       .select(
         "paper_sheets.*",
@@ -283,14 +249,12 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
         "corrugations.id",
       );
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
         .where("companies.uuid", companyUuid);
     }
 
-    // Build count query
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -299,11 +263,9 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
         .where("companies.uuid", companyUuid);
     }
 
-    // Apply query builder filters, sorting, pagination
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both in parallel
     const [paperSheets, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -322,9 +284,7 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     };
   }
 
-  /**
-   * Map database record to interface (strips numeric IDs)
-   */
+  // SECURITY: never expose numeric ids; foreign keys are returned as nested objects keyed by UUID.
   private mapToInterface(record: any): IPaperSheet {
     return {
       uuid: record.uuid,
@@ -340,9 +300,6 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     };
   }
 
-  /**
-   * Map database record with related entities (strips numeric IDs)
-   */
   private mapWithRelations(record: any): IPaperSheet {
     const mapped = this.mapToInterface(record);
 

@@ -13,9 +13,6 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Paper Supply filter configuration
- */
 const PAPER_SUPPLY_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -62,9 +59,6 @@ const PAPER_SUPPLY_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Paper Supply sort configuration
- */
 const PAPER_SUPPLY_SORTING: SortConfigs = {
   code: { column: "code" },
   name: { column: "name" },
@@ -74,9 +68,6 @@ const PAPER_SUPPLY_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Query builder configuration for paper supplies
- */
 const PAPER_SUPPLY_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "paper_supplies",
   {
@@ -97,9 +88,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   private tableName = "paper_supplies";
   private queryConfig = PAPER_SUPPLY_QUERY_CONFIG;
 
-  /**
-   * Create a new paper supply
-   */
   async create(item: IPaperSupply): Promise<IPaperSupply> {
     const knex = KnexManager.getConnection();
     const [paperSupply] = await knex(this.tableName)
@@ -123,9 +111,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     return this.mapToInterface(paperSupply);
   }
 
-  /**
-   * Get paper supply by ID
-   */
   async getById(id: number): Promise<IPaperSupply | null> {
     const knex = KnexManager.getConnection();
     const paperSupply = await knex(this.tableName).where("id", id).first();
@@ -133,9 +118,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     return paperSupply ? this.mapToInterface(paperSupply) : null;
   }
 
-  /**
-   * Get paper supply by UUID
-   */
+  // companyUuid filter, when present, doubles as an ownership check (null if not in user's company).
   async getByUuid(
     uuid: string,
     companyUuid?: string,
@@ -143,7 +126,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     const knex = KnexManager.getConnection();
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -155,9 +137,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     return paperSupply ? this.mapToInterface(paperSupply) : null;
   }
 
-  /**
-   * Get paper supply internal ID by UUID
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const record = await knex(this.tableName)
@@ -167,9 +146,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     return record ? record.id : null;
   }
 
-  /**
-   * Update paper supply by ID
-   */
   async update(
     id: number,
     item: Partial<IPaperSupply>,
@@ -201,9 +177,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     return paperSupply ? this.mapToInterface(paperSupply) : null;
   }
 
-  /**
-   * Delete paper supply by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -211,10 +184,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     return deleted > 0;
   }
 
-  /**
-   * Get all paper supplies with pagination (legacy - for backward compatibility)
-   * Includes manufacturer, supplier, and paper type details
-   */
+  /** @deprecated Use getAllWithFilters for advanced querying */
   async getAll(
     page: number,
     limit: number,
@@ -240,7 +210,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
 
     const countQuery = knex(this.tableName);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -286,10 +255,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     };
   }
 
-  /**
-   * Get all paper supplies with advanced filtering, sorting, and search
-   * This is the STANDARD method that should be used by controllers
-   */
   async getAllWithFilters(
     req: Request,
     companyUuid?: string,
@@ -297,7 +262,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Build data query with joins
     const dataQuery = knex(this.tableName)
       .select(
         "paper_supplies.*",
@@ -313,10 +277,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       .leftJoin("suppliers", "paper_supplies.supplierId", "suppliers.id")
       .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id");
 
-    // Build count query
     const countQuery = knex(this.tableName);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -326,11 +288,9 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         .where("companies.uuid", companyUuid);
     }
 
-    // Apply query builder filters, sorting, pagination
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both in parallel
     const [paperSupplies, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -364,9 +324,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     };
   }
 
-  /**
-   * Get paper supply with related details (manufacturer, supplier, company, paperType) using to_jsonb
-   */
   async getWithDetails(
     uuid: string,
     companyUuid?: string,
@@ -391,7 +348,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id")
       .where("paper_supplies.uuid", uuid);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query.where("companies.uuid", companyUuid);
     }
@@ -421,11 +377,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     return mapped;
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IPaperSupply {
-    // Parse JSON minimumStock field
     let minimumStock = { pallets: 0, boxes: 0 };
 
     try {

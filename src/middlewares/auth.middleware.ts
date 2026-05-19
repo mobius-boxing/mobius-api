@@ -2,9 +2,6 @@ import { Request, Response, NextFunction } from "express";
 import * as jwt from "jsonwebtoken";
 import { UserDAO } from "../dao";
 
-/**
- * JWT Payload interface
- */
 interface IJWTPayload {
   userId: string;
   email: string;
@@ -14,17 +11,12 @@ interface IJWTPayload {
   exp?: number;
 }
 
-/**
- * Authenticate middleware - Verifies JWT token and attaches user to request
- * Returns 401 if token is missing or invalid
- */
 export const authenticate = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> => {
   try {
-    // Get token from Authorization header
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -35,9 +27,8 @@ export const authenticate = async (
       return;
     }
 
-    const token = authHeader.substring(7); // Remove "Bearer " prefix
+    const token = authHeader.substring(7);
 
-    // Verify token
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
       throw new Error("JWT_SECRET is not configured");
@@ -45,7 +36,8 @@ export const authenticate = async (
 
     const decoded = jwt.verify(token, jwtSecret) as IJWTPayload;
 
-    // Verify user still exists and is active
+    // SECURITY: re-check existence + active flag on every request so revoked/disabled accounts
+    // can't keep using a still-valid JWT.
     const userDAO = new UserDAO();
     const user = await userDAO.getByUuid(decoded.userId);
 
@@ -65,7 +57,6 @@ export const authenticate = async (
       return;
     }
 
-    // Attach user info to request
     (req as any).user = {
       userId: decoded.userId,
       email: decoded.email,
@@ -75,13 +66,12 @@ export const authenticate = async (
 
     next();
   } catch (error: any) {
-    // Pass JWT errors to error middleware
     next(error);
   }
 };
 
 /**
- * Optional authentication - Sets user if token is present, but doesn't fail if missing
+ * Sets req.user when a valid token is present; never rejects.
  */
 export const optionalAuth = async (
   req: Request,
@@ -92,7 +82,6 @@ export const optionalAuth = async (
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      // No token provided, continue without user
       next();
       return;
     }
@@ -106,7 +95,6 @@ export const optionalAuth = async (
 
     const decoded = jwt.verify(token, jwtSecret) as IJWTPayload;
 
-    // Verify user exists and is active
     const userDAO = new UserDAO();
     const user = await userDAO.getByUuid(decoded.userId);
 
@@ -121,15 +109,11 @@ export const optionalAuth = async (
 
     next();
   } catch (error: any) {
-    // Continue without user if token is invalid
+    // Invalid token = continue unauthenticated, matching optional-auth contract.
     next();
   }
 };
 
-/**
- * Require specific roles - Returns 403 if user doesn't have required role
- * @param roles - Array of allowed roles
- */
 export const requireRole = (
   roles: Array<"member" | "admin" | "superAdmin">,
 ) => {
@@ -155,23 +139,16 @@ export const requireRole = (
   };
 };
 
-/**
- * Require SuperAdmin role only
- */
 export const requireSuperAdmin = () => {
   return requireRole(["superAdmin"]);
 };
 
-/**
- * Require Admin or SuperAdmin role
- */
 export const requireAdmin = () => {
   return requireRole(["admin", "superAdmin"]);
 };
 
 /**
- * Ensure user belongs to the same company as the resource
- * Resource company ID should be in req.params.companyId or req.body.companyId
+ * Resource company id is taken from params/body/query; SuperAdmin bypasses the check.
  */
 export const requireSameCompany = (
   req: Request,
@@ -186,13 +163,11 @@ export const requireSameCompany = (
     return;
   }
 
-  // SuperAdmins can access any company
   if ((req as any).user.role === "superAdmin") {
     next();
     return;
   }
 
-  // Get company ID from params or body
   const resourceCompanyId =
     req.params.companyId || req.body.companyId || req.query.companyId;
 
@@ -204,7 +179,7 @@ export const requireSameCompany = (
     return;
   }
 
-  // Check if user belongs to the same company (both are UUIDs as strings)
+  // Both sides are UUID strings (JWT carries UUID, request payloads carry UUID).
   if ((req as any).user.companyId !== resourceCompanyId) {
     res.status(403).json({
       success: false,
@@ -217,11 +192,6 @@ export const requireSameCompany = (
   next();
 };
 
-/**
- * Generate JWT token for user
- * @param user - User object with id, email, role, and companyId
- * @returns JWT token string
- */
 export const generateToken = (user: {
   id?: string;
   email: string;

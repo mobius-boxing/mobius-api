@@ -13,7 +13,6 @@ export class EmailService {
   private frontendUrl: string;
 
   constructor() {
-    // Check if SendGrid API key is configured
     const apiKey = process.env.SENDGRID_API_KEY;
     this.isConfigured = !!apiKey && apiKey.trim() !== "";
 
@@ -26,18 +25,13 @@ export class EmailService {
       );
     }
 
-    // Set email configuration from environment variables
     this.fromEmail = process.env.EMAIL_FROM || "noreply@mobius-tms.com";
     this.fromName = process.env.EMAIL_FROM_NAME || "Mobius";
     this.frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
   }
 
-  /**
-   * Send an email or log it if SendGrid is not configured
-   * @param to - Recipient email address
-   * @param subject - Email subject
-   * @param html - HTML content
-   */
+  // If SendGrid is not configured we degrade gracefully by logging the email
+  // payload instead of failing — keeps local/dev environments usable without secrets.
   private async send(to: string, subject: string, html: string): Promise<void> {
     const emailData = {
       to,
@@ -61,7 +55,6 @@ export class EmailService {
         throw new Error("Failed to send email");
       }
     } else {
-      // Graceful degradation: log email instead of sending
       console.log("\n====== EMAIL (NOT SENT - SendGrid not configured) ======");
       console.log("To:", to);
       console.log("From:", `${this.fromName} <${this.fromEmail}>`);
@@ -73,14 +66,6 @@ export class EmailService {
     }
   }
 
-  /**
-   * Send invitation email to a new user
-   * @param email - Recipient email address
-   * @param companyName - Company name
-   * @param role - User role (member or admin)
-   * @param token - Invitation token
-   * @param firstName - User's first name (optional)
-   */
   public async sendInvitationEmail(
     email: string,
     companyName: string,
@@ -107,11 +92,6 @@ export class EmailService {
     }
   }
 
-  /**
-   * Send welcome email to a new user after successful registration
-   * @param email - Recipient email address
-   * @param firstName - User's first name
-   */
   public async sendWelcomeEmail(
     email: string,
     firstName: string,
@@ -130,12 +110,6 @@ export class EmailService {
     }
   }
 
-  /**
-   * Send password reset email
-   * @param email - Recipient email address
-   * @param token - Password reset token
-   * @param firstName - User's first name (optional)
-   */
   public async sendPasswordResetEmail(
     email: string,
     token: string,
@@ -159,12 +133,6 @@ export class EmailService {
     }
   }
 
-  /**
-   * Send email verification email
-   * @param email - Recipient email address
-   * @param token - Email verification token
-   * @param firstName - User's first name (optional)
-   */
   public async sendEmailVerificationEmail(
     email: string,
     token: string,
@@ -188,18 +156,10 @@ export class EmailService {
     }
   }
 
-  /**
-   * Check if email service is properly configured
-   * @returns True if SendGrid is configured
-   */
   public isReady(): boolean {
     return this.isConfigured;
   }
 
-  /**
-   * Get email service configuration status
-   * @returns Configuration status object
-   */
   public getStatus(): {
     configured: boolean;
     fromEmail: string;

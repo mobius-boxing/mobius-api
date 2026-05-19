@@ -1,23 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 
-/**
- * Rate limit record interface
- */
 interface IRateLimitRecord {
   count: number;
   resetTime: number;
 }
 
-/**
- * In-memory storage for rate limit records
- * Key: IP address or identifier
- * Value: Rate limit record
- */
+// In-memory store keyed by IP address or authenticated user id. Not shared across processes —
+// behind a load balancer each instance enforces its own limit (tradeoff: simpler, less accurate).
 const rateLimitStore = new Map<string, IRateLimitRecord>();
 
-/**
- * Clean up expired rate limit records every 5 minutes
- */
 setInterval(
   () => {
     const now = Date.now();
@@ -28,21 +19,18 @@ setInterval(
     }
   },
   5 * 60 * 1000,
-); // 5 minutes
+);
 
 /**
- * Get client identifier from request
- * Uses IP address by default, but can use user ID if authenticated
- * Optionally includes a route key to make rate limits route-specific
+ * Authenticated requests key on user id, anonymous requests on IP. `routeKey` lets one
+ * client hit different routes without exhausting a shared bucket.
  */
 const getClientIdentifier = (req: Request, routeKey?: string): string => {
   let baseIdentifier: string;
 
-  // Use user ID if authenticated for more accurate rate limiting
   if (req.user && req.user.userId) {
     baseIdentifier = `user:${req.user.userId}`;
   } else {
-    // Otherwise use IP address
     const ip =
       req.ip ||
       req.headers["x-forwarded-for"] ||
@@ -52,28 +40,9 @@ const getClientIdentifier = (req: Request, routeKey?: string): string => {
     baseIdentifier = `ip:${ip}`;
   }
 
-  // Add route key if provided to make rate limits route-specific
   return routeKey ? `${baseIdentifier}:${routeKey}` : baseIdentifier;
 };
 
-/**
- * Create a rate limiter middleware
- *
- * @param max - Maximum number of requests allowed in the window
- * @param windowMinutes - Time window in minutes
- * @param message - Optional custom error message
- * @param routeKey - Optional route key to make rate limits route-specific
- *
- * @returns Express middleware function
- *
- * @example
- * // Allow 100 requests per 15 minutes
- * router.post('/login', createRateLimiter(100, 15), controller.login);
- *
- * @example
- * // Allow 5 requests per minute for sensitive endpoints with route-specific limiting
- * router.post('/reset-password', createRateLimiter(5, 1, 'Too many attempts', 'reset-password'), controller.resetPassword);
- */
 export const createRateLimiter = (
   max: number,
   windowMinutes: number,
@@ -87,18 +56,15 @@ export const createRateLimiter = (
       const identifier = getClientIdentifier(req, routeKey);
       const now = Date.now();
 
-      // Get or create rate limit record
       let record = rateLimitStore.get(identifier);
 
       if (!record || record.resetTime < now) {
-        // Create new record or reset if window has passed
         record = {
           count: 1,
           resetTime: now + windowMs,
         };
         rateLimitStore.set(identifier, record);
 
-        // Add rate limit headers
         res.setHeader("X-RateLimit-Limit", max.toString());
         res.setHeader("X-RateLimit-Remaining", (max - 1).toString());
         res.setHeader(
@@ -110,10 +76,8 @@ export const createRateLimiter = (
         return;
       }
 
-      // Increment request count
       record.count++;
 
-      // Check if limit exceeded
       if (record.count > max) {
         const retryAfter = Math.ceil((record.resetTime - now) / 1000);
 
@@ -135,7 +99,6 @@ export const createRateLimiter = (
         return;
       }
 
-      // Update headers
       res.setHeader("X-RateLimit-Limit", max.toString());
       res.setHeader("X-RateLimit-Remaining", (max - record.count).toString());
       res.setHeader(
@@ -145,62 +108,39 @@ export const createRateLimiter = (
 
       next();
     } catch (error: any) {
-      // Don't block request if rate limiting fails
+      // Never block requests because the limiter itself failed — fail open.
       console.error("Rate limit error:", error);
       next();
     }
   };
 };
 
-/**
- * Preset rate limiters for common use cases
- */
-
-/**
- * Strict rate limiter for authentication endpoints
- * 5 requests per minute
- */
 export const authRateLimiter = createRateLimiter(
   5,
   1,
   "Too many authentication attempts. Please try again later.",
 );
 
-/**
- * Standard rate limiter for API endpoints
- * 100 requests per 15 minutes
- */
 export const apiRateLimiter = createRateLimiter(
   100,
   15,
   "API rate limit exceeded. Please try again later.",
 );
 
-/**
- * Relaxed rate limiter for public endpoints
- * 200 requests per 15 minutes
- */
 export const publicRateLimiter = createRateLimiter(
   200,
   15,
   "Rate limit exceeded. Please try again later.",
 );
 
-/**
- * Strict rate limiter for sensitive operations
- * 3 requests per 5 minutes
- * Note: This is a global limiter. Use route-specific limiters below for better granularity.
- */
+// Global limiter (no routeKey) — every "sensitive" call by a user shares this bucket. Most callers
+// should use one of the route-specific limiters below instead.
 export const sensitiveRateLimiter = createRateLimiter(
   3,
   5,
   "Too many requests for this sensitive operation. Please try again later.",
 );
 
-/**
- * Route-specific rate limiter for user deletion
- * 5 requests per 5 minutes per user deletion endpoint
- */
 export const sensitiveUserDeletionRateLimiter = createRateLimiter(
   5,
   5,
@@ -208,10 +148,6 @@ export const sensitiveUserDeletionRateLimiter = createRateLimiter(
   "users:delete",
 );
 
-/**
- * Route-specific rate limiter for customer deletion
- * 10 requests per 5 minutes per customer deletion endpoint
- */
 export const sensitiveCustomerDeletionRateLimiter = createRateLimiter(
   10,
   5,
@@ -219,10 +155,6 @@ export const sensitiveCustomerDeletionRateLimiter = createRateLimiter(
   "customers:delete",
 );
 
-/**
- * Route-specific rate limiter for paper supply deletion
- * 10 requests per 5 minutes per paper supply deletion endpoint
- */
 export const sensitivePaperSupplyDeletionRateLimiter = createRateLimiter(
   10,
   5,
@@ -230,10 +162,6 @@ export const sensitivePaperSupplyDeletionRateLimiter = createRateLimiter(
   "paper-supplies:delete",
 );
 
-/**
- * Route-specific rate limiter for product type deletion
- * 10 requests per 5 minutes per product type deletion endpoint
- */
 export const sensitiveProductTypeDeletionRateLimiter = createRateLimiter(
   10,
   5,
@@ -241,10 +169,6 @@ export const sensitiveProductTypeDeletionRateLimiter = createRateLimiter(
   "product-types:delete",
 );
 
-/**
- * Route-specific rate limiter for box type deletion
- * 10 requests per 5 minutes per box type deletion endpoint
- */
 export const sensitiveBoxTypeDeletionRateLimiter = createRateLimiter(
   10,
   5,
@@ -252,10 +176,6 @@ export const sensitiveBoxTypeDeletionRateLimiter = createRateLimiter(
   "box-types:delete",
 );
 
-/**
- * Route-specific rate limiter for glue type deletion
- * 10 requests per 5 minutes per glue type deletion endpoint
- */
 export const sensitiveGlueTypeDeletionRateLimiter = createRateLimiter(
   10,
   5,
@@ -263,10 +183,6 @@ export const sensitiveGlueTypeDeletionRateLimiter = createRateLimiter(
   "glue-types:delete",
 );
 
-/**
- * Route-specific rate limiter for strapping type deletion
- * 10 requests per 5 minutes per strapping type deletion endpoint
- */
 export const sensitiveStrappingTypeDeletionRateLimiter = createRateLimiter(
   10,
   5,
@@ -274,10 +190,6 @@ export const sensitiveStrappingTypeDeletionRateLimiter = createRateLimiter(
   "strapping-types:delete",
 );
 
-/**
- * Route-specific rate limiter for complement deletion
- * 10 requests per 5 minutes per complement deletion endpoint
- */
 export const sensitiveComplementDeletionRateLimiter = createRateLimiter(
   10,
   5,
@@ -285,10 +197,6 @@ export const sensitiveComplementDeletionRateLimiter = createRateLimiter(
   "complements:delete",
 );
 
-/**
- * Route-specific rate limiter for trace type deletion
- * 10 requests per 5 minutes per trace type deletion endpoint
- */
 export const sensitiveTraceTypeDeletionRateLimiter = createRateLimiter(
   10,
   5,
@@ -296,27 +204,16 @@ export const sensitiveTraceTypeDeletionRateLimiter = createRateLimiter(
   "trace-types:delete",
 );
 
-/**
- * Clear rate limit for a specific identifier
- * Useful for testing or manual intervention
- */
 export const clearRateLimit = (identifier: string): void => {
   rateLimitStore.delete(identifier);
 };
 
-/**
- * Get current rate limit status for an identifier
- */
 export const getRateLimitStatus = (
   identifier: string,
 ): IRateLimitRecord | null => {
   return rateLimitStore.get(identifier) || null;
 };
 
-/**
- * Clear all rate limit records
- * Useful for testing or system reset
- */
 export const clearAllRateLimits = (): void => {
   rateLimitStore.clear();
 };

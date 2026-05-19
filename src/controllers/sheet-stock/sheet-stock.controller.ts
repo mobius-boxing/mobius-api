@@ -16,11 +16,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * SheetStock — mirror of paper-stock. Numeric-id keyed DTO (*Id), in-place
- * body mutation for 5 FK UUIDs (warehouse, warehouseLocation, supplier,
- * manufacturer, paperSheet), getOneByUuid → getWithDetails. No FK-catch.
- */
 export class SheetStockController extends BaseCrudController<ISheetStock> {
   protected dao = new SheetStockDAO();
   protected options: BaseCrudOptions = {

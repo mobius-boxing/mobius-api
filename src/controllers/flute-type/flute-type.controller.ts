@@ -11,10 +11,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * FluteType — plain CRUD. `enforceCompanyFilter` on getAll is a no-op for this
- * table (no companyId), kept on for parity.
- */
 export class FluteTypeController extends BaseCrudController<IFluteType> {
   protected dao = new FluteTypeDAO();
   protected options: BaseCrudOptions = {

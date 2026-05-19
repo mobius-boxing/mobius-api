@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Paper Type filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const PAPER_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -32,9 +30,6 @@ const PAPER_TYPE_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Paper Type sort configuration
- */
 const PAPER_TYPE_SORTING: SortConfigs = {
   code: { column: "code" },
   description: { column: "description" },
@@ -42,9 +37,6 @@ const PAPER_TYPE_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Paper Type query builder configuration
- */
 const PAPER_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "paper_types",
   {
@@ -65,9 +57,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   private tableName = "paper_types";
   private queryConfig = PAPER_TYPE_QUERY_CONFIG;
 
-  /**
-   * Create a new paper type
-   */
   async create(item: IPaperType): Promise<IPaperType> {
     const knex = KnexManager.getConnection();
     const [paperType] = await knex(this.tableName)
@@ -82,9 +71,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     return this.mapToInterface(paperType);
   }
 
-  /**
-   * Get paper type by ID
-   */
   async getById(id: number): Promise<IPaperType | null> {
     const knex = KnexManager.getConnection();
     const paperType = await knex(this.tableName).where("id", id).first();
@@ -92,9 +78,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     return paperType ? this.mapToInterface(paperType) : null;
   }
 
-  /**
-   * Get paper type by UUID
-   */
   async getByUuid(uuid: string): Promise<IPaperType | null> {
     const knex = KnexManager.getConnection();
     const paperType = await knex(this.tableName).where("uuid", uuid).first();
@@ -102,9 +85,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     return paperType ? this.mapToInterface(paperType) : null;
   }
 
-  /**
-   * Get paper type internal ID by UUID
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const record = await knex(this.tableName)
@@ -114,9 +94,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     return record ? record.id : null;
   }
 
-  /**
-   * Update paper type by ID
-   */
   async update(
     id: number,
     item: Partial<IPaperType>,
@@ -138,9 +115,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     return paperType ? this.mapToInterface(paperType) : null;
   }
 
-  /**
-   * Delete paper type by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -149,8 +123,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   }
 
   /**
-   * Get all paper types with pagination
-   * @deprecated Use getAllWithFilters for advanced querying
+   * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(
     page: number,
@@ -181,29 +154,16 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     };
   }
 
-  /**
-   * Get all paper types with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   *
-   * Supported query params:
-   * - page, limit: Pagination (e.g., ?page=1&limit=20)
-   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
-   * - code: Filter by code (ILIKE)
-   * - description: Filter by description (ILIKE)
-   * - search: Full-text search on code, description (e.g., ?search=TEST)
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPaperType>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -212,7 +172,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -223,7 +182,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [paperTypes, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -242,9 +200,6 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IPaperType {
     return {
       id: record.id,

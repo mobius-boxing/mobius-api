@@ -16,17 +16,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * Warehouse — CRUD with Co-scope-A (CompanyDAO.getIdByUuid variant), FK-catch
- * on delete, and a bespoke `getWarehouseStock` aggregation endpoint that must
- * remain on this controller.
- *
- * Query params (getAll):
- * - page, limit: Pagination
- * - sortBy, sortOrder: e.g. ?sortBy=name&sortOrder=asc
- * - name, companyId, uuid: Filtering (e.g. ?companyId=5&name=Main)
- * - search: Full-text search across name
- */
 export class WarehouseController extends BaseCrudController<IWarehouse> {
   protected dao = new WarehouseDAO();
   protected options: BaseCrudOptions = {
@@ -39,8 +28,7 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
     _res: Response,
     next: NextFunction,
   ): Promise<any | null> {
-    // Validation happens in beforeCreate AFTER companyId is injected into body,
-    // mirroring the original sequence. Here we just pass req.body through.
+    // Validation runs in beforeCreate so it sees the injected companyId.
     return req.body;
   }
 
@@ -64,7 +52,7 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
     req: Request,
     res: Response,
   ): Promise<any | null> {
-    // Securely resolve company - JWT for regular users, body for SuperAdmins
+    // SECURITY: regular users' companyId comes from JWT; only SuperAdmins may override via body.
     const companyResult = getCompanyForCreate(req);
     if (!companyResult.success) {
       res.status(400).json({
@@ -74,7 +62,6 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
       return null;
     }
 
-    // Convert company UUID to numeric ID
     const companyDAO = new CompanyDAO();
     const companyIdNumeric = await companyDAO.getIdByUuid(
       companyResult.companyUuid,
@@ -87,20 +74,16 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
       return null;
     }
 
-    // Inject resolved companyId into the data for DTO validation (matches original).
     payload.companyId = companyIdNumeric;
 
-    // Validate input using DTO (kept in beforeCreate because companyId must be
-    // present before validation, just like the original).
     const inputDTO = new WarehouseCreateInputDTO(payload).build();
     const validation: IInputValidator = await inputValidator(inputDTO);
     if (!validation.success) {
       req.statusCode = 400;
-      // We can't use `next(err)` directly from a hook; throw and let base catch.
+      // Hooks can't call next() directly; throw so the base catch forwards it.
       throw new Error(validation.message);
     }
 
-    // Mirror original explicit-field create payload (uuid is added by base class).
     return {
       name: inputDTO.name,
       gridRows: inputDTO.gridRows,
@@ -110,12 +93,7 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
   }
 
   /**
-   * Get all stock (paper and sheet) for a warehouse, grouped by location.
-   * GET /warehouse/:uuid/stock
-   *
-   * Preserved verbatim from pre-migration controller. Inline DAO instantiation
-   * (PaperStockDAO/SheetStockDAO/WarehouseLocationDAO) is established behavior —
-   * not refactored as part of this migration.
+   * GET /warehouse/:uuid/stock — paper + sheet stock grouped by location.
    */
   public async getWarehouseStock(
     req: Request,
@@ -125,7 +103,6 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
     try {
       const { uuid } = req.params;
 
-      // Get warehouse by UUID
       const warehouse = await this.dao.getByUuid(uuid);
       if (!warehouse || !warehouse.id) {
         res.status(404).json({
@@ -139,14 +116,12 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
       const sheetStockDAO = new SheetStockDAO();
       const warehouseLocationDAO = new WarehouseLocationDAO();
 
-      // Get all stock for this warehouse
       const [paperStocks, sheetStocks, warehouseLocations] = await Promise.all([
         paperStockDAO.getAllByWarehouseId(warehouse.id),
         sheetStockDAO.getAllByWarehouseId(warehouse.id),
         warehouseLocationDAO.getAllByWarehouseId(warehouse.id),
       ]);
 
-      // Create a map of locationId to stock items
       const stockByLocation: Record<
         string,
         {
@@ -162,17 +137,14 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
         }
       > = {};
 
-      // Map locations for quick lookup
       const locationMap = new Map<number, any>();
       for (const loc of warehouseLocations) {
         locationMap.set(loc.id!, loc);
       }
 
-      // Track unassigned stock
       const unassignedPaperStock: any[] = [];
       const unassignedSheetStock: any[] = [];
 
-      // Group paper stock by location
       for (const ps of paperStocks) {
         if (ps.warehouseLocationId) {
           const loc = locationMap.get(ps.warehouseLocationId);
@@ -201,7 +173,6 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
         }
       }
 
-      // Group sheet stock by location
       for (const ss of sheetStocks) {
         if (ss.warehouseLocationId) {
           const loc = locationMap.get(ss.warehouseLocationId);

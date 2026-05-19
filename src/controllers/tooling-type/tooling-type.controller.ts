@@ -11,11 +11,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * ToolingType — plain CRUD with FK-catch on delete and a bespoke FK-catch
- * message ("referenced by toolings" vs. the generic "referenced by other
- * records").
- */
 export class ToolingTypeController extends BaseCrudController<IToolingType> {
   protected dao = new ToolingTypeDAO();
   protected options: BaseCrudOptions = {

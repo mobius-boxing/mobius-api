@@ -13,16 +13,6 @@ import {
 export class CompaniesController implements IBaseController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
 
-  /**
-   * Get all companies with pagination, filtering, sorting, and search
-   *
-   * Query params:
-   * - page, limit: Pagination
-   * - sortBy, sortOrder: Sorting (name, createdAt, updatedAt)
-   * - name: Filter by name (ILIKE)
-   * - isActive: Filter by active status (boolean)
-   * - search: Full-text search on name, description
-   */
   public async getAll(
     req: Request,
     res: Response,
@@ -36,9 +26,6 @@ export class CompaniesController implements IBaseController {
     }
   }
 
-  /**
-   * Get company by UUID
-   */
   public async getByUuid(
     req: Request,
     res: Response,
@@ -65,9 +52,6 @@ export class CompaniesController implements IBaseController {
     }
   }
 
-  /**
-   * Create a new company
-   */
   public async create(
     req: Request,
     res: Response,
@@ -76,7 +60,6 @@ export class CompaniesController implements IBaseController {
     try {
       const data = req.body;
 
-      // Validate input using DTO
       const inputDTO = new CompanyCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
@@ -102,9 +85,6 @@ export class CompaniesController implements IBaseController {
     }
   }
 
-  /**
-   * Update company by UUID
-   */
   public async update(
     req: Request,
     res: Response,
@@ -114,7 +94,6 @@ export class CompaniesController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      // Get company by UUID to find its ID
       const existing = await this._companyDAO.getByUuid(uuid);
       if (!existing || !existing.id) {
         res.status(404).json({
@@ -124,7 +103,6 @@ export class CompaniesController implements IBaseController {
         return;
       }
 
-      // Validate input using DTO
       const inputDTO = new CompanyUpdateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
@@ -143,9 +121,6 @@ export class CompaniesController implements IBaseController {
     }
   }
 
-  /**
-   * Delete company by UUID
-   */
   public async delete(
     req: Request,
     res: Response,
@@ -154,7 +129,6 @@ export class CompaniesController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Get company by UUID to find its ID
       const existing = await this._companyDAO.getByUuid(uuid);
       if (!existing || !existing.id) {
         res.status(404).json({
@@ -183,7 +157,7 @@ export class CompaniesController implements IBaseController {
   }
 
   /**
-   * Get company statistics (SuperAdmin only)
+   * SuperAdmin only.
    */
   public async getStats(
     req: Request,
@@ -193,13 +167,11 @@ export class CompaniesController implements IBaseController {
     try {
       const knex = require("../../database/KnexConnection").default.getConnection();
 
-      // Get total and active companies
       const [totalResult, activeResult] = await Promise.all([
         knex("companies").count("* as count").first(),
         knex("companies").where("isActive", true).count("* as count").first(),
       ]);
 
-      // Get companies with users
       const companiesWithUsersResult = await knex("companies")
         .whereExists(function(this: any) {
           this.select(knex.raw(1))
@@ -209,7 +181,6 @@ export class CompaniesController implements IBaseController {
         .count("* as count")
         .first();
 
-      // Calculate average users per company
       const totalCompanies = parseInt(totalResult?.count as string) || 0;
       const totalUsersResult = await knex("users").count("* as count").first();
       const totalUsers = parseInt(totalUsersResult?.count as string) || 0;
@@ -233,9 +204,6 @@ export class CompaniesController implements IBaseController {
     }
   }
 
-  /**
-   * Get company with user count
-   */
   public async getWithUserCount(
     req: Request,
     res: Response,

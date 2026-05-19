@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * User filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const USER_FILTERS: FilterConfigs = {
   email: {
     column: "email",
@@ -50,9 +48,6 @@ const USER_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * User sort configuration
- */
 const USER_SORTING: SortConfigs = {
   email: { column: "email" },
   firstName: { column: "firstName" },
@@ -63,9 +58,6 @@ const USER_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * User query builder configuration
- */
 const USER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("users", {
   filters: USER_FILTERS,
   sorting: USER_SORTING,
@@ -83,9 +75,6 @@ export class UserDAO implements IBaseDAO<IUser> {
   private tableName = "users";
   private queryConfig = USER_QUERY_CONFIG;
 
-  /**
-   * Create a new user
-   */
   async create(item: IUser): Promise<IUser> {
     const knex = KnexManager.getConnection();
     const [user] = await knex(this.tableName)
@@ -104,9 +93,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     return this.mapToInterface(user);
   }
 
-  /**
-   * Get user by numeric ID
-   */
   async getById(id: number): Promise<IUser | null> {
     const knex = KnexManager.getConnection();
     const user = await knex(this.tableName).where("id", id).first();
@@ -114,9 +100,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     return user ? this.mapToInterface(user) : null;
   }
 
-  /**
-   * Get user by UUID string
-   */
   async getByUuid(uuid: string): Promise<IUser | null> {
     const knex = KnexManager.getConnection();
     const user = await knex(this.tableName).where("uuid", uuid).first();
@@ -124,10 +107,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     return user ? this.mapToInterface(user) : null;
   }
 
-  /**
-   * Get user numeric ID by UUID string
-   * Used for converting UUID foreign keys to database IDs
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const user = await knex(this.tableName)
@@ -138,9 +117,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     return user ? user.id : null;
   }
 
-  /**
-   * Update user by numeric ID
-   */
   async update(id: number, item: Partial<IUser>): Promise<IUser | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
@@ -165,9 +141,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     return user ? this.mapToInterface(user) : null;
   }
 
-  /**
-   * Delete user by numeric ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -176,8 +149,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
-   * Get all users with pagination (includes company name)
-   * @deprecated Use getAllWithFilters for advanced querying
+   * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IUser>> {
     const knex = KnexManager.getConnection();
@@ -206,45 +178,27 @@ export class UserDAO implements IBaseDAO<IUser> {
     };
   }
 
-  /**
-   * Get all users with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   *
-   * Supported query params:
-   * - page, limit: Pagination (e.g., ?page=1&limit=20)
-   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=email&sortOrder=asc)
-   * - email: Filter by email (ILIKE)
-   * - firstName: Filter by first name (ILIKE)
-   * - lastName: Filter by last name (ILIKE)
-   * - role: Filter by role (exact match)
-   * - companyId: Filter by company ID
-   * - isActive: Filter by active status (boolean)
-   * - emailVerified: Filter by email verified status (boolean)
-   * - search: Full-text search on email, firstName, lastName (e.g., ?search=TEST)
-   */
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IUser & { companyName?: string }>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately
+    // Client sends a UUID for companyId; resolve via join against companies.uuid rather than
+    // letting the query builder treat it as a column filter.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query with join for company name
     const dataQuery = knex(this.tableName)
       .select(`${this.tableName}.*`, "companies.name as companyName")
       .leftJoin("companies", `${this.tableName}.companyId`, "companies.id");
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       dataQuery.where("companies.uuid", companyUuid);
     }
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -255,7 +209,6 @@ export class UserDAO implements IBaseDAO<IUser> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [users, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -274,9 +227,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     };
   }
 
-  /**
-   * Get all users by company with pagination (includes company name)
-   */
   async getAllByCompany(
     companyId: number,
     page: number,
@@ -312,9 +262,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     };
   }
 
-  /**
-   * Get user by email
-   */
   async getUserByEmail(email: string): Promise<IUser | null> {
     const knex = KnexManager.getConnection();
     const user = await knex(this.tableName).where("email", email).first();
@@ -323,7 +270,8 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   /**
-   * Get user by email with company information (using to_jsonb for join)
+   * Uses PostgreSQL to_jsonb so the joined company comes back as a nested object.
+   * Strips password before returning.
    */
   async getUserByEmailWithCompany(
     email: string,
@@ -339,7 +287,7 @@ export class UserDAO implements IBaseDAO<IUser> {
     if (!user) return null;
 
     const mapped = this.mapToInterface(user);
-    // Remove password from response
+    // SECURITY: strip password hash before sending to client.
     const { password, ...userWithoutPassword } = mapped;
 
     return {
@@ -348,9 +296,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     } as IUserWithCompany;
   }
 
-  /**
-   * Get user with company by UUID (using to_jsonb for join)
-   */
   async getUserWithCompany(uuid: string): Promise<IUserWithCompany | null> {
     const knex = KnexManager.getConnection();
 
@@ -363,7 +308,7 @@ export class UserDAO implements IBaseDAO<IUser> {
     if (!user) return null;
 
     const mapped = this.mapToInterface(user);
-    // Remove password from response
+    // SECURITY: strip password hash before sending to client.
     const { password, ...userWithoutPassword } = mapped;
 
     return {
@@ -372,9 +317,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     } as IUserWithCompany;
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IUser {
     return {
       id: record.id,
@@ -392,9 +334,6 @@ export class UserDAO implements IBaseDAO<IUser> {
     };
   }
 
-  /**
-   * Map database record to interface with company name
-   */
   private mapToInterfaceWithCompanyName(
     record: any,
   ): IUser & { companyName?: string } {

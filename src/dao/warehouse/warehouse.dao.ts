@@ -18,10 +18,7 @@ import {
 } from "../warehouseLocation/warehouseLocation.dao";
 import { v4 as uuidv4 } from "uuid";
 
-/**
- * Warehouse filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const WAREHOUSE_FILTERS: FilterConfigs = {
   name: {
     column: "name",
@@ -33,18 +30,12 @@ const WAREHOUSE_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Warehouse sort configuration
- */
 const WAREHOUSE_SORTING: SortConfigs = {
   name: { column: "name" },
   createdAt: { column: "created_at" },
   updatedAt: { column: "updated_at" },
 };
 
-/**
- * Warehouse query builder configuration
- */
 const WAREHOUSE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "warehouses",
   {
@@ -66,13 +57,11 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   private queryConfig = WAREHOUSE_QUERY_CONFIG;
   private warehouseLocationDAO = new WarehouseLocationDAO();
 
-  /**
-   * Create a new warehouse with auto-generated grid locations
-   */
+  // A warehouse is created together with one row in warehouse_locations per grid cell,
+  // atomically. Defaults to a 10x10 grid if dimensions are not provided.
   async create(item: IWarehouse): Promise<IWarehouse> {
     const knex = KnexManager.getConnection();
 
-    // Use transaction to ensure warehouse and locations are created atomically
     const warehouse = await knex.transaction(async (trx) => {
       const [newWarehouse] = await trx(this.tableName)
         .insert({
@@ -84,7 +73,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
         })
         .returning("*");
 
-      // Auto-create locations for the grid
       const gridRows = newWarehouse.grid_rows;
       const gridCols = newWarehouse.grid_cols;
       const locations = [];
@@ -105,7 +93,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
         }
       }
 
-      // Batch insert all locations
       if (locations.length > 0) {
         await trx("warehouse_locations").insert(locations);
       }
@@ -116,9 +103,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     return this.mapToInterface(warehouse);
   }
 
-  /**
-   * Get warehouse by ID
-   */
   async getById(id: number): Promise<IWarehouse | null> {
     const knex = KnexManager.getConnection();
     const warehouse = await knex(this.tableName).where("id", id).first();
@@ -126,9 +110,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     return warehouse ? this.mapToInterface(warehouse) : null;
   }
 
-  /**
-   * Get warehouse by UUID
-   */
   async getByUuid(uuid: string): Promise<IWarehouse | null> {
     const knex = KnexManager.getConnection();
     const warehouse = await knex(this.tableName).where("uuid", uuid).first();
@@ -136,10 +117,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     return warehouse ? this.mapToInterface(warehouse) : null;
   }
 
-  /**
-   * Get warehouse numeric ID by UUID string
-   * Used for converting UUID foreign keys to database IDs
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const warehouse = await knex(this.tableName)
@@ -150,24 +127,20 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     return warehouse ? warehouse.id : null;
   }
 
-  /**
-   * Update warehouse by ID
-   * If grid dimensions change, deletes all locations and creates new ones
-   */
+  // WARNING: changing grid dimensions is destructive — all existing warehouse_locations
+  // rows for this warehouse (including any stock placement metadata) are deleted and
+  // recreated from scratch. Callers must validate this is safe before invoking.
   async update(
     id: number,
     item: Partial<IWarehouse>,
   ): Promise<IWarehouse | null> {
     const knex = KnexManager.getConnection();
 
-    // Check if grid dimensions are being changed
     const gridChanged =
       item.gridRows !== undefined || item.gridCols !== undefined;
 
     if (gridChanged) {
-      // Use transaction for atomic update
       const warehouse = await knex.transaction(async (trx) => {
-        // Get current warehouse to get old dimensions
         const current = await trx(this.tableName).where("id", id).first();
         if (!current) return null;
 
@@ -184,10 +157,8 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
           .update(updateData)
           .returning("*");
 
-        // Delete all existing locations
         await trx("warehouse_locations").where("warehouse_id", id).delete();
 
-        // Create new locations based on new grid dimensions
         const gridRows = updated.grid_rows;
         const gridCols = updated.grid_cols;
         const locations = [];
@@ -208,7 +179,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
           }
         }
 
-        // Batch insert new locations
         if (locations.length > 0) {
           await trx("warehouse_locations").insert(locations);
         }
@@ -218,7 +188,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
 
       return warehouse ? this.mapToInterface(warehouse) : null;
     } else {
-      // Simple update without grid changes
       const updateData: any = {};
       if (item.name !== undefined) updateData.name = item.name;
       if (item.companyId !== undefined) updateData.company_id = item.companyId;
@@ -233,9 +202,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     }
   }
 
-  /**
-   * Delete warehouse by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -243,9 +209,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     return deleted > 0;
   }
 
-  /**
-   * Get all warehouses with pagination (legacy - maintains backward compatibility)
-   */
+  /** @deprecated Use getAllWithFilters for advanced querying */
   async getAll(
     page: number,
     limit: number,
@@ -275,22 +239,16 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     };
   }
 
-  /**
-   * Get all warehouses with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IWarehouse>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.company_id`, "companies.id")
@@ -299,7 +257,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -310,7 +267,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [warehouses, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -329,9 +285,6 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IWarehouse {
     return {
       id: record.id,

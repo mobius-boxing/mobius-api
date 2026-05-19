@@ -1,12 +1,5 @@
 import { NextFunction, Response, Request } from "express";
 
-/**
- * Enhanced error middleware with support for:
- * - JWT errors (TokenExpiredError, JsonWebTokenError)
- * - Database errors (unique constraint, foreign key, etc.)
- * - Validation errors
- * - Generic errors
- */
 export const errorMiddleware = (
   err: any,
   req: Request | any,
@@ -15,7 +8,6 @@ export const errorMiddleware = (
 ) => {
   console.error("Error:", err);
 
-  // JWT Errors
   if (err.name === "TokenExpiredError") {
     return res.status(401).json({
       success: false,
@@ -40,10 +32,10 @@ export const errorMiddleware = (
     });
   }
 
-  // Database Errors (PostgreSQL)
+  // PostgreSQL error codes — see https://www.postgresql.org/docs/current/errcodes-appendix.html
   if (err.code) {
-    // Unique constraint violation
     if (err.code === "23505") {
+      // unique_violation
       const field = extractFieldFromError(err);
       return res.status(409).json({
         success: false,
@@ -55,8 +47,8 @@ export const errorMiddleware = (
       });
     }
 
-    // Foreign key constraint violation
     if (err.code === "23503") {
+      // foreign_key_violation
       return res.status(400).json({
         success: false,
         message:
@@ -65,8 +57,8 @@ export const errorMiddleware = (
       });
     }
 
-    // Not null constraint violation
     if (err.code === "23502") {
+      // not_null_violation
       const field = err.column || "field";
       return res.status(400).json({
         success: false,
@@ -76,8 +68,8 @@ export const errorMiddleware = (
       });
     }
 
-    // Check constraint violation
     if (err.code === "23514") {
+      // check_violation
       return res.status(400).json({
         success: false,
         message: "Data violates database constraints.",
@@ -85,8 +77,8 @@ export const errorMiddleware = (
       });
     }
 
-    // Invalid text representation (type mismatch)
     if (err.code === "22P02") {
+      // invalid_text_representation (e.g., non-numeric value for an integer column)
       return res.status(400).json({
         success: false,
         message: "Invalid data type provided.",
@@ -94,8 +86,8 @@ export const errorMiddleware = (
       });
     }
 
-    // Undefined table
     if (err.code === "42P01") {
+      // undefined_table
       return res.status(500).json({
         success: false,
         message: "Database table not found. Please contact support.",
@@ -103,8 +95,8 @@ export const errorMiddleware = (
       });
     }
 
-    // Undefined column
     if (err.code === "42703") {
+      // undefined_column
       return res.status(500).json({
         success: false,
         message: "Database column not found. Please contact support.",
@@ -113,7 +105,6 @@ export const errorMiddleware = (
     }
   }
 
-  // Validation Errors (from validation middleware)
   if (err.name === "ValidationError" || err.isValidationError) {
     return res.status(400).json({
       success: false,
@@ -123,7 +114,6 @@ export const errorMiddleware = (
     });
   }
 
-  // Multer file upload errors
   if (err.name === "MulterError") {
     if (err.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
@@ -146,7 +136,6 @@ export const errorMiddleware = (
     });
   }
 
-  // Default error handling
   const statusError: number =
     err.statusError ||
     err.statusCode ||
@@ -169,12 +158,12 @@ export const errorMiddleware = (
 };
 
 /**
- * Extract field name from PostgreSQL error message
- * Helps identify which field caused the unique constraint violation
+ * Pull the offending field name out of a PostgreSQL unique-violation.
+ * Tries constraint name (e.g. "users_email_unique" -> "email"), falls back to
+ * the detail string (e.g. "Key (email)=(...) already exists.").
  */
 function extractFieldFromError(err: any): string | null {
   if (err.constraint) {
-    // Extract field name from constraint name (e.g., "users_email_unique" -> "email")
     const match = err.constraint.match(/_([a-zA-Z]+)_/);
     if (match && match[1]) {
       return match[1];
@@ -182,7 +171,6 @@ function extractFieldFromError(err: any): string | null {
   }
 
   if (err.detail) {
-    // Extract field from detail message (e.g., "Key (email)=(test@example.com) already exists.")
     const match = err.detail.match(/Key \(([^)]+)\)/);
     if (match && match[1]) {
       return match[1];

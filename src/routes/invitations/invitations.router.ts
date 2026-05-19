@@ -20,7 +20,6 @@ export class InvitationsRouter {
   }
 
   private initRoutes(): void {
-    // Public routes (no authentication required)
     this.router.get(
       "/token/:token",
       publicRateLimiter,
@@ -43,7 +42,6 @@ export class InvitationsRouter {
       this.invitationsController.getStats.bind(this.invitationsController),
     );
 
-    // Protected routes (authentication required)
     this.router.get(
       "/",
       authenticate,

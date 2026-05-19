@@ -13,10 +13,7 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Product Type filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const PRODUCT_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -32,9 +29,6 @@ const PRODUCT_TYPE_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Product Type sort configuration
- */
 const PRODUCT_TYPE_SORTING: SortConfigs = {
   code: { column: "code" },
   name: { column: "name" },
@@ -42,9 +36,6 @@ const PRODUCT_TYPE_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Product Type query builder configuration
- */
 const PRODUCT_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "product_types",
   {

@@ -20,9 +20,7 @@ export type {
 } from "../types/queryBuilder.types";
 export { createQueryConfig } from "../types/queryBuilder.types";
 
-/**
- * Reserved query parameter names that are NOT filters
- */
+// Reserved query params — everything else is treated as a filter.
 const RESERVED_PARAMS = new Set([
   "page",
   "limit",
@@ -31,29 +29,20 @@ const RESERVED_PARAMS = new Set([
   "search",
 ]);
 
-/**
- * Parse query parameters from Express request
- * Uses FLAT parameter syntax: ?companyId=5&isActive=true
- *
- * Reserved params: page, limit, sortBy, sortOrder, search
- * All other params are treated as filters
- */
 export function parseQueryParams(req: Request): ParsedQuery {
   const page = parseInt(req.query.page as string) || 1;
-  const limit = Math.min(parseInt(req.query.limit as string) || 20, 100); // Max 100 items per page
+  const limit = Math.min(parseInt(req.query.limit as string) || 20, 100); // Cap at 100 items/page.
   const sortBy = req.query.sortBy as string | undefined;
   const sortOrder =
     (req.query.sortOrder as string)?.toLowerCase() === "desc" ? "desc" : "asc";
   const search = req.query.search as string | undefined;
 
-  // All non-reserved params are filters
   const filters: { [key: string]: any } = {};
   Object.keys(req.query).forEach((key) => {
     if (!RESERVED_PARAMS.has(key)) {
       const value = req.query[key];
 
-      // Handle multiple values for same param (Express converts to array)
-      // Example: ?status=active&status=pending → ['active', 'pending']
+      // Express turns repeated query params (?status=a&status=b) into an array.
       if (Array.isArray(value)) {
         filters[key] = value;
       } else {
@@ -73,9 +62,8 @@ export function parseQueryParams(req: Request): ParsedQuery {
 }
 
 /**
- * Apply filters to Knex query based on configuration
- * Multiple filters use AND logic
- * Array values for single filter use IN operator
+ * Multiple filters AND; array values for one filter become IN.
+ * Unknown filter keys are silently dropped (do not leak schema via 400s).
  */
 export function applyFilters(
   query: Knex.QueryBuilder,
@@ -85,35 +73,28 @@ export function applyFilters(
 ): void {
   Object.keys(filters).forEach((filterKey) => {
     const config = filterConfig[filterKey];
-    if (!config) return; // Silently skip unknown filters
+    if (!config) return;
 
     let value = filters[filterKey];
     const column = `${tableName}.${config.column}`;
     const operator = config.operator || "=";
 
-    // Handle array values (multiple values for same filter)
-    // Example: ?status=active&status=pending → ['active', 'pending']
     if (Array.isArray(value)) {
-      // Apply transform to each value if provided
       if (config.transform) {
         value = value.map(config.transform);
       }
 
-      // Use IN operator for arrays
       query.whereIn(column, value);
       return;
     }
 
-    // Apply transform for single value if provided
     if (config.transform) {
       value = config.transform(value);
     }
 
-    // Apply filter based on operator
     switch (operator) {
       case "IN":
-        // Support comma-separated values for IN operator
-        // Example: ?statuses=active,pending,approved
+        // IN supports comma-separated single-value syntax: ?statuses=active,pending,approved
         const values = value.split(",").map((v: string) => v.trim());
         query.whereIn(column, values);
         break;
@@ -127,9 +108,6 @@ export function applyFilters(
   });
 }
 
-/**
- * Apply sorting to Knex query based on configuration
- */
 export function applySorting(
   query: Knex.QueryBuilder,
   sortBy: string | undefined,
@@ -142,22 +120,16 @@ export function applySorting(
     const config = sortConfig[sortBy];
     const allowedOrders = config.allowedOrders || ["asc", "desc"];
 
-    // Validate sort order
     if (allowedOrders.includes(sortOrder)) {
       query.orderBy(`${tableName}.${config.column}`, sortOrder);
     } else {
-      // Fallback to default
       query.orderBy(`${tableName}.${defaultSort.column}`, defaultSort.order);
     }
   } else {
-    // Apply default sorting
     query.orderBy(`${tableName}.${defaultSort.column}`, defaultSort.order);
   }
 }
 
-/**
- * Apply search to Knex query based on configuration
- */
 export function applySearch(
   query: Knex.QueryBuilder,
   search: string | undefined,
@@ -181,9 +153,6 @@ export function applySearch(
   });
 }
 
-/**
- * Main query builder function - applies all filters, sorting, search, and pagination
- */
 export function buildQuery(
   baseQuery: Knex.QueryBuilder,
   parsedQuery: ParsedQuery,
@@ -195,17 +164,14 @@ export function buildQuery(
   const { page, limit, sortBy, sortOrder, filters, search } = parsedQuery;
   const offset = (page - 1) * limit;
 
-  // Apply filters
   if (config.filters && Object.keys(filters).length > 0) {
     applyFilters(baseQuery, filters, config.filters, config.tableName);
   }
 
-  // Apply search
   if (config.search && search) {
     applySearch(baseQuery, search, config.search, config.tableName);
   }
 
-  // Apply sorting
   const defaultSort = config.defaultSort || {
     column: "created_at",
     order: "desc" as const,
@@ -226,7 +192,6 @@ export function buildQuery(
     );
   }
 
-  // Apply pagination
   baseQuery.limit(limit).offset(offset);
 
   return {
@@ -236,7 +201,7 @@ export function buildQuery(
 }
 
 /**
- * Helper function to build count query (same filters/search, no sorting/pagination)
+ * Count query mirrors filters and search but skips sort/pagination.
  */
 export function buildCountQuery(
   baseQuery: Knex.QueryBuilder,
@@ -245,12 +210,10 @@ export function buildCountQuery(
 ): Knex.QueryBuilder {
   const { filters, search } = parsedQuery;
 
-  // Apply filters
   if (config.filters && Object.keys(filters).length > 0) {
     applyFilters(baseQuery, filters, config.filters, config.tableName);
   }
 
-  // Apply search
   if (config.search && search) {
     applySearch(baseQuery, search, config.search, config.tableName);
   }

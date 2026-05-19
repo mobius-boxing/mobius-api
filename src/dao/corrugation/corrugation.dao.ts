@@ -13,10 +13,7 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Corrugation filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const CORRUGATION_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -37,9 +34,6 @@ const CORRUGATION_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Corrugation sort configuration
- */
 const CORRUGATION_SORTING: SortConfigs = {
   code: { column: "code" },
   description: { column: "description" },
@@ -50,9 +44,6 @@ const CORRUGATION_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Corrugation query builder configuration
- */
 const CORRUGATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "corrugations",
   {
@@ -73,9 +64,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   private tableName = "corrugations";
   private queryConfig = CORRUGATION_QUERY_CONFIG;
 
-  /**
-   * Create a new corrugation
-   */
   async create(item: ICorrugation): Promise<ICorrugation> {
     const knex = KnexManager.getConnection();
     const [corrugation] = await knex(this.tableName)
@@ -94,9 +82,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     return this.mapToInterface(corrugation);
   }
 
-  /**
-   * Get corrugation by ID
-   */
   async getById(id: number): Promise<ICorrugation | null> {
     const knex = KnexManager.getConnection();
     const corrugation = await knex(this.tableName).where("id", id).first();
@@ -104,9 +89,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     return corrugation ? this.mapToInterface(corrugation) : null;
   }
 
-  /**
-   * Get corrugation by UUID with related corrugation class
-   */
   async getByUuid(uuid: string): Promise<ICorrugation | null> {
     const knex = KnexManager.getConnection();
     const corrugation = await knex(this.tableName)
@@ -130,9 +112,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     return corrugation ? this.mapToInterface(corrugation) : null;
   }
 
-  /**
-   * Update corrugation by ID
-   */
   async update(
     id: number,
     item: Partial<ICorrugation>,
@@ -161,9 +140,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     return corrugation ? this.mapToInterface(corrugation) : null;
   }
 
-  /**
-   * Delete corrugation by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -171,10 +147,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     return deleted > 0;
   }
 
-  /**
-   * Get all corrugations with pagination
-   * @deprecated Use getAllWithFilters for advanced querying
-   */
+  /** @deprecated Use getAllWithFilters for advanced querying */
   async getAll(
     page: number,
     limit: number,
@@ -217,27 +190,14 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     };
   }
 
-  /**
-   * Get all corrugations with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   *
-   * Supported query params:
-   * - page, limit: Pagination (e.g., ?page=1&limit=20)
-   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
-   * - code: Filter by code (ILIKE)
-   * - description: Filter by description (ILIKE)
-   * - corrugationClassId: Filter by corrugation class ID
-   * - search: Full-text search on code, description (e.g., ?search=TEST)
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ICorrugation>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query with join for corrugation class
     const dataQuery = knex(this.tableName)
       .select(
         `${this.tableName}.*`,
@@ -254,7 +214,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
         "cc.id",
       );
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -263,7 +222,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -274,7 +232,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [corrugations, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -293,13 +250,8 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     };
   }
 
-  /**
-   * Map database record to interface
-   * SECURITY: Never expose numeric IDs to frontend - only UUIDs
-   * Foreign keys (corrugationClassId) are replaced with the related object containing UUID
-   */
+  // SECURITY: never expose numeric ids; foreign keys are returned as nested objects keyed by UUID.
   private mapToInterface(record: any): ICorrugation {
-    // Strip numeric ID from corrugationClass if present
     let corrugationClass = undefined;
     if (record.corrugationClass) {
       const { id, ...classWithoutId } = record.corrugationClass;
@@ -320,14 +272,10 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
       companyId: record.companyId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
-      // Include related object with UUID, not numeric foreign key
       corrugationClass,
     };
   }
 
-  /**
-   * Internal method to map with ID (for internal use only, never send to frontend)
-   */
   private mapToInternalInterface(
     record: any,
   ): ICorrugation & { id: number; corrugationClassId?: number } {
@@ -338,10 +286,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     };
   }
 
-  /**
-   * Get internal numeric ID by UUID (for internal use only, never expose to frontend)
-   * Used by controllers when they need to perform update/delete operations
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const record = await knex(this.tableName)

@@ -29,7 +29,6 @@ export class UsersRouter {
       this.usersController.getStats.bind(this.usersController),
     );
 
-    // Invite user route
     this.router.post(
       "/invite",
       authenticate,

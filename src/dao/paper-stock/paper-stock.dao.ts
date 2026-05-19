@@ -13,10 +13,7 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Paper Stock filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is handled separately via a join (against warehouses.company_id) because the client sends a UUID, not a numeric id.
 const PAPER_STOCK_FILTERS: FilterConfigs = {
   warehouseId: {
     column: `"paper_stock"."warehouseId"`,
@@ -191,16 +188,15 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via warehouses → companies join.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
     const dataQuery = this.buildJoinQuery(knex);
-    // Count query must also join with warehouses
+    // Count query needs the warehouses join too so companyId filtering matches.
     const countQuery = knex(this.tableName)
       .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id");
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", "warehouses.company_id", "companies.id")

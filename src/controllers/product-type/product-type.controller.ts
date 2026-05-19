@@ -13,9 +13,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * ProductType — CRUD with Co-scope-A.
- */
 export class ProductTypeController extends BaseCrudController<IProductType> {
   protected dao = new ProductTypeDAO();
   protected options: BaseCrudOptions = {

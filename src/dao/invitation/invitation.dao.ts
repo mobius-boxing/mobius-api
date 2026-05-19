@@ -5,9 +5,6 @@ import { IInvitation } from "../../interfaces/invitation/invitation.interfaces";
 export class InvitationDAO implements IBaseDAO<IInvitation> {
   private tableName = "invitations";
 
-  /**
-   * Create a new invitation
-   */
   async create(item: IInvitation): Promise<IInvitation> {
     const knex = KnexManager.getConnection();
     const [invitation] = await knex(this.tableName)
@@ -27,9 +24,6 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return this.mapToInterface(invitation);
   }
 
-  /**
-   * Get invitation by ID
-   */
   async getById(id: number): Promise<IInvitation | null> {
     const knex = KnexManager.getConnection();
     const invitation = await knex(this.tableName).where("id", id).first();
@@ -37,9 +31,6 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return invitation ? this.mapToInterface(invitation) : null;
   }
 
-  /**
-   * Get invitation by UUID
-   */
   async getByUuid(uuid: string): Promise<IInvitation | null> {
     const knex = KnexManager.getConnection();
     const invitation = await knex(this.tableName).where("uuid", uuid).first();
@@ -47,9 +38,6 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return invitation ? this.mapToInterface(invitation) : null;
   }
 
-  /**
-   * Update invitation by ID
-   */
   async update(
     id: number,
     item: Partial<IInvitation>,
@@ -76,9 +64,6 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return invitation ? this.mapToInterface(invitation) : null;
   }
 
-  /**
-   * Delete invitation by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -86,9 +71,6 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return deleted > 0;
   }
 
-  /**
-   * Get all invitations with pagination
-   */
   async getAll(
     page: number,
     limit: number,
@@ -118,9 +100,6 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     };
   }
 
-  /**
-   * Get invitation by token
-   */
   async getByToken(token: string): Promise<IInvitation | null> {
     const knex = KnexManager.getConnection();
     const invitation = await knex(this.tableName).where("token", token).first();
@@ -128,9 +107,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return invitation ? this.mapToInterface(invitation) : null;
   }
 
-  /**
-   * Get active invitations for a company
-   */
+  // "Active" = unused AND not expired.
   async getActiveInvitations(companyId: number): Promise<IInvitation[]> {
     const knex = KnexManager.getConnection();
     const invitations = await knex(this.tableName)
@@ -142,9 +119,6 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return invitations.map((invitation) => this.mapToInterface(invitation));
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IInvitation {
     return {
       id: record.id,

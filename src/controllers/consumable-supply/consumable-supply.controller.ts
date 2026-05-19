@@ -12,14 +12,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * ConsumableSupply — CRUD with:
- *   - getOneByUuid override → dao.getWithDetails
- *   - UUID-keyed optional FKs (supplierUuid, manufacturerUuid, consumableTypeUuid)
- *   - Empty-string-clears semantics on all 3 optional FKs in update
- *
- * No FK-catch on delete (matches original).
- */
 export class ConsumableSupplyController extends BaseCrudController<IConsumableSupply> {
   protected dao = new ConsumableSupplyDAO();
   protected options: BaseCrudOptions = {

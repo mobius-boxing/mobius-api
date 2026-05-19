@@ -12,16 +12,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * Corrugation — CRUD with corrugationClassUuid FK resolution.
- *
- * Query params (getAll):
- * - page, limit: Pagination
- * - sortBy, sortOrder: Sorting (code, description, theoreticalGrammage, suggestedWidth, caliper, createdAt, updatedAt)
- * - code, description: ILIKE filtering
- * - corrugationClassId: Equality filter
- * - search: Full-text search on code, description
- */
 export class CorrugationController extends BaseCrudController<ICorrugation> {
   protected dao = new CorrugationDAO();
   protected options: BaseCrudOptions = {
@@ -65,7 +55,7 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
     _req: Request,
     res: Response,
   ): Promise<any | null> {
-    // SECURITY: Lookup corrugation class by UUID to get internal numeric ID
+    // SECURITY: resolve client-supplied UUID to internal numeric ID before storing.
     let corrugationClassId: number | undefined;
     if (inputDTO.corrugationClassUuid) {
       const classId = await this._corrugationClassDAO.getIdByUuid(
@@ -81,7 +71,6 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
       corrugationClassId = classId;
     }
 
-    // Mirror original explicit shape (uuid is added by base class).
     return {
       code: inputDTO.code,
       description: inputDTO.description,
@@ -98,8 +87,6 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
     _req: Request,
     res: Response,
   ): Promise<any | null> {
-    // Original semantics: spread inputDTO, strip corrugationClassUuid, then
-    // re-inject as corrugationClassId only if provided.
     const updateData: any = { ...inputDTO };
     delete updateData.corrugationClassUuid;
 

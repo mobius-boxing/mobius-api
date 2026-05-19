@@ -14,14 +14,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * PaperSheet — CRUD with 3 FK UUID→ID resolutions (supplierId, manufacturerId,
- * corrugationId) on create+update, plus FK-catch on delete.
- *
- * Note on the legacy update: the original did a redundant `getByUuid` then
- * `getIdByUuid` (double lookup). The base class only calls `getIdByUuid` —
- * equivalent behavior for the happy path and matching 404 for missing.
- */
 export class PaperSheetController extends BaseCrudController<IPaperSheet> {
   protected dao = new PaperSheetDAO();
   protected options: BaseCrudOptions = {
@@ -29,11 +21,6 @@ export class PaperSheetController extends BaseCrudController<IPaperSheet> {
     fkCatchOnDelete: true,
   };
 
-  /**
-   * Mutates `data` in place to resolve supplierId / manufacturerId /
-   * corrugationId UUIDs to numeric IDs. Returns true on success or false if
-   * an error response was already written.
-   */
   private async resolveForeignKeys(
     data: any,
     res: Response,

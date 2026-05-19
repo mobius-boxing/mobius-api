@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Box Type filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const BOX_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -32,9 +30,6 @@ const BOX_TYPE_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Box Type sort configuration
- */
 const BOX_TYPE_SORTING: SortConfigs = {
   code: { column: "code" },
   name: { column: "name" },
@@ -42,9 +37,6 @@ const BOX_TYPE_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Box Type query builder configuration
- */
 const BOX_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "box_types",
   {

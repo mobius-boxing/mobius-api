@@ -9,10 +9,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * ConsumableType — plain CRUD. `enforceCompanyFilter` on getAll is a no-op for
- * this table (no companyId), kept on for parity with the original controller.
- */
 export class ConsumableTypeController extends BaseCrudController<IConsumableType> {
   protected dao = new ConsumableTypeDAO();
   protected options: BaseCrudOptions = {
@@ -31,7 +27,6 @@ export class ConsumableTypeController extends BaseCrudController<IConsumableType
       next(new Error(validation.message));
       return null;
     }
-    // Original keeps the `autoConsumption ?? false` default fallback explicitly.
     return {
       code: inputDTO.code,
       name: inputDTO.name,

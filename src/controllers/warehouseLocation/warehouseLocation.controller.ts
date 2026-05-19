@@ -13,14 +13,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * WarehouseLocation — plain CRUD plus two extra endpoints:
- *   - getByWarehouse(warehouseUuid) → list locations for a warehouse
- *   - batchUpdate(warehouseUuid)    → bulk update locations for a warehouse
- *
- * Create assumes `warehouseId` arrives already numeric in the request body
- * (no UUID resolution — preserved from original).
- */
 export class WarehouseLocationController extends BaseCrudController<IWarehouseLocation> {
   protected dao = new WarehouseLocationDAO();
   protected options: BaseCrudOptions = {
@@ -68,10 +60,6 @@ export class WarehouseLocationController extends BaseCrudController<IWarehouseLo
     return inputDTO;
   }
 
-  /**
-   * GET /warehouse-locations/by-warehouse/:warehouseUuid
-   * Get all locations for a specific warehouse (no pagination).
-   */
   public async getByWarehouse(
     req: Request,
     res: Response,
@@ -100,10 +88,6 @@ export class WarehouseLocationController extends BaseCrudController<IWarehouseLo
     }
   }
 
-  /**
-   * PUT /warehouse-locations/batch-update/:warehouseUuid
-   * Batch update warehouse locations.
-   */
   public async batchUpdate(
     req: Request,
     res: Response,

@@ -21,9 +21,6 @@ import { getCompanyFilterUuid } from "../../utils/companyScope";
 export class PaperSupplyController implements IBaseController {
   private _paperSupplyDAO: PaperSupplyDAO = new PaperSupplyDAO();
 
-  /**
-   * Get all paper supplies with pagination
-   */
   public async getAll(
     req: Request,
     res: Response,
@@ -32,7 +29,6 @@ export class PaperSupplyController implements IBaseController {
     try {
       const { page, limit } = paginationHelper(req);
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
       const result: IDataPaginator<IPaperSupply> =
@@ -43,9 +39,6 @@ export class PaperSupplyController implements IBaseController {
     }
   }
 
-  /**
-   * Get paper supply by UUID
-   */
   public async getByUuid(
     req: Request,
     res: Response,
@@ -54,7 +47,6 @@ export class PaperSupplyController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
       const result = await this._paperSupplyDAO.getByUuid(uuid, companyId);
@@ -76,9 +68,6 @@ export class PaperSupplyController implements IBaseController {
     }
   }
 
-  /**
-   * Create a new paper supply
-   */
   public async create(
     req: Request,
     res: Response,
@@ -88,11 +77,9 @@ export class PaperSupplyController implements IBaseController {
       const data = req.body;
       const user = (req as any).user;
 
-      // Determine companyId based on user role
       let companyIdNumeric: number;
 
       if (user.role === "superAdmin") {
-        // SuperAdmin can create for any company - companyId must be provided in request
         if (!data.companyId) {
           res.status(400).json({
             success: false,
@@ -100,7 +87,6 @@ export class PaperSupplyController implements IBaseController {
           });
           return;
         }
-        // CompanyId from frontend might be UUID or numeric - convert if needed
         const companyDAO = new CompanyDAO();
         const numericId =
           typeof data.companyId === "string"
@@ -115,7 +101,7 @@ export class PaperSupplyController implements IBaseController {
         }
         companyIdNumeric = numericId;
       } else {
-        // Regular user - extract from token (cannot be changed)
+        // SECURITY: regular users' companyId is taken from JWT, never from the request body.
         if (!user.companyId) {
           res.status(400).json({
             success: false,
@@ -123,7 +109,6 @@ export class PaperSupplyController implements IBaseController {
           });
           return;
         }
-        // Convert company UUID from token to numeric ID
         const companyDAO = new CompanyDAO();
         const numericId = await companyDAO.getIdByUuid(user.companyId);
         if (!numericId) {
@@ -136,10 +121,8 @@ export class PaperSupplyController implements IBaseController {
         companyIdNumeric = numericId;
       }
 
-      // Inject the resolved companyId
       data.companyId = companyIdNumeric;
 
-      // Convert UUID foreign keys to numeric IDs BEFORE passing to DTO
       if (data.manufacturerId && typeof data.manufacturerId === "string") {
         const manufacturerDAO = new ManufacturerDAO();
         const manufacturerNumericId = await manufacturerDAO.getIdByUuid(
@@ -170,7 +153,6 @@ export class PaperSupplyController implements IBaseController {
         data.supplierId = supplierNumericId;
       }
 
-      // Validate input using DTO
       const inputDTO = new PaperSupplyCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
@@ -178,7 +160,7 @@ export class PaperSupplyController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      // Generate UUID server-side
+      // SECURITY: uuid is generated server-side; never trust client-supplied uuids.
       const dataToCreate: IPaperSupply = {
         uuid: uuidv4(),
         companyId: inputDTO.companyId,
@@ -201,9 +183,6 @@ export class PaperSupplyController implements IBaseController {
     }
   }
 
-  /**
-   * Update paper supply by UUID
-   */
   public async update(
     req: Request,
     res: Response,
@@ -213,10 +192,9 @@ export class PaperSupplyController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
-      // Get paper supply by UUID to find its ID and verify ownership
+      // companyId filter doubles as ownership check (404 if not in user's company).
       const existing = await this._paperSupplyDAO.getByUuid(uuid, companyId);
       if (!existing || !existing.id) {
         res.status(404).json({
@@ -226,7 +204,6 @@ export class PaperSupplyController implements IBaseController {
         return;
       }
 
-      // Convert UUID foreign keys to numeric IDs BEFORE passing to DTO
       if (data.manufacturerId && typeof data.manufacturerId === "string") {
         const manufacturerDAO = new ManufacturerDAO();
         const manufacturerNumericId = await manufacturerDAO.getIdByUuid(
@@ -257,7 +234,6 @@ export class PaperSupplyController implements IBaseController {
         data.supplierId = supplierNumericId;
       }
 
-      // Validate input using DTO
       const inputDTO = new PaperSupplyUpdateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
@@ -276,9 +252,6 @@ export class PaperSupplyController implements IBaseController {
     }
   }
 
-  /**
-   * Delete paper supply by UUID
-   */
   public async delete(
     req: Request,
     res: Response,
@@ -287,10 +260,9 @@ export class PaperSupplyController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
-      // Get paper supply by UUID to find its ID and verify ownership
+      // companyId filter doubles as ownership check (404 if not in user's company).
       const existing = await this._paperSupplyDAO.getByUuid(uuid, companyId);
       if (!existing || !existing.id) {
         res.status(404).json({
@@ -314,7 +286,7 @@ export class PaperSupplyController implements IBaseController {
         });
       }
     } catch (err: any) {
-      // Handle foreign key constraint errors
+      // PostgreSQL foreign-key violation: surface a user-friendly 400 instead of leaking the FK error.
       if (
         err.code === "23503" ||
         err.message?.includes("foreign key constraint")
@@ -330,9 +302,6 @@ export class PaperSupplyController implements IBaseController {
     }
   }
 
-  /**
-   * Get paper supply with related details (manufacturer, supplier, company)
-   */
   public async getWithDetails(
     req: Request,
     res: Response,
@@ -341,7 +310,6 @@ export class PaperSupplyController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
       const result = await this._paperSupplyDAO.getWithDetails(

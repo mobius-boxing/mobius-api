@@ -11,9 +11,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * PaperClass — plain CRUD. DAO has no getIdByUuid; base falls back to getByUuid()?.id.
- */
 export class PaperClassController extends BaseCrudController<IPaperClass> {
   protected dao = new PaperClassDAO();
   protected options: BaseCrudOptions = {

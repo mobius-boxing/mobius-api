@@ -13,10 +13,7 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * CustomerCategory filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const CUSTOMER_CATEGORY_FILTERS: FilterConfigs = {
   name: {
     column: "name",
@@ -28,18 +25,12 @@ const CUSTOMER_CATEGORY_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * CustomerCategory sort configuration
- */
 const CUSTOMER_CATEGORY_SORTING: SortConfigs = {
   name: { column: "name" },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * CustomerCategory query builder configuration
- */
 const CUSTOMER_CATEGORY_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "customer_categories",
   {
@@ -60,9 +51,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   private tableName = "customer_categories";
   private queryConfig = CUSTOMER_CATEGORY_QUERY_CONFIG;
 
-  /**
-   * Create a new customer category
-   */
   async create(item: ICustomerCategory): Promise<ICustomerCategory> {
     const knex = KnexManager.getConnection();
     const [category] = await knex(this.tableName)
@@ -76,9 +64,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     return this.mapToInterface(category);
   }
 
-  /**
-   * Get customer category by ID
-   */
   async getById(id: number): Promise<ICustomerCategory | null> {
     const knex = KnexManager.getConnection();
     const category = await knex(this.tableName).where("id", id).first();
@@ -86,9 +71,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     return category ? this.mapToInterface(category) : null;
   }
 
-  /**
-   * Get customer category by UUID
-   */
+  // companyUuid filter, when present, doubles as an ownership check (null if not in user's company).
   async getByUuid(
     uuid: string,
     companyUuid?: string,
@@ -96,7 +79,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     const knex = KnexManager.getConnection();
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -108,10 +90,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     return category ? this.mapToInterface(category) : null;
   }
 
-  /**
-   * Get customer category numeric ID by UUID string
-   * Used for converting UUID foreign keys to database IDs
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const category = await knex(this.tableName)
@@ -122,9 +100,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     return category ? category.id : null;
   }
 
-  /**
-   * Update customer category by ID
-   */
   async update(
     id: number,
     item: Partial<ICustomerCategory>,
@@ -145,9 +120,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     return category ? this.mapToInterface(category) : null;
   }
 
-  /**
-   * Delete customer category by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -155,9 +127,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     return deleted > 0;
   }
 
-  /**
-   * Get all customer categories with pagination
-   */
   async getAll(
     page: number,
     limit: number,
@@ -169,7 +138,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     const query = knex(this.tableName);
     const countQuery = knex(this.tableName);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -201,25 +169,18 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     };
   }
 
-  /**
-   * Get all customer categories with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   * Handles companyId as UUID (joins with companies table)
-   */
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<ICustomerCategory>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -228,7 +189,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -239,7 +199,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [categories, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -258,9 +217,6 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): ICustomerCategory {
     return {
       id: record.id,

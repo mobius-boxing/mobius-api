@@ -11,16 +11,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * CorrugationClass — plain CRUD, no company scope, no FK resolution, no FK-catch.
- *
- * Query params (getAll):
- * - page, limit: Pagination
- * - sortBy, sortOrder: Sorting (code, description, createdAt, updatedAt)
- * - code: Filter by code (ILIKE)
- * - description: Filter by description (ILIKE)
- * - search: Full-text search on code, description
- */
 export class CorrugationClassController extends BaseCrudController<ICorrugationClass> {
   protected dao = new CorrugationClassDAO();
   protected options: BaseCrudOptions = {
@@ -39,7 +29,6 @@ export class CorrugationClassController extends BaseCrudController<ICorrugationC
       next(new Error(validation.message));
       return null;
     }
-    // Mirror original create payload exactly (explicit fields, not spread).
     return {
       code: inputDTO.code,
       description: inputDTO.description,

@@ -28,7 +28,6 @@ export class CorrugationUpdateInputDTO {
           ? parseFloat(data.caliper)
           : data.caliper;
     }
-    // Accept corrugationClassUuid from frontend
     if (data.corrugationClassUuid !== undefined) {
       this.corrugationClassUuid = data.corrugationClassUuid;
     }

@@ -14,12 +14,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * ToolingStock — mirror of consumable-stock with toolingUuid replacing
- * consumableSupplyUuid. Required: warehouseUuid + toolingUuid. Optional with
- * empty-string-clears semantics on update: warehouseLocationUuid, supplierUuid,
- * manufacturerUuid. getOneByUuid → getWithDetails. No FK-catch.
- */
 export class ToolingStockController extends BaseCrudController<IToolingStock> {
   protected dao = new ToolingStockDAO();
   protected options: BaseCrudOptions = {

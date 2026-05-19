@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Flap Type filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const FLAP_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -32,9 +30,6 @@ const FLAP_TYPE_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Flap Type sort configuration
- */
 const FLAP_TYPE_SORTING: SortConfigs = {
   code: { column: "code" },
   description: { column: "description" },
@@ -42,9 +37,6 @@ const FLAP_TYPE_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Flap Type query builder configuration
- */
 const FLAP_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "flap_types",
   {
@@ -65,9 +57,6 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
   private tableName = "flap_types";
   private queryConfig = FLAP_TYPE_QUERY_CONFIG;
 
-  /**
-   * Create a new flap type
-   */
   async create(item: IFlapType): Promise<IFlapType> {
     const knex = KnexManager.getConnection();
     const [flapType] = await knex(this.tableName)
@@ -82,9 +71,6 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     return this.mapToInterface(flapType);
   }
 
-  /**
-   * Get flap type by ID
-   */
   async getById(id: number): Promise<IFlapType | null> {
     const knex = KnexManager.getConnection();
     const flapType = await knex(this.tableName).where("id", id).first();
@@ -92,9 +78,6 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     return flapType ? this.mapToInterface(flapType) : null;
   }
 
-  /**
-   * Get flap type by UUID
-   */
   async getByUuid(uuid: string): Promise<IFlapType | null> {
     const knex = KnexManager.getConnection();
     const flapType = await knex(this.tableName).where("uuid", uuid).first();
@@ -102,9 +85,6 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     return flapType ? this.mapToInterface(flapType) : null;
   }
 
-  /**
-   * Update flap type by ID
-   */
   async update(id: number, item: Partial<IFlapType>): Promise<IFlapType | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
@@ -122,9 +102,6 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     return flapType ? this.mapToInterface(flapType) : null;
   }
 
-  /**
-   * Delete flap type by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -133,8 +110,7 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
   }
 
   /**
-   * Get all flap types with pagination
-   * @deprecated Use getAllWithFilters for advanced querying
+   * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IFlapType>> {
     const knex = KnexManager.getConnection();
@@ -162,22 +138,16 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     };
   }
 
-  /**
-   * Get all flap types with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IFlapType>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -186,7 +156,6 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -197,7 +166,6 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [flapTypes, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -216,9 +184,6 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IFlapType {
     return {
       id: record.id,

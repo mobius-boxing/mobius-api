@@ -13,10 +13,7 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Product filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const PRODUCT_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -41,9 +38,6 @@ const PRODUCT_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Product sort configuration
- */
 const PRODUCT_SORTING: SortConfigs = {
   code: { column: "code" },
   clientCode: { column: "clientCode" },
@@ -51,9 +45,6 @@ const PRODUCT_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Product query builder configuration
- */
 const PRODUCT_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("products", {
   filters: PRODUCT_FILTERS,
   sorting: PRODUCT_SORTING,
@@ -71,9 +62,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   private tableName = "products";
   private queryConfig = PRODUCT_QUERY_CONFIG;
 
-  /**
-   * Create a new product
-   */
   async create(item: IProduct): Promise<IProduct> {
     const knex = KnexManager.getConnection();
     const [product] = await knex(this.tableName)
@@ -94,9 +82,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     return this.mapToInterface(product);
   }
 
-  /**
-   * Get product by ID
-   */
   async getById(id: number): Promise<IProduct | null> {
     const knex = KnexManager.getConnection();
     const product = await knex(this.tableName).where("id", id).first();
@@ -104,9 +89,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     return product ? this.mapToInterface(product) : null;
   }
 
-  /**
-   * Get product by UUID
-   */
+  // companyUuid filter, when present, doubles as an ownership check (null if not in user's company).
   async getByUuid(
     uuid: string,
     companyUuid?: string,
@@ -114,7 +97,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     const knex = KnexManager.getConnection();
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -126,9 +108,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     return product ? this.mapToInterface(product) : null;
   }
 
-  /**
-   * Update product by ID
-   */
   async update(id: number, item: Partial<IProduct>): Promise<IProduct | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
@@ -154,9 +133,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     return product ? this.mapToInterface(product) : null;
   }
 
-  /**
-   * Delete product by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -164,9 +140,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     return deleted > 0;
   }
 
-  /**
-   * Get all products with pagination
-   */
   async getAll(
     page: number,
     limit: number,
@@ -178,7 +151,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     const query = knex(this.tableName);
     const countQuery = knex(this.tableName);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -210,21 +182,14 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     };
   }
 
-  /**
-   * Get all products with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   * Handles companyId as UUID (joins with companies table)
-   * Includes customer object via LEFT JOIN and to_jsonb()
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IProduct>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query with customer, product_types and box_types joins
     const dataQuery = knex(this.tableName)
       .select(
         `${this.tableName}.*`,
@@ -244,7 +209,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
         "box_types.id",
       );
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -253,7 +217,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -264,7 +227,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [products, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -276,7 +238,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       success: true,
       data: products.map((product) => {
         const mapped = this.mapToInterface(product);
-        // Include nested objects, stripping all numeric IDs
         if (product.customer) {
           const { id, companyId, categoryId, salesPersonId, ...customerClean } = product.customer;
           mapped.customer = customerClean;
@@ -299,9 +260,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     };
   }
 
-  /**
-   * Get internal numeric ID by UUID, optionally scoped to a company
-   */
   async getIdByUuid(
     uuid: string,
     companyUuid?: string,
@@ -321,9 +279,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     return record ? record.id : null;
   }
 
-  /**
-   * Get product with related details (customer) using to_jsonb
-   */
   async getWithDetails(
     uuid: string,
     companyUuid?: string,
@@ -335,7 +290,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       .leftJoin("customers", "products.customerId", "customers.id")
       .where("products.uuid", uuid);
 
-    // Filter by company UUID if provided
     if (companyUuid) {
       query
         .join("companies", "products.companyId", "companies.id")
@@ -355,9 +309,6 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     return mapped;
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IProduct {
     return {
       uuid: record.uuid,

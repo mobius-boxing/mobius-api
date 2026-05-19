@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Complement filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const COMPLEMENT_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -32,9 +30,6 @@ const COMPLEMENT_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Complement sort configuration
- */
 const COMPLEMENT_SORTING: SortConfigs = {
   code: { column: "code" },
   description: { column: "description" },
@@ -42,9 +37,6 @@ const COMPLEMENT_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Complement query builder configuration
- */
 const COMPLEMENT_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   "complements",
   {
@@ -65,9 +57,6 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   private tableName = "complements";
   private queryConfig = COMPLEMENT_QUERY_CONFIG;
 
-  /**
-   * Create a new complement
-   */
   async create(item: IComplement): Promise<IComplement> {
     const knex = KnexManager.getConnection();
     const [complement] = await knex(this.tableName)
@@ -82,9 +71,6 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     return this.mapToInterface(complement);
   }
 
-  /**
-   * Get complement by ID
-   */
   async getById(id: number): Promise<IComplement | null> {
     const knex = KnexManager.getConnection();
     const complement = await knex(this.tableName).where("id", id).first();
@@ -92,9 +78,6 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     return complement ? this.mapToInterface(complement) : null;
   }
 
-  /**
-   * Get complement by UUID
-   */
   async getByUuid(uuid: string): Promise<IComplement | null> {
     const knex = KnexManager.getConnection();
     const complement = await knex(this.tableName).where("uuid", uuid).first();
@@ -102,9 +85,6 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     return complement ? this.mapToInterface(complement) : null;
   }
 
-  /**
-   * Update complement by ID
-   */
   async update(id: number, item: Partial<IComplement>): Promise<IComplement | null> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
@@ -122,9 +102,6 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     return complement ? this.mapToInterface(complement) : null;
   }
 
-  /**
-   * Delete complement by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -133,8 +110,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   }
 
   /**
-   * Get all complements with pagination
-   * @deprecated Use getAllWithFilters for advanced querying
+   * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IComplement>> {
     const knex = KnexManager.getConnection();
@@ -162,22 +138,17 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     };
   }
 
-  /**
-   * Get all complements with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IComplement>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid rather than
+    // letting the query builder treat it as a column filter.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -186,7 +157,6 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -197,7 +167,6 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [complements, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -216,9 +185,6 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): IComplement {
     return {
       id: record.id,

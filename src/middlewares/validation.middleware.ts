@@ -2,17 +2,11 @@ import { Request, Response, NextFunction } from "express";
 import { validate as classValidate, ValidationError } from "class-validator";
 import { plainToClass } from "class-transformer";
 
-/**
- * Validation error detail interface
- */
 interface IValidationErrorDetail {
   field: string;
   errors: string[];
 }
 
-/**
- * Format class-validator errors into a readable format
- */
 const formatValidationErrors = (
   errors: ValidationError[],
 ): IValidationErrorDetail[] => {
@@ -26,7 +20,6 @@ const formatValidationErrors = (
       });
     }
 
-    // Handle nested validation errors
     if (error.children && error.children.length > 0) {
       const childErrors = formatValidationErrors(error.children);
       childErrors.forEach((childError) => {
@@ -41,16 +34,6 @@ const formatValidationErrors = (
   return formatted;
 };
 
-/**
- * Generic DTO validation middleware
- * Validates request body against a DTO class using class-validator
- *
- * @param DTOClass - The DTO class to validate against
- * @param source - The source of data to validate ('body', 'query', 'params')
- *
- * @example
- * router.post('/', validateDTO(CreateUserDTO), controller.create);
- */
 export const validateDTO = <T extends object>(
   DTOClass: new () => T,
   source: "body" | "query" | "params" = "body",
@@ -61,16 +44,15 @@ export const validateDTO = <T extends object>(
     next: NextFunction,
   ): Promise<void> => {
     try {
-      // Get data from the specified source
       const data = req[source];
 
-      // Transform plain object to class instance
       const dtoInstance = plainToClass(DTOClass, data);
 
-      // Validate the DTO instance
+      // SECURITY: whitelist + forbidNonWhitelisted reject any property not declared on the DTO,
+      // preventing mass-assignment attacks.
       const errors = await classValidate(dtoInstance, {
-        whitelist: true, // Strip properties that don't have decorators
-        forbidNonWhitelisted: true, // Throw error if non-whitelisted properties exist
+        whitelist: true,
+        forbidNonWhitelisted: true,
         skipMissingProperties: false,
       });
 
@@ -85,7 +67,6 @@ export const validateDTO = <T extends object>(
         return;
       }
 
-      // Replace the source data with the validated and transformed DTO
       req[source] = dtoInstance as any;
 
       next();
@@ -95,17 +76,6 @@ export const validateDTO = <T extends object>(
   };
 };
 
-/**
- * Simple validation middleware without class-validator
- * Useful for basic validation without DTO classes
- *
- * @param validationFn - Custom validation function that throws error if validation fails
- *
- * @example
- * router.get('/:id', validate((req) => {
- *   if (!req.params.id) throw new Error('ID is required');
- * }), controller.getById);
- */
 export const validate = (
   validationFn: (req: Request) => void | Promise<void>,
 ) => {
@@ -126,10 +96,6 @@ export const validate = (
   };
 };
 
-/**
- * Validate UUID parameter middleware
- * Ensures the UUID parameter is in valid UUID format
- */
 export const validateUUID = (paramName: string = "uuid") => {
   return (req: Request, res: Response, next: NextFunction): void => {
     const uuid = req.params[paramName];
@@ -142,7 +108,7 @@ export const validateUUID = (paramName: string = "uuid") => {
       return;
     }
 
-    // UUID v4 regex pattern
+    // UUID v4 (RFC 4122 §4.4): version nibble = 4, variant nibble ∈ {8,9,a,b}.
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -158,10 +124,6 @@ export const validateUUID = (paramName: string = "uuid") => {
   };
 };
 
-/**
- * Validate pagination parameters middleware
- * Ensures page and limit are positive integers
- */
 export const validatePagination = (
   req: Request,
   res: Response,
@@ -194,10 +156,6 @@ export const validatePagination = (
   next();
 };
 
-/**
- * Validate required fields in request body
- * @param fields - Array of required field names
- */
 export const validateRequiredFields = (fields: string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     const missingFields: string[] = [];

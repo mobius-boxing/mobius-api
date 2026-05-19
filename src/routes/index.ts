@@ -11,9 +11,7 @@ export class IndexRouter {
   }
 
   private loadRoutes(): void {
-    const routesPath = path.join(__dirname); // points to routes folder (e.g., src/routes or dist/routes)
-
-    // Scan folders inside routes/
+    const routesPath = path.join(__dirname); // resolves to src/routes in dev or dist/routes in prod
     const folders = fs
       .readdirSync(routesPath)
       .filter((file) => fs.statSync(path.join(routesPath, file)).isDirectory());

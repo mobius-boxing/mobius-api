@@ -23,10 +23,8 @@ export class ProductController implements IBaseController {
   private _productDAO: ProductDAO = new ProductDAO();
 
   /**
-   * Get all products with pagination and filtering
-   * Uses query builder for flexible querying
-   * SuperAdmin: filters by companyId from query params (frontend sends selected company UUID)
-   * Regular users: always filtered by their assigned company
+   * SuperAdmin: filters by companyId from query params.
+   * Regular users: always filtered by their assigned company (enforced server-side).
    */
   public async getAll(
     req: Request,
@@ -34,7 +32,6 @@ export class ProductController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      // For non-superAdmin users, enforce their company filter
       enforceCompanyFilter(req);
 
       const result: IDataPaginator<IProduct> =
@@ -45,9 +42,6 @@ export class ProductController implements IBaseController {
     }
   }
 
-  /**
-   * Get product by UUID
-   */
   public async getByUuid(
     req: Request,
     res: Response,
@@ -56,7 +50,6 @@ export class ProductController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
       const result = await this._productDAO.getByUuid(uuid, companyId);
@@ -78,9 +71,6 @@ export class ProductController implements IBaseController {
     }
   }
 
-  /**
-   * Create a new product
-   */
   public async create(
     req: Request,
     res: Response,
@@ -90,11 +80,9 @@ export class ProductController implements IBaseController {
       const data = req.body;
       const user = (req as any).user;
 
-      // Determine companyId based on user role
       let companyIdNumeric: number;
 
       if (user.role === "superAdmin") {
-        // SuperAdmin can create for any company - companyId must be provided in request
         if (!data.companyId) {
           res.status(400).json({
             success: false,
@@ -102,7 +90,6 @@ export class ProductController implements IBaseController {
           });
           return;
         }
-        // CompanyId from frontend might be UUID or numeric - convert if needed
         const companyDAO = new CompanyDAO();
         const numericId =
           typeof data.companyId === "string"
@@ -117,7 +104,7 @@ export class ProductController implements IBaseController {
         }
         companyIdNumeric = numericId;
       } else {
-        // Regular user - extract from token (cannot be changed)
+        // SECURITY: regular users' companyId is taken from JWT, never from the request body.
         if (!user.companyId) {
           res.status(400).json({
             success: false,
@@ -125,7 +112,6 @@ export class ProductController implements IBaseController {
           });
           return;
         }
-        // Convert company UUID from token to numeric ID
         const companyDAO = new CompanyDAO();
         const numericId = await companyDAO.getIdByUuid(user.companyId);
         if (!numericId) {
@@ -138,10 +124,8 @@ export class ProductController implements IBaseController {
         companyIdNumeric = numericId;
       }
 
-      // Inject the resolved companyId
       data.companyId = companyIdNumeric;
 
-      // Convert UUID foreign keys to numeric IDs BEFORE passing to DTO
       if (data.customerId && typeof data.customerId === "string") {
         const customerDAO = new CustomerDAO();
         const customerNumericId = await customerDAO.getIdByUuid(
@@ -183,7 +167,6 @@ export class ProductController implements IBaseController {
         data.boxTypeId = numericId;
       }
 
-      // Validate input using DTO
       const inputDTO = new ProductCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
@@ -191,7 +174,7 @@ export class ProductController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      // Generate UUID server-side
+      // SECURITY: uuid is generated server-side; never trust client-supplied uuids.
       const dataToCreate: IProduct = {
         uuid: uuidv4(),
         companyId: inputDTO.companyId,
@@ -216,9 +199,6 @@ export class ProductController implements IBaseController {
     }
   }
 
-  /**
-   * Update product by UUID
-   */
   public async update(
     req: Request,
     res: Response,
@@ -228,10 +208,9 @@ export class ProductController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
-      // Get product numeric ID by UUID, verifying ownership via company scope
+      // companyId scope doubles as ownership check (404 if not in user's company).
       const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
       if (!existingId) {
         res.status(404).json({
@@ -241,7 +220,6 @@ export class ProductController implements IBaseController {
         return;
       }
 
-      // Convert UUID foreign keys to numeric IDs BEFORE passing to DTO
       if (data.customerId && typeof data.customerId === "string") {
         const customerDAO = new CustomerDAO();
         const customerNumericId = await customerDAO.getIdByUuid(
@@ -283,7 +261,6 @@ export class ProductController implements IBaseController {
         data.boxTypeId = numericId;
       }
 
-      // Validate input using DTO
       const inputDTO = new ProductUpdateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
@@ -302,9 +279,6 @@ export class ProductController implements IBaseController {
     }
   }
 
-  /**
-   * Delete product by UUID
-   */
   public async delete(
     req: Request,
     res: Response,
@@ -313,10 +287,9 @@ export class ProductController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
-      // Get product numeric ID by UUID, verifying ownership via company scope
+      // companyId scope doubles as ownership check (404 if not in user's company).
       const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
       if (!existingId) {
         res.status(404).json({
@@ -340,7 +313,7 @@ export class ProductController implements IBaseController {
         });
       }
     } catch (err: any) {
-      // Handle foreign key constraint errors
+      // PostgreSQL foreign-key violation: surface a user-friendly 400 instead of leaking the FK error.
       if (
         err.code === "23503" ||
         err.message?.includes("foreign key constraint")
@@ -356,9 +329,6 @@ export class ProductController implements IBaseController {
     }
   }
 
-  /**
-   * Get product with related details (customer)
-   */
   public async getWithDetails(
     req: Request,
     res: Response,
@@ -367,7 +337,6 @@ export class ProductController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
       const result = await this._productDAO.getWithDetails(uuid, companyId);

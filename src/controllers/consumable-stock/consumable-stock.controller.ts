@@ -14,15 +14,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * ConsumableStock — CRUD with:
- *   - getOneByUuid override → dao.getWithDetails (R5: enriched payload)
- *   - UUID-keyed input DTO (warehouseUuid, consumableSupplyUuid required;
- *     warehouseLocationUuid, supplierUuid, manufacturerUuid optional)
- *   - Empty-string-clears semantics on the 3 optional FKs in update
- *
- * No FK-catch on delete (matches original).
- */
 export class ConsumableStockController extends BaseCrudController<IConsumableStock> {
   protected dao = new ConsumableStockDAO();
   protected options: BaseCrudOptions = {
@@ -35,7 +26,6 @@ export class ConsumableStockController extends BaseCrudController<IConsumableSto
   private _manufacturerDAO = new ManufacturerDAO();
   private _consumableSupplyDAO = new ConsumableSupplyDAO();
 
-  /** GET /:uuid returns the joined detail payload. */
   protected async getOneByUuid(uuid: string): Promise<IConsumableStock | null> {
     return this.dao.getWithDetails(uuid);
   }
@@ -75,7 +65,6 @@ export class ConsumableStockController extends BaseCrudController<IConsumableSto
     _req: Request,
     res: Response,
   ): Promise<any | null> {
-    // Resolve required foreign keys
     const warehouseId = await this._warehouseDAO.getIdByUuid(
       inputDTO.warehouseUuid,
     );
@@ -94,7 +83,6 @@ export class ConsumableStockController extends BaseCrudController<IConsumableSto
       return null;
     }
 
-    // Resolve optional foreign keys
     let warehouseLocationId: number | undefined;
     let supplierId: number | undefined;
     let manufacturerId: number | undefined;

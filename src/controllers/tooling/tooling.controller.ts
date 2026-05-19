@@ -14,12 +14,6 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 
-/**
- * Tooling — CRUD with UUID-keyed DTO. toolingTypeUuid required, manufacturer/
- * supplier optional with null-or-empty-clears semantics on update.
- *
- * No FK-catch on delete (matches original — only tooling-type itself has it).
- */
 export class ToolingController extends BaseCrudController<ITooling> {
   protected dao = new ToolingDAO();
   protected options: BaseCrudOptions = {
@@ -65,7 +59,6 @@ export class ToolingController extends BaseCrudController<ITooling> {
     _req: Request,
     res: Response,
   ): Promise<any | null> {
-    // Required toolingType
     const toolingTypeId = await this._toolingTypeDAO.getIdByUuid(
       inputDTO.toolingTypeUuid,
     );
@@ -76,7 +69,6 @@ export class ToolingController extends BaseCrudController<ITooling> {
       return null;
     }
 
-    // Optional manufacturer
     let manufacturerId: number | undefined;
     if (inputDTO.manufacturerUuid) {
       manufacturerId =
@@ -90,7 +82,6 @@ export class ToolingController extends BaseCrudController<ITooling> {
       }
     }
 
-    // Optional supplier
     let supplierId: number | undefined;
     if (inputDTO.supplierUuid) {
       supplierId =
@@ -118,9 +109,6 @@ export class ToolingController extends BaseCrudController<ITooling> {
     _req: Request,
     res: Response,
   ): Promise<any | null> {
-    // Note: original explicitly carries name/description/minimumStock even
-    // if undefined (Partial<ITooling>). Knex update will skip undefined columns
-    // — matches original byte-equivalent behavior.
     const updateData: Partial<ITooling> = {
       name: inputDTO.name,
       description: inputDTO.description,

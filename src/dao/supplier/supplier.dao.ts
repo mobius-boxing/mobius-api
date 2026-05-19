@@ -13,10 +13,8 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
-/**
- * Supplier filter configuration
- * Note: companyId is handled separately via join (expects UUID from frontend)
- */
+// companyId is intentionally absent — handled separately via a join in getAllWithFilters
+// because the client sends a UUID, not a numeric id.
 const SUPPLIER_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -53,18 +51,12 @@ const SUPPLIER_FILTERS: FilterConfigs = {
   },
 };
 
-/**
- * Supplier sort configuration
- */
 const SUPPLIER_SORTING: SortConfigs = {
   code: { column: "code" },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
 
-/**
- * Supplier query builder configuration
- */
 const SUPPLIER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("suppliers", {
   filters: SUPPLIER_FILTERS,
   sorting: SUPPLIER_SORTING,
@@ -82,9 +74,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
   private tableName = "suppliers";
   private queryConfig = SUPPLIER_QUERY_CONFIG;
 
-  /**
-   * Create a new supplier
-   */
   async create(item: ISupplier): Promise<ISupplier> {
     const knex = KnexManager.getConnection();
     const [supplier] = await knex(this.tableName)
@@ -103,9 +92,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     return this.mapToInterface(supplier);
   }
 
-  /**
-   * Get supplier by ID
-   */
   async getById(id: number): Promise<ISupplier | null> {
     const knex = KnexManager.getConnection();
     const supplier = await knex(this.tableName).where("id", id).first();
@@ -113,9 +99,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     return supplier ? this.mapToInterface(supplier) : null;
   }
 
-  /**
-   * Get supplier by UUID
-   */
   async getByUuid(uuid: string): Promise<ISupplier | null> {
     const knex = KnexManager.getConnection();
     const supplier = await knex(this.tableName).where("uuid", uuid).first();
@@ -123,10 +106,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     return supplier ? this.mapToInterface(supplier) : null;
   }
 
-  /**
-   * Get supplier numeric ID by UUID string
-   * Used for converting UUID foreign keys to database IDs
-   */
   async getIdByUuid(uuid: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const supplier = await knex(this.tableName)
@@ -137,9 +116,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     return supplier ? supplier.id : null;
   }
 
-  /**
-   * Update supplier by ID
-   */
   async update(
     id: number,
     item: Partial<ISupplier>,
@@ -169,9 +145,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     return supplier ? this.mapToInterface(supplier) : null;
   }
 
-  /**
-   * Delete supplier by ID
-   */
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
     const deleted = await knex(this.tableName).where("id", id).delete();
@@ -180,8 +153,7 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
   }
 
   /**
-   * Get all suppliers with pagination
-   * @deprecated Use getAllWithFilters for advanced querying
+   * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(
     page: number,
@@ -212,29 +184,16 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     };
   }
 
-  /**
-   * Get all suppliers with advanced filtering, sorting, and search
-   * Uses query builder for flexible querying
-   *
-   * Supported query params:
-   * - page, limit: Pagination (e.g., ?page=1&limit=20)
-   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=code&sortOrder=asc)
-   * - code: Filter by code (ILIKE)
-   * - suppliesSheets, suppliesElaborated, suppliesConsumables, suppliesPaper, suppliesTooling: Boolean filters
-   * - search: Full-text search on code (e.g., ?search=TEST)
-   */
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ISupplier>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Extract companyId (UUID) from filters - handle it separately via join
+    // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
-    // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    // Join with companies if filtering by company UUID
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
@@ -243,7 +202,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
 
     if (companyUuid) {
@@ -254,7 +212,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
-    // Execute both queries in parallel
     const [suppliers, totalResult] = await Promise.all([
       dataQuery,
       countQuery.count("* as count").first(),
@@ -273,9 +230,6 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     };
   }
 
-  /**
-   * Map database record to interface
-   */
   private mapToInterface(record: any): ISupplier {
     return {
       id: record.id,
