@@ -1,187 +1,63 @@
 import { Request, Response, NextFunction } from "express";
-import { IBaseController } from "../../types.d";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { CorrugationClassDAO } from "../../dao/corrugation-class/corrugation-class.dao";
 import { ICorrugationClass } from "../../interfaces/corrugation-class/corrugation-class.interfaces";
-import { IDataPaginator } from "../../database/d.types";
-import { v4 as uuidv4 } from "uuid";
 import {
   CorrugationClassCreateInputDTO,
   CorrugationClassUpdateInputDTO,
 } from "../../dto/input/corrugationClass";
-import { enforceCompanyFilter } from "../../utils/companyScope";
+import {
+  BaseCrudController,
+  BaseCrudOptions,
+} from "../base/base-crud.controller";
 
-export class CorrugationClassController implements IBaseController {
-  private _corrugationClassDAO: CorrugationClassDAO = new CorrugationClassDAO();
+/**
+ * CorrugationClass — plain CRUD, no company scope, no FK resolution, no FK-catch.
+ *
+ * Query params (getAll):
+ * - page, limit: Pagination
+ * - sortBy, sortOrder: Sorting (code, description, createdAt, updatedAt)
+ * - code: Filter by code (ILIKE)
+ * - description: Filter by description (ILIKE)
+ * - search: Full-text search on code, description
+ */
+export class CorrugationClassController extends BaseCrudController<ICorrugationClass> {
+  protected dao = new CorrugationClassDAO();
+  protected options: BaseCrudOptions = {
+    entityLabel: "Corrugation class",
+  };
 
-  /**
-   * Get all corrugation classes with pagination, filtering, sorting, and search
-   *
-   * Query params:
-   * - page, limit: Pagination
-   * - sortBy, sortOrder: Sorting (code, description, createdAt, updatedAt)
-   * - code: Filter by code (ILIKE)
-   * - description: Filter by description (ILIKE)
-   * - search: Full-text search on code, description
-   */
-  public async getAll(
+  protected async buildCreateDTO(
     req: Request,
-    res: Response,
+    _res: Response,
     next: NextFunction,
-  ): Promise<void> {
-    try {
-      enforceCompanyFilter(req);
-      const result = await this._corrugationClassDAO.getAllWithFilters(req);
-      res.status(200).json(result);
-    } catch (err: any) {
-      next(err);
+  ): Promise<any | null> {
+    const inputDTO = new CorrugationClassCreateInputDTO(req.body).build();
+    const validation: IInputValidator = await inputValidator(inputDTO);
+    if (!validation.success) {
+      req.statusCode = 400;
+      next(new Error(validation.message));
+      return null;
     }
+    // Mirror original create payload exactly (explicit fields, not spread).
+    return {
+      code: inputDTO.code,
+      description: inputDTO.description,
+    };
   }
 
-  /**
-   * Get corrugation class by UUID
-   */
-  public async getByUuid(
+  protected async buildUpdateDTO(
     req: Request,
-    res: Response,
+    _res: Response,
     next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-
-      const result = await this._corrugationClassDAO.getByUuid(uuid);
-
-      if (!result) {
-        res.status(404).json({
-          success: false,
-          message: "Corrugation class not found",
-        });
-        return;
-      }
-
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
+  ): Promise<any | null> {
+    const inputDTO = new CorrugationClassUpdateInputDTO(req.body).build();
+    const validation: IInputValidator = await inputValidator(inputDTO);
+    if (!validation.success) {
+      req.statusCode = 400;
+      next(new Error(validation.message));
+      return null;
     }
-  }
-
-  /**
-   * Create a new corrugation class
-   */
-  public async create(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const data = req.body;
-
-      // Validate input using DTO
-      const inputDTO = new CorrugationClassCreateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
-      }
-
-      // Generate UUID server-side
-      const dataToCreate: ICorrugationClass = {
-        uuid: uuidv4(),
-        code: inputDTO.code,
-        description: inputDTO.description,
-      };
-
-      const result = await this._corrugationClassDAO.create(dataToCreate);
-
-      res.status(201).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
-    }
-  }
-
-  /**
-   * Update corrugation class by UUID
-   */
-  public async update(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-      const data = req.body;
-
-      // SECURITY: Get internal numeric ID by UUID (never expose ID to frontend)
-      const existingId = await this._corrugationClassDAO.getIdByUuid(uuid);
-      if (!existingId) {
-        res.status(404).json({
-          success: false,
-          message: "Corrugation class not found",
-        });
-        return;
-      }
-
-      // Validate input using DTO
-      const inputDTO = new CorrugationClassUpdateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
-      }
-
-      const result = await this._corrugationClassDAO.update(existingId, inputDTO);
-
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
-    }
-  }
-
-  /**
-   * Delete corrugation class by UUID
-   */
-  public async delete(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-
-      // SECURITY: Get internal numeric ID by UUID (never expose ID to frontend)
-      const existingId = await this._corrugationClassDAO.getIdByUuid(uuid);
-      if (!existingId) {
-        res.status(404).json({
-          success: false,
-          message: "Corrugation class not found",
-        });
-        return;
-      }
-
-      const result = await this._corrugationClassDAO.delete(existingId);
-
-      if (result) {
-        res.status(200).json({
-          success: true,
-          message: "Corrugation class deleted successfully",
-        });
-      } else {
-        res.status(404).json({
-          success: false,
-          message: "Failed to delete corrugation class",
-        });
-      }
-    } catch (err: any) {
-      next(err);
-    }
+    return inputDTO;
   }
 }

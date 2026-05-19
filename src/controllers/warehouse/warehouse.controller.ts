@@ -1,251 +1,121 @@
 import { Request, Response, NextFunction } from "express";
-import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { WarehouseDAO } from "../../dao/warehouse/warehouse.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { PaperStockDAO } from "../../dao/paper-stock/paper-stock.dao";
 import { SheetStockDAO } from "../../dao/sheet-stock/sheet-stock.dao";
 import { WarehouseLocationDAO } from "../../dao/warehouseLocation/warehouseLocation.dao";
 import { IWarehouse } from "../../interfaces/warehouse/warehouse.interfaces";
-import { IDataPaginator } from "../../database/d.types";
-import { v4 as uuidv4 } from "uuid";
 import {
   WarehouseCreateInputDTO,
   WarehouseUpdateInputDTO,
 } from "../../dto/input/warehouse";
-import { getCompanyForCreate, enforceCompanyFilter } from "../../utils/companyScope";
+import { getCompanyForCreate } from "../../utils/companyScope";
+import {
+  BaseCrudController,
+  BaseCrudOptions,
+} from "../base/base-crud.controller";
 
-export class WarehouseController implements IBaseController {
-  private _warehouseDAO: WarehouseDAO = new WarehouseDAO();
+/**
+ * Warehouse — CRUD with Co-scope-A (CompanyDAO.getIdByUuid variant), FK-catch
+ * on delete, and a bespoke `getWarehouseStock` aggregation endpoint that must
+ * remain on this controller.
+ *
+ * Query params (getAll):
+ * - page, limit: Pagination
+ * - sortBy, sortOrder: e.g. ?sortBy=name&sortOrder=asc
+ * - name, companyId, uuid: Filtering (e.g. ?companyId=5&name=Main)
+ * - search: Full-text search across name
+ */
+export class WarehouseController extends BaseCrudController<IWarehouse> {
+  protected dao = new WarehouseDAO();
+  protected options: BaseCrudOptions = {
+    entityLabel: "Warehouse",
+    fkCatchOnDelete: true,
+  };
 
-  /**
-   * Get all warehouses with pagination, filtering, sorting, and search
-   *
-   * Query params (flat syntax):
-   * - page, limit: Pagination (e.g., ?page=1&limit=20)
-   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=name&sortOrder=asc)
-   * - name, companyId, uuid: Filtering (e.g., ?companyId=5&name=Main)
-   * - search: Full-text search across name (e.g., ?search=warehouse)
-   *
-   * Examples:
-   * - GET /warehouses?page=1&limit=10
-   * - GET /warehouses?sortBy=createdAt&sortOrder=desc
-   * - GET /warehouses?companyId=3&name=Main
-   * - GET /warehouses?search=central
-   * - GET /warehouses?page=1&companyId=3&sortBy=name&sortOrder=asc
-   */
-  public async getAll(
+  protected async buildCreateDTO(
     req: Request,
-    res: Response,
+    _res: Response,
     next: NextFunction,
-  ): Promise<void> {
-    try {
-      enforceCompanyFilter(req);
-      const result: IDataPaginator<IWarehouse> =
-        await this._warehouseDAO.getAllWithFilters(req);
-      res.status(200).json(result);
-    } catch (err: any) {
-      next(err);
-    }
+  ): Promise<any | null> {
+    // Validation happens in beforeCreate AFTER companyId is injected into body,
+    // mirroring the original sequence. Here we just pass req.body through.
+    return req.body;
   }
 
-  /**
-   * Get warehouse by UUID
-   */
-  public async getByUuid(
+  protected async buildUpdateDTO(
+    req: Request,
+    _res: Response,
+    next: NextFunction,
+  ): Promise<any | null> {
+    const inputDTO = new WarehouseUpdateInputDTO(req.body).build();
+    const validation: IInputValidator = await inputValidator(inputDTO);
+    if (!validation.success) {
+      req.statusCode = 400;
+      next(new Error(validation.message));
+      return null;
+    }
+    return inputDTO;
+  }
+
+  protected async beforeCreate(
+    payload: any,
     req: Request,
     res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-
-      const result = await this._warehouseDAO.getByUuid(uuid);
-
-      if (!result) {
-        res.status(404).json({
-          success: false,
-          message: "Warehouse not found",
-        });
-        return;
-      }
-
-      res.status(200).json({
-        success: true,
-        data: result,
+  ): Promise<any | null> {
+    // Securely resolve company - JWT for regular users, body for SuperAdmins
+    const companyResult = getCompanyForCreate(req);
+    if (!companyResult.success) {
+      res.status(400).json({
+        success: false,
+        message: companyResult.message,
       });
-    } catch (err: any) {
-      next(err);
+      return null;
     }
-  }
 
-  /**
-   * Create a new warehouse
-   * Company is determined securely:
-   * - SuperAdmins: must provide companyId in request body
-   * - Regular users: company extracted from JWT (body companyId ignored)
-   */
-  public async create(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const data = req.body;
-
-      // Securely resolve company - JWT for regular users, body for SuperAdmins
-      const companyResult = getCompanyForCreate(req);
-      if (!companyResult.success) {
-        res.status(400).json({
-          success: false,
-          message: companyResult.message,
-        });
-        return;
-      }
-
-      // Convert company UUID to numeric ID
-      const companyDAO = new CompanyDAO();
-      const companyIdNumeric = await companyDAO.getIdByUuid(
-        companyResult.companyUuid,
-      );
-      if (!companyIdNumeric) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid company",
-        });
-        return;
-      }
-
-      // Inject the resolved companyId into data for DTO validation
-      data.companyId = companyIdNumeric;
-
-      // Validate input using DTO
-      const inputDTO = new WarehouseCreateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
-      }
-
-      // Generate UUID server-side
-      const dataToCreate: IWarehouse = {
-        uuid: uuidv4(),
-        name: inputDTO.name,
-        gridRows: inputDTO.gridRows,
-        gridCols: inputDTO.gridCols,
-        companyId: companyIdNumeric,
-      };
-
-      const result = await this._warehouseDAO.create(dataToCreate);
-
-      res.status(201).json({
-        success: true,
-        data: result,
+    // Convert company UUID to numeric ID
+    const companyDAO = new CompanyDAO();
+    const companyIdNumeric = await companyDAO.getIdByUuid(
+      companyResult.companyUuid,
+    );
+    if (!companyIdNumeric) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid company",
       });
-    } catch (err: any) {
-      next(err);
+      return null;
     }
+
+    // Inject resolved companyId into the data for DTO validation (matches original).
+    payload.companyId = companyIdNumeric;
+
+    // Validate input using DTO (kept in beforeCreate because companyId must be
+    // present before validation, just like the original).
+    const inputDTO = new WarehouseCreateInputDTO(payload).build();
+    const validation: IInputValidator = await inputValidator(inputDTO);
+    if (!validation.success) {
+      req.statusCode = 400;
+      // We can't use `next(err)` directly from a hook; throw and let base catch.
+      throw new Error(validation.message);
+    }
+
+    // Mirror original explicit-field create payload (uuid is added by base class).
+    return {
+      name: inputDTO.name,
+      gridRows: inputDTO.gridRows,
+      gridCols: inputDTO.gridCols,
+      companyId: companyIdNumeric,
+    };
   }
 
   /**
-   * Update warehouse by UUID
-   */
-  public async update(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-      const data = req.body;
-
-      // Get warehouse by UUID to find its ID
-      const existing = await this._warehouseDAO.getByUuid(uuid);
-      if (!existing || !existing.id) {
-        res.status(404).json({
-          success: false,
-          message: "Warehouse not found",
-        });
-        return;
-      }
-
-      // Validate input using DTO
-      const inputDTO = new WarehouseUpdateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
-      }
-
-      const result = await this._warehouseDAO.update(existing.id, inputDTO);
-
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
-    }
-  }
-
-  /**
-   * Delete warehouse by UUID
-   */
-  public async delete(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-
-      // Get warehouse by UUID to find its ID
-      const existing = await this._warehouseDAO.getByUuid(uuid);
-      if (!existing || !existing.id) {
-        res.status(404).json({
-          success: false,
-          message: "Warehouse not found",
-        });
-        return;
-      }
-
-      const result = await this._warehouseDAO.delete(existing.id);
-
-      if (result) {
-        res.status(200).json({
-          success: true,
-          message: "Warehouse deleted successfully",
-        });
-      } else {
-        res.status(404).json({
-          success: false,
-          message: "Failed to delete warehouse",
-        });
-      }
-    } catch (err: any) {
-      // Handle foreign key constraint errors
-      if (
-        err.code === "23503" ||
-        err.message?.includes("foreign key constraint")
-      ) {
-        res.status(400).json({
-          success: false,
-          message:
-            "Cannot delete warehouse: it is referenced by other records. Please remove related data first.",
-        });
-        return;
-      }
-      next(err);
-    }
-  }
-
-  /**
-   * Get all stock (paper and sheet) for a warehouse, grouped by location
+   * Get all stock (paper and sheet) for a warehouse, grouped by location.
    * GET /warehouse/:uuid/stock
+   *
+   * Preserved verbatim from pre-migration controller. Inline DAO instantiation
+   * (PaperStockDAO/SheetStockDAO/WarehouseLocationDAO) is established behavior —
+   * not refactored as part of this migration.
    */
   public async getWarehouseStock(
     req: Request,
@@ -256,7 +126,7 @@ export class WarehouseController implements IBaseController {
       const { uuid } = req.params;
 
       // Get warehouse by UUID
-      const warehouse = await this._warehouseDAO.getByUuid(uuid);
+      const warehouse = await this.dao.getByUuid(uuid);
       if (!warehouse || !warehouse.id) {
         res.status(404).json({
           success: false,

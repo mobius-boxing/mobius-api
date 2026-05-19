@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from "express";
-import { IBaseController } from "../../types.d";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { PaperStockDAO } from "../../dao/paper-stock/paper-stock.dao";
 import { WarehouseDAO } from "../../dao/warehouse/warehouse.dao";
@@ -8,317 +7,158 @@ import { SupplierDAO } from "../../dao/supplier/supplier.dao";
 import { ManufacturerDAO } from "../../dao/manufacturer/manufacturer.dao";
 import { PaperSupplyDAO } from "../../dao/paper-supply/paper-supply.dao";
 import { IPaperStock } from "../../interfaces/paper-stock/paper-stock.interfaces";
-import { IDataPaginator } from "../../database/d.types";
-import { v4 as uuidv4 } from "uuid";
 import {
   PaperStockCreateInputDTO,
   PaperStockUpdateInputDTO,
 } from "../../dto/input/paperStock";
-import { enforceCompanyFilter } from "../../utils/companyScope";
+import {
+  BaseCrudController,
+  BaseCrudOptions,
+} from "../base/base-crud.controller";
 
-export class PaperStockController implements IBaseController {
-  private _paperStockDAO: PaperStockDAO = new PaperStockDAO();
+/**
+ * PaperStock — CRUD with 5 FK UUID→ID resolutions and a getByUuid override
+ * that returns the enriched payload from dao.getWithDetails(uuid).
+ *
+ * FKs (numeric-id keyed DTO, no empty-string-clears semantics on update):
+ *   - warehouseId, supplierId, manufacturerId, paperSupplyId, warehouseLocationId
+ *
+ * Frontend sends these as string UUIDs; controller resolves to numeric IDs
+ * (mutates req.body in-place before DTO validation, mirroring original).
+ */
+export class PaperStockController extends BaseCrudController<IPaperStock> {
+  protected dao = new PaperStockDAO();
+  protected options: BaseCrudOptions = {
+    entityLabel: "Paper stock",
+  };
 
-  public async getAll(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      enforceCompanyFilter(req);
-      const result: IDataPaginator<IPaperStock> =
-        await this._paperStockDAO.getAllWithFilters(req);
-      res.status(200).json(result);
-    } catch (err: any) {
-      next(err);
-    }
+  /** Override: GET /:uuid returns the rich joined payload, not the bare row. */
+  protected async getOneByUuid(uuid: string): Promise<IPaperStock | null> {
+    return this.dao.getWithDetails(uuid);
   }
 
-  public async getByUuid(
-    req: Request,
+  /**
+   * Resolve all 5 FK UUIDs → numeric IDs on the raw request body in-place,
+   * exactly as the original controller did. Returns true on success, false if
+   * an error response was already written.
+   */
+  private async resolveForeignKeys(
+    data: any,
     res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-      const result = await this._paperStockDAO.getWithDetails(uuid);
-
-      if (!result) {
-        res.status(404).json({
-          success: false,
-          message: "Paper stock not found",
-        });
-        return;
+  ): Promise<boolean> {
+    if (data.warehouseId && typeof data.warehouseId === "string") {
+      const warehouseDAO = new WarehouseDAO();
+      const id = await warehouseDAO.getIdByUuid(data.warehouseId);
+      if (!id) {
+        res.status(400).json({ success: false, message: "Invalid warehouse" });
+        return false;
       }
-
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
+      data.warehouseId = id;
     }
+
+    if (data.supplierId && typeof data.supplierId === "string") {
+      const supplierDAO = new SupplierDAO();
+      const id = await supplierDAO.getIdByUuid(data.supplierId);
+      if (!id) {
+        res.status(400).json({ success: false, message: "Invalid supplier" });
+        return false;
+      }
+      data.supplierId = id;
+    }
+
+    if (data.manufacturerId && typeof data.manufacturerId === "string") {
+      const manufacturerDAO = new ManufacturerDAO();
+      const id = await manufacturerDAO.getIdByUuid(data.manufacturerId);
+      if (!id) {
+        res
+          .status(400)
+          .json({ success: false, message: "Invalid manufacturer" });
+        return false;
+      }
+      data.manufacturerId = id;
+    }
+
+    if (data.paperSupplyId && typeof data.paperSupplyId === "string") {
+      const paperSupplyDAO = new PaperSupplyDAO();
+      const id = await paperSupplyDAO.getIdByUuid(data.paperSupplyId);
+      if (!id) {
+        res
+          .status(400)
+          .json({ success: false, message: "Invalid paper supply" });
+        return false;
+      }
+      data.paperSupplyId = id;
+    }
+
+    if (
+      data.warehouseLocationId &&
+      typeof data.warehouseLocationId === "string"
+    ) {
+      const warehouseLocationDAO = new WarehouseLocationDAO();
+      const id = await warehouseLocationDAO.getIdByUuid(
+        data.warehouseLocationId,
+      );
+      if (!id) {
+        res
+          .status(400)
+          .json({ success: false, message: "Invalid warehouse location" });
+        return false;
+      }
+      data.warehouseLocationId = id;
+    }
+
+    return true;
   }
 
-  public async create(
+  protected async buildCreateDTO(
     req: Request,
     res: Response,
     next: NextFunction,
-  ): Promise<void> {
-    try {
-      const data = req.body;
+  ): Promise<any | null> {
+    // Original sequence: FK resolution BEFORE DTO validation.
+    const ok = await this.resolveForeignKeys(req.body, res);
+    if (!ok) return null;
 
-      // Convert UUID foreign keys to numeric IDs
-      if (data.warehouseId && typeof data.warehouseId === "string") {
-        const warehouseDAO = new WarehouseDAO();
-        const warehouseNumericId = await warehouseDAO.getIdByUuid(data.warehouseId);
-        if (!warehouseNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid warehouse",
-          });
-          return;
-        }
-        data.warehouseId = warehouseNumericId;
-      }
-
-      if (data.supplierId && typeof data.supplierId === "string") {
-        const supplierDAO = new SupplierDAO();
-        const supplierNumericId = await supplierDAO.getIdByUuid(data.supplierId);
-        if (!supplierNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid supplier",
-          });
-          return;
-        }
-        data.supplierId = supplierNumericId;
-      }
-
-      if (data.manufacturerId && typeof data.manufacturerId === "string") {
-        const manufacturerDAO = new ManufacturerDAO();
-        const manufacturerNumericId = await manufacturerDAO.getIdByUuid(
-          data.manufacturerId,
-        );
-        if (!manufacturerNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid manufacturer",
-          });
-          return;
-        }
-        data.manufacturerId = manufacturerNumericId;
-      }
-
-      if (data.paperSupplyId && typeof data.paperSupplyId === "string") {
-        const paperSupplyDAO = new PaperSupplyDAO();
-        const paperSupplyNumericId = await paperSupplyDAO.getIdByUuid(
-          data.paperSupplyId,
-        );
-        if (!paperSupplyNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid paper supply",
-          });
-          return;
-        }
-        data.paperSupplyId = paperSupplyNumericId;
-      }
-
-      // Convert warehouseLocationId UUID to numeric ID
-      if (data.warehouseLocationId && typeof data.warehouseLocationId === "string") {
-        const warehouseLocationDAO = new WarehouseLocationDAO();
-        const locationNumericId = await warehouseLocationDAO.getIdByUuid(
-          data.warehouseLocationId,
-        );
-        if (!locationNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid warehouse location",
-          });
-          return;
-        }
-        data.warehouseLocationId = locationNumericId;
-      }
-
-      // Validate input using DTO
-      const inputDTO = new PaperStockCreateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
-      }
-
-      // Generate UUID server-side
-      const dataToCreate: IPaperStock = {
-        uuid: uuidv4(),
-        warehouseId: inputDTO.warehouseId,
-        warehouseLocationId: inputDTO.warehouseLocationId,
-        supplierId: inputDTO.supplierId,
-        manufacturerId: inputDTO.manufacturerId,
-        paperSupplyId: inputDTO.paperSupplyId,
-        comments: inputDTO.comments,
-        price: inputDTO.price,
-        weight: inputDTO.weight,
-        diameter: inputDTO.diameter,
-        width: inputDTO.width,
-      };
-
-      const result = await this._paperStockDAO.create(dataToCreate);
-
-      res.status(201).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
+    const inputDTO = new PaperStockCreateInputDTO(req.body).build();
+    const validation: IInputValidator = await inputValidator(inputDTO);
+    if (!validation.success) {
+      req.statusCode = 400;
+      next(new Error(validation.message));
+      return null;
     }
+
+    // Mirror original explicit-field create payload.
+    return {
+      warehouseId: inputDTO.warehouseId,
+      warehouseLocationId: inputDTO.warehouseLocationId,
+      supplierId: inputDTO.supplierId,
+      manufacturerId: inputDTO.manufacturerId,
+      paperSupplyId: inputDTO.paperSupplyId,
+      comments: inputDTO.comments,
+      price: inputDTO.price,
+      weight: inputDTO.weight,
+      diameter: inputDTO.diameter,
+      width: inputDTO.width,
+    };
   }
 
-  public async update(
+  protected async buildUpdateDTO(
     req: Request,
     res: Response,
     next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-      const data = req.body;
+  ): Promise<any | null> {
+    const ok = await this.resolveForeignKeys(req.body, res);
+    if (!ok) return null;
 
-      // Get paper stock by UUID to find its ID
-      const existingId = await this._paperStockDAO.getIdByUuid(uuid);
-      if (!existingId) {
-        res.status(404).json({
-          success: false,
-          message: "Paper stock not found",
-        });
-        return;
-      }
-
-      // Convert UUID foreign keys to numeric IDs
-      if (data.warehouseId && typeof data.warehouseId === "string") {
-        const warehouseDAO = new WarehouseDAO();
-        const warehouseNumericId = await warehouseDAO.getIdByUuid(data.warehouseId);
-        if (!warehouseNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid warehouse",
-          });
-          return;
-        }
-        data.warehouseId = warehouseNumericId;
-      }
-
-      if (data.supplierId && typeof data.supplierId === "string") {
-        const supplierDAO = new SupplierDAO();
-        const supplierNumericId = await supplierDAO.getIdByUuid(data.supplierId);
-        if (!supplierNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid supplier",
-          });
-          return;
-        }
-        data.supplierId = supplierNumericId;
-      }
-
-      if (data.manufacturerId && typeof data.manufacturerId === "string") {
-        const manufacturerDAO = new ManufacturerDAO();
-        const manufacturerNumericId = await manufacturerDAO.getIdByUuid(
-          data.manufacturerId,
-        );
-        if (!manufacturerNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid manufacturer",
-          });
-          return;
-        }
-        data.manufacturerId = manufacturerNumericId;
-      }
-
-      if (data.paperSupplyId && typeof data.paperSupplyId === "string") {
-        const paperSupplyDAO = new PaperSupplyDAO();
-        const paperSupplyNumericId = await paperSupplyDAO.getIdByUuid(
-          data.paperSupplyId,
-        );
-        if (!paperSupplyNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid paper supply",
-          });
-          return;
-        }
-        data.paperSupplyId = paperSupplyNumericId;
-      }
-
-      // Convert warehouseLocationId UUID to numeric ID
-      if (data.warehouseLocationId && typeof data.warehouseLocationId === "string") {
-        const warehouseLocationDAO = new WarehouseLocationDAO();
-        const locationNumericId = await warehouseLocationDAO.getIdByUuid(
-          data.warehouseLocationId,
-        );
-        if (!locationNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid warehouse location",
-          });
-          return;
-        }
-        data.warehouseLocationId = locationNumericId;
-      }
-
-      // Validate input using DTO
-      const inputDTO = new PaperStockUpdateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
-      }
-
-      const result = await this._paperStockDAO.update(existingId, inputDTO);
-
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
+    const inputDTO = new PaperStockUpdateInputDTO(req.body).build();
+    const validation: IInputValidator = await inputValidator(inputDTO);
+    if (!validation.success) {
+      req.statusCode = 400;
+      next(new Error(validation.message));
+      return null;
     }
-  }
 
-  public async delete(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-
-      // Get paper stock by UUID to find its ID
-      const existingId = await this._paperStockDAO.getIdByUuid(uuid);
-      if (!existingId) {
-        res.status(404).json({
-          success: false,
-          message: "Paper stock not found",
-        });
-        return;
-      }
-
-      const result = await this._paperStockDAO.delete(existingId);
-
-      if (result) {
-        res.status(200).json({
-          success: true,
-          message: "Paper stock deleted successfully",
-        });
-      } else {
-        res.status(404).json({
-          success: false,
-          message: "Failed to delete paper stock",
-        });
-      }
-    } catch (err: any) {
-      next(err);
-    }
+    // Original passes inputDTO directly to dao.update.
+    return inputDTO;
   }
 }

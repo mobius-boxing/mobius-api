@@ -1,57 +1,76 @@
 import { Request, Response, NextFunction } from "express";
-import { IBaseController } from "../../types.d";
-import {
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { WarehouseLocationDAO } from "../../dao/warehouseLocation/warehouseLocation.dao";
 import { WarehouseDAO } from "../../dao/warehouse/warehouse.dao";
 import { IWarehouseLocation } from "../../interfaces/warehouseLocation/warehouseLocation.interfaces";
-import { IDataPaginator } from "../../database/d.types";
-import { v4 as uuidv4 } from "uuid";
 import {
   WarehouseLocationCreateInputDTO,
   WarehouseLocationUpdateInputDTO,
   WarehouseLocationBatchUpdateInputDTO,
 } from "../../dto/input/warehouseLocation";
-import { enforceCompanyFilter } from "../../utils/companyScope";
+import {
+  BaseCrudController,
+  BaseCrudOptions,
+} from "../base/base-crud.controller";
 
-export class WarehouseLocationController implements IBaseController {
-  private _warehouseLocationDAO: WarehouseLocationDAO = new WarehouseLocationDAO();
-  private _warehouseDAO: WarehouseDAO = new WarehouseDAO();
+/**
+ * WarehouseLocation — plain CRUD plus two extra endpoints:
+ *   - getByWarehouse(warehouseUuid) → list locations for a warehouse
+ *   - batchUpdate(warehouseUuid)    → bulk update locations for a warehouse
+ *
+ * Create assumes `warehouseId` arrives already numeric in the request body
+ * (no UUID resolution — preserved from original).
+ */
+export class WarehouseLocationController extends BaseCrudController<IWarehouseLocation> {
+  protected dao = new WarehouseLocationDAO();
+  protected options: BaseCrudOptions = {
+    entityLabel: "Warehouse location",
+  };
 
-  /**
-   * Get all warehouse locations with pagination, filtering, sorting, and search
-   *
-   * Query params (flat syntax):
-   * - page, limit: Pagination (e.g., ?page=1&limit=20)
-   * - sortBy, sortOrder: Sorting (e.g., ?sortBy=row&sortOrder=asc)
-   * - warehouseId, status, locationType, locationCode: Filtering (e.g., ?warehouseId=5&status=active)
-   * - search: Full-text search across locationCode (e.g., ?search=A-05)
-   *
-   * Examples:
-   * - GET /warehouse-locations?page=1&limit=10
-   * - GET /warehouse-locations?sortBy=row&sortOrder=asc
-   * - GET /warehouse-locations?warehouseId=3&status=active
-   * - GET /warehouse-locations?search=A-
-   */
-  public async getAll(
+  private _warehouseDAO = new WarehouseDAO();
+
+  protected async buildCreateDTO(
     req: Request,
-    res: Response,
+    _res: Response,
     next: NextFunction,
-  ): Promise<void> {
-    try {
-      enforceCompanyFilter(req);
-      const result: IDataPaginator<IWarehouseLocation> =
-        await this._warehouseLocationDAO.getAllWithFilters(req);
-      res.status(200).json(result);
-    } catch (err: any) {
-      next(err);
+  ): Promise<any | null> {
+    const inputDTO = new WarehouseLocationCreateInputDTO(req.body).build();
+    const validation: IInputValidator = await inputValidator(inputDTO);
+    if (!validation.success) {
+      req.statusCode = 400;
+      next(new Error(validation.message));
+      return null;
     }
+    return {
+      warehouseId: inputDTO.warehouseId,
+      row: inputDTO.row,
+      col: inputDTO.col,
+      status: inputDTO.status,
+      locationType: inputDTO.locationType,
+      locationCode: inputDTO.locationCode,
+      capacity: inputDTO.capacity,
+      metadata: inputDTO.metadata,
+    };
+  }
+
+  protected async buildUpdateDTO(
+    req: Request,
+    _res: Response,
+    next: NextFunction,
+  ): Promise<any | null> {
+    const inputDTO = new WarehouseLocationUpdateInputDTO(req.body).build();
+    const validation: IInputValidator = await inputValidator(inputDTO);
+    if (!validation.success) {
+      req.statusCode = 400;
+      next(new Error(validation.message));
+      return null;
+    }
+    return inputDTO;
   }
 
   /**
-   * Get all locations for a specific warehouse (no pagination)
+   * GET /warehouse-locations/by-warehouse/:warehouseUuid
+   * Get all locations for a specific warehouse (no pagination).
    */
   public async getByWarehouse(
     req: Request,
@@ -61,7 +80,6 @@ export class WarehouseLocationController implements IBaseController {
     try {
       const { warehouseUuid } = req.params;
 
-      // Get warehouse ID from UUID
       const warehouseId = await this._warehouseDAO.getIdByUuid(warehouseUuid);
       if (!warehouseId) {
         res.status(404).json({
@@ -71,7 +89,7 @@ export class WarehouseLocationController implements IBaseController {
         return;
       }
 
-      const result = await this._warehouseLocationDAO.getAllByWarehouseId(warehouseId);
+      const result = await this.dao.getAllByWarehouseId(warehouseId);
 
       res.status(200).json({
         success: true,
@@ -83,80 +101,8 @@ export class WarehouseLocationController implements IBaseController {
   }
 
   /**
-   * Get warehouse location by UUID
-   */
-  public async getByUuid(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-
-      const result = await this._warehouseLocationDAO.getByUuid(uuid);
-
-      if (!result) {
-        res.status(404).json({
-          success: false,
-          message: "Warehouse location not found",
-        });
-        return;
-      }
-
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
-    }
-  }
-
-  /**
-   * Create a new warehouse location
-   */
-  public async create(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const data = req.body;
-
-      // Validate input using DTO
-      const inputDTO = new WarehouseLocationCreateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
-      }
-
-      // Generate UUID server-side
-      const dataToCreate: IWarehouseLocation = {
-        uuid: uuidv4(),
-        warehouseId: inputDTO.warehouseId,
-        row: inputDTO.row,
-        col: inputDTO.col,
-        status: inputDTO.status,
-        locationType: inputDTO.locationType,
-        locationCode: inputDTO.locationCode,
-        capacity: inputDTO.capacity,
-        metadata: inputDTO.metadata,
-      };
-
-      const result = await this._warehouseLocationDAO.create(dataToCreate);
-
-      res.status(201).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
-    }
-  }
-
-  /**
-   * Batch update warehouse locations
+   * PUT /warehouse-locations/batch-update/:warehouseUuid
+   * Batch update warehouse locations.
    */
   public async batchUpdate(
     req: Request,
@@ -167,7 +113,6 @@ export class WarehouseLocationController implements IBaseController {
       const { warehouseUuid } = req.params;
       const data = req.body;
 
-      // Get warehouse ID from UUID
       const warehouseId = await this._warehouseDAO.getIdByUuid(warehouseUuid);
       if (!warehouseId) {
         res.status(404).json({
@@ -177,7 +122,6 @@ export class WarehouseLocationController implements IBaseController {
         return;
       }
 
-      // Validate input using DTO
       const inputDTO = new WarehouseLocationBatchUpdateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
@@ -185,89 +129,15 @@ export class WarehouseLocationController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      const result = await this._warehouseLocationDAO.batchUpdate(
+      const result = await this.dao.batchUpdate(
         warehouseId,
-        inputDTO.locations
+        inputDTO.locations,
       );
 
       res.status(200).json({
         success: true,
         data: result,
       });
-    } catch (err: any) {
-      next(err);
-    }
-  }
-
-  /**
-   * Update warehouse location by UUID
-   */
-  public async update(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-      const data = req.body;
-
-      // Get location by UUID to find its ID
-      const existing = await this._warehouseLocationDAO.getByUuid(uuid);
-      if (!existing || !existing.id) {
-        res.status(404).json({
-          success: false,
-          message: "Warehouse location not found",
-        });
-        return;
-      }
-
-      // Validate input using DTO
-      const inputDTO = new WarehouseLocationUpdateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
-      }
-
-      const result = await this._warehouseLocationDAO.update(existing.id, inputDTO);
-
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      next(err);
-    }
-  }
-
-  /**
-   * Delete warehouse location by UUID
-   */
-  public async delete(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> {
-    try {
-      const { uuid } = req.params;
-
-      // Get location by UUID to find its ID
-      const existing = await this._warehouseLocationDAO.getByUuid(uuid);
-      if (!existing || !existing.id) {
-        res.status(404).json({
-          success: false,
-          message: "Warehouse location not found",
-        });
-        return;
-      }
-
-      const result = await this._warehouseLocationDAO.delete(existing.id);
-
-      if (result) {
-        res.status(200).json({ success: true, message: "Warehouse location deleted successfully" });
-      } else {
-        res.status(404).json({ success: false, message: "Failed to delete warehouse location" });
-      }
     } catch (err: any) {
       next(err);
     }
