@@ -14,6 +14,7 @@ import {
   SheetStockCreateInputDTO,
   SheetStockUpdateInputDTO,
 } from "../../dto/input/sheetStock";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class SheetStockController implements IBaseController {
   private _sheetStockDAO: SheetStockDAO = new SheetStockDAO();
@@ -24,6 +25,7 @@ export class SheetStockController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result: IDataPaginator<ISheetStock> =
         await this._sheetStockDAO.getAllWithFilters(req);
       res.status(200).json(result);

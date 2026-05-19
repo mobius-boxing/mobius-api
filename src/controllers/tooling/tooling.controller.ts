@@ -15,6 +15,7 @@ import {
   ToolingCreateInputDTO,
   ToolingUpdateInputDTO,
 } from "../../dto/input/tooling";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class ToolingController implements IBaseController {
   private _toolingDAO: ToolingDAO = new ToolingDAO();
@@ -28,6 +29,7 @@ export class ToolingController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result: IDataPaginator<ITooling> =
         await this._toolingDAO.getAllWithFilters(req);
       res.status(200).json(result);

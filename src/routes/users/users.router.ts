@@ -20,6 +20,15 @@ export class UsersRouter {
   }
 
   private initRoutes(): void {
+    // Stats route (must come before /:uuid to avoid UUID validation)
+    this.router.get(
+      "/stats",
+      authenticate,
+      requireAdmin(),
+      apiRateLimiter,
+      this.usersController.getStats.bind(this.usersController),
+    );
+
     // Invite user route
     this.router.post(
       "/invite",

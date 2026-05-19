@@ -4,6 +4,10 @@ export class ProductCreateInputDTO {
   clientCode?: string;
   description?: string;
   customerId?: number;
+  revision?: number;
+  vip?: boolean;
+  productTypeId?: number;
+  boxTypeId?: number;
 
   constructor(data: any) {
     this.companyId =
@@ -18,6 +22,22 @@ export class ProductCreateInputDTO {
         typeof data.customerId === "string"
           ? parseInt(data.customerId, 10)
           : data.customerId;
+    if (data.revision !== undefined)
+      this.revision =
+        typeof data.revision === "string"
+          ? parseInt(data.revision, 10)
+          : data.revision;
+    if (data.vip !== undefined) this.vip = data.vip;
+    if (data.productTypeId !== undefined)
+      this.productTypeId =
+        typeof data.productTypeId === "string"
+          ? parseInt(data.productTypeId, 10)
+          : data.productTypeId;
+    if (data.boxTypeId !== undefined)
+      this.boxTypeId =
+        typeof data.boxTypeId === "string"
+          ? parseInt(data.boxTypeId, 10)
+          : data.boxTypeId;
   }
 
   public build(): this {

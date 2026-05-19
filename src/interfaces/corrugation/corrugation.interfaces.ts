@@ -3,6 +3,7 @@ import { ICorrugationClass } from "../corrugation-class/corrugation-class.interf
 export interface ICorrugation {
   id?: number;
   uuid?: string;
+  companyId?: number;
   code: string;
   description?: string;
   theoreticalGrammage?: number;

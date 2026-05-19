@@ -15,6 +15,7 @@ import { Request } from "express";
 
 /**
  * Paper Sheet filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
  */
 const PAPER_SHEET_FILTERS: FilterConfigs = {
   code: {
@@ -115,6 +116,7 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
         minimumStock: item.minimumStock ?? 0,
         length: item.length,
         width: item.width,
+        companyId: item.companyId,
       })
       .returning("*");
 
@@ -257,6 +259,10 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
     // Build data query with joins
     const dataQuery = knex(this.tableName)
       .select(
@@ -277,8 +283,21 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
         "corrugations.id",
       );
 
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     // Build count query
     const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
 
     // Apply query builder filters, sorting, pagination
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
@@ -315,6 +334,7 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
       minimumStock: record.minimumStock,
       length: record.length ? parseFloat(record.length) : undefined,
       width: record.width ? parseFloat(record.width) : undefined,
+      companyId: record.companyId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

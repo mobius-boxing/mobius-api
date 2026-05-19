@@ -353,6 +353,75 @@ export class UsersController implements IBaseController {
   }
 
   /**
+   * Get user statistics
+   * SuperAdmins see platform-wide stats, Admins see company-specific stats
+   */
+  public async getStats(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const currentUser = (req as any).user;
+      const { companyId } = req.query;
+
+      const knex = require("../../database/KnexConnection").default.getConnection();
+
+      let query = knex("users");
+
+      // If companyId provided (as UUID), filter by company
+      if (companyId) {
+        const company = await this._companyDAO.getByUuid(companyId as string);
+        if (company && company.id) {
+          query = query.where("companyId", company.id);
+        }
+      }
+
+      // Get total and active users
+      const [totalResult, activeResult] = await Promise.all([
+        query.clone().count("* as count").first(),
+        query.clone().where("isActive", true).count("* as count").first(),
+      ]);
+
+      // Get users by role
+      const roleResults = await query.clone()
+        .select("role")
+        .count("* as count")
+        .groupBy("role");
+
+      // Get recent invitations (last 30 days)
+      let invitationQuery = knex("invitations")
+        .where("createdAt", ">=", knex.raw("NOW() - INTERVAL '30 days'"));
+
+      if (companyId) {
+        const company = await this._companyDAO.getByUuid(companyId as string);
+        if (company && company.id) {
+          invitationQuery = invitationQuery.where("companyId", company.id);
+        }
+      }
+
+      const recentInvitationsResult = await invitationQuery.count("* as count").first();
+
+      const stats = {
+        totalUsers: parseInt(totalResult?.count as string) || 0,
+        activeUsers: parseInt(activeResult?.count as string) || 0,
+        usersByRole: roleResults.map((r: any) => ({
+          role: r.role,
+          count: parseInt(r.count as string) || 0,
+        })),
+        recentInvitations: parseInt(recentInvitationsResult?.count as string) || 0,
+      };
+
+      res.status(200).json({
+        success: true,
+        data: stats,
+      });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
    * Invite a user (creates an invitation)
    */
   public async invite(

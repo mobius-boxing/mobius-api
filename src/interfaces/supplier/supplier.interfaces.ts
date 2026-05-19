@@ -1,6 +1,7 @@
 export interface ISupplier {
   id?: number;
   uuid?: string;
+  companyId?: number;
   code: string;
   suppliesSheets?: boolean;
   suppliesElaborated?: boolean;

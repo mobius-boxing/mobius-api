@@ -15,6 +15,7 @@ import { Request } from "express";
 
 /**
  * Corrugation Class filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
  */
 const CORRUGATION_CLASS_FILTERS: FilterConfigs = {
   code: {
@@ -74,6 +75,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
         uuid: item.uuid,
         code: item.code,
         description: item.description,
+        companyId: item.companyId,
       })
       .returning("*");
 
@@ -186,12 +188,31 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
     // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     // Execute both queries in parallel
@@ -222,6 +243,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
       uuid: record.uuid,
       code: record.code,
       description: record.description,
+      companyId: record.companyId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

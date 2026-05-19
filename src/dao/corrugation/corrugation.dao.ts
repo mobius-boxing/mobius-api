@@ -15,6 +15,7 @@ import { Request } from "express";
 
 /**
  * Corrugation filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
  */
 const CORRUGATION_FILTERS: FilterConfigs = {
   code: {
@@ -86,6 +87,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
         suggestedWidth: item.suggestedWidth,
         caliper: item.caliper,
         corrugationClassId: item.corrugationClassId,
+        companyId: item.companyId,
       })
       .returning("*");
 
@@ -231,6 +233,10 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
     // Build main query with join for corrugation class
     const dataQuery = knex(this.tableName)
       .select(
@@ -247,10 +253,25 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
         `${this.tableName}.corrugationClassId`,
         "cc.id",
       );
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     // Execute both queries in parallel
@@ -296,6 +317,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
         ? parseFloat(record.suggestedWidth)
         : undefined,
       caliper: record.caliper ? parseFloat(record.caliper) : undefined,
+      companyId: record.companyId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       // Include related object with UUID, not numeric foreign key

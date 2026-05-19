@@ -1,6 +1,7 @@
 export interface IManufacturer {
   id?: number;
   uuid?: string;
+  companyId?: number;
   code: string;
   name: string;
   createdAt?: Date;

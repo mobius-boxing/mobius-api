@@ -9,6 +9,7 @@ import {
   FluteTypeCreateInputDTO,
   FluteTypeUpdateInputDTO,
 } from "../../dto/input/fluteType";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class FluteTypeController implements IBaseController {
   private _fluteTypeDAO: FluteTypeDAO = new FluteTypeDAO();
@@ -29,6 +30,7 @@ export class FluteTypeController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result = await this._fluteTypeDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {

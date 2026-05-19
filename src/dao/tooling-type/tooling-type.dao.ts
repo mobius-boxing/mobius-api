@@ -13,6 +13,10 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
+/**
+ * Tooling Type filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
+ */
 const TOOLING_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -65,6 +69,7 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
         name: item.name,
         description: item.description,
         automaticConsumption: item.automaticConsumption ?? false,
+        companyId: item.companyId,
       })
       .returning("*");
 
@@ -147,10 +152,29 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     const [toolingTypes, totalResult] = await Promise.all([
@@ -178,6 +202,7 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
       name: record.name,
       description: record.description,
       automaticConsumption: record.automaticConsumption,
+      companyId: record.companyId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

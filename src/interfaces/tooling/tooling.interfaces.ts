@@ -5,6 +5,7 @@ import { IToolingType } from "../tooling-type/tooling-type.interfaces";
 export interface ITooling {
   id?: number;
   uuid?: string;
+  companyId?: number;
   name: string;
   description?: string;
   manufacturerId?: number;

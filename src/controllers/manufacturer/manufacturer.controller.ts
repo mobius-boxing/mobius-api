@@ -13,6 +13,7 @@ import {
   ManufacturerCreateInputDTO,
   ManufacturerUpdateInputDTO,
 } from "../../dto/input/manufacturer";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class ManufacturerController implements IBaseController {
   private _manufacturerDAO: ManufacturerDAO = new ManufacturerDAO();
@@ -32,6 +33,7 @@ export class ManufacturerController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result: IDataPaginator<IManufacturer> =
         await this._manufacturerDAO.getAllWithFilters(req);
       res.status(200).json(result);

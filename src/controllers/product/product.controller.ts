@@ -8,6 +8,8 @@ import {
 import { ProductDAO } from "../../dao/product/product.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { CustomerDAO } from "../../dao/customer/customer.dao";
+import { ProductTypeDAO } from "../../dao/product-type/product-type.dao";
+import { BoxTypeDAO } from "../../dao/box-type/box-type.dao";
 import { IProduct } from "../../interfaces/product/product.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
@@ -155,6 +157,32 @@ export class ProductController implements IBaseController {
         data.customerId = customerNumericId;
       }
 
+      if (data.productTypeId && typeof data.productTypeId === "string") {
+        const productTypeDAO = new ProductTypeDAO();
+        const numericId = await productTypeDAO.getIdByUuid(data.productTypeId);
+        if (!numericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid product type",
+          });
+          return;
+        }
+        data.productTypeId = numericId;
+      }
+
+      if (data.boxTypeId && typeof data.boxTypeId === "string") {
+        const boxTypeDAO = new BoxTypeDAO();
+        const numericId = await boxTypeDAO.getIdByUuid(data.boxTypeId);
+        if (!numericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid box type",
+          });
+          return;
+        }
+        data.boxTypeId = numericId;
+      }
+
       // Validate input using DTO
       const inputDTO = new ProductCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -171,6 +199,10 @@ export class ProductController implements IBaseController {
         clientCode: inputDTO.clientCode,
         description: inputDTO.description,
         customerId: inputDTO.customerId,
+        revision: inputDTO.revision,
+        vip: inputDTO.vip,
+        productTypeId: inputDTO.productTypeId,
+        boxTypeId: inputDTO.boxTypeId,
       };
 
       const result = await this._productDAO.create(dataToCreate);
@@ -199,9 +231,9 @@ export class ProductController implements IBaseController {
       // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
-      // Get product by UUID to find its ID and verify ownership
-      const existing = await this._productDAO.getByUuid(uuid, companyId);
-      if (!existing || !existing.id) {
+      // Get product numeric ID by UUID, verifying ownership via company scope
+      const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
+      if (!existingId) {
         res.status(404).json({
           success: false,
           message: "Product not found",
@@ -225,6 +257,32 @@ export class ProductController implements IBaseController {
         data.customerId = customerNumericId;
       }
 
+      if (data.productTypeId && typeof data.productTypeId === "string") {
+        const productTypeDAO = new ProductTypeDAO();
+        const numericId = await productTypeDAO.getIdByUuid(data.productTypeId);
+        if (!numericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid product type",
+          });
+          return;
+        }
+        data.productTypeId = numericId;
+      }
+
+      if (data.boxTypeId && typeof data.boxTypeId === "string") {
+        const boxTypeDAO = new BoxTypeDAO();
+        const numericId = await boxTypeDAO.getIdByUuid(data.boxTypeId);
+        if (!numericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid box type",
+          });
+          return;
+        }
+        data.boxTypeId = numericId;
+      }
+
       // Validate input using DTO
       const inputDTO = new ProductUpdateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -233,7 +291,7 @@ export class ProductController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      const result = await this._productDAO.update(existing.id, inputDTO);
+      const result = await this._productDAO.update(existingId, inputDTO);
 
       res.status(200).json({
         success: true,
@@ -258,9 +316,9 @@ export class ProductController implements IBaseController {
       // Extract companyId - SuperAdmin sees all, others see only their company
       const companyId = getCompanyFilterUuid(req);
 
-      // Get product by UUID to find its ID and verify ownership
-      const existing = await this._productDAO.getByUuid(uuid, companyId);
-      if (!existing || !existing.id) {
+      // Get product numeric ID by UUID, verifying ownership via company scope
+      const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
+      if (!existingId) {
         res.status(404).json({
           success: false,
           message: "Product not found",
@@ -268,7 +326,7 @@ export class ProductController implements IBaseController {
         return;
       }
 
-      const result = await this._productDAO.delete(existing.id);
+      const result = await this._productDAO.delete(existingId);
 
       if (result) {
         res.status(200).json({

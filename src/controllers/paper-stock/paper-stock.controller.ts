@@ -14,6 +14,7 @@ import {
   PaperStockCreateInputDTO,
   PaperStockUpdateInputDTO,
 } from "../../dto/input/paperStock";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class PaperStockController implements IBaseController {
   private _paperStockDAO: PaperStockDAO = new PaperStockDAO();
@@ -24,6 +25,7 @@ export class PaperStockController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result: IDataPaginator<IPaperStock> =
         await this._paperStockDAO.getAllWithFilters(req);
       res.status(200).json(result);

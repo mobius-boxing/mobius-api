@@ -12,6 +12,7 @@ import {
   PaperSheetCreateInputDTO,
   PaperSheetUpdateInputDTO,
 } from "../../dto/input/paperSheet";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class PaperSheetController implements IBaseController {
   private _paperSheetDAO: PaperSheetDAO = new PaperSheetDAO();
@@ -32,6 +33,7 @@ export class PaperSheetController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result: IDataPaginator<IPaperSheet> =
         await this._paperSheetDAO.getAllWithFilters(req);
       res.status(200).json(result);

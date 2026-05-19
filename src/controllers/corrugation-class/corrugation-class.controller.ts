@@ -9,6 +9,7 @@ import {
   CorrugationClassCreateInputDTO,
   CorrugationClassUpdateInputDTO,
 } from "../../dto/input/corrugationClass";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class CorrugationClassController implements IBaseController {
   private _corrugationClassDAO: CorrugationClassDAO = new CorrugationClassDAO();
@@ -29,6 +30,7 @@ export class CorrugationClassController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result = await this._corrugationClassDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {

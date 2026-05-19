@@ -11,9 +11,71 @@ import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { InvitationCreateInputDTO } from "../../dto/input/invitation";
+import { CompanyDAO } from "../../dao/company/company.dao";
 
 export class InvitationsController implements IBaseController {
   private _invitationDAO: InvitationDAO = new InvitationDAO();
+  private _companyDAO: CompanyDAO = new CompanyDAO();
+
+  /**
+   * Get invitation statistics
+   */
+  public async getStats(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { companyId } = req.query;
+
+      const knex = require("../../database/KnexConnection").default.getConnection();
+
+      let query = knex("invitations");
+
+      // If companyId provided (as UUID), filter by company
+      if (companyId) {
+        const company = await this._companyDAO.getByUuid(companyId as string);
+        if (company && company.id) {
+          query = query.where("companyId", company.id);
+        }
+      }
+
+      // Get counts
+      const [
+        totalResult,
+        pendingResult,
+        acceptedResult,
+        expiredResult,
+      ] = await Promise.all([
+        query.clone().count("* as count").first(),
+        query.clone()
+          .where("isUsed", false)
+          .where("expiresAt", ">", knex.fn.now())
+          .count("* as count").first(),
+        query.clone()
+          .where("isUsed", true)
+          .count("* as count").first(),
+        query.clone()
+          .where("isUsed", false)
+          .where("expiresAt", "<=", knex.fn.now())
+          .count("* as count").first(),
+      ]);
+
+      const stats = {
+        totalInvitations: parseInt(totalResult?.count as string) || 0,
+        pendingInvitations: parseInt(pendingResult?.count as string) || 0,
+        acceptedInvitations: parseInt(acceptedResult?.count as string) || 0,
+        expiredInvitations: parseInt(expiredResult?.count as string) || 0,
+      };
+
+      res.status(200).json({
+        success: true,
+        data: stats,
+      });
+    } catch (err: any) {
+      next(err);
+    }
+  }
 
   /**
    * Get all invitations with pagination

@@ -15,6 +15,7 @@ import { Request } from "express";
 
 /**
  * Paper Class filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
  */
 const PAPER_CLASS_FILTERS: FilterConfigs = {
   code: {
@@ -72,6 +73,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     const [paperClass] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
+        companyId: item.companyId,
         code: item.code,
         name: item.name,
         papers: JSON.stringify(item.papers),
@@ -184,12 +186,31 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
     // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     // Execute both queries in parallel
@@ -218,6 +239,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     return {
       id: record.id,
       uuid: record.uuid,
+      companyId: record.companyId,
       code: record.code,
       name: record.name,
       papers:

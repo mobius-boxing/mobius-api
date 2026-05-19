@@ -13,6 +13,7 @@ import {
   SupplierCreateInputDTO,
   SupplierUpdateInputDTO,
 } from "../../dto/input/supplier";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class SupplierController implements IBaseController {
   private _supplierDAO: SupplierDAO = new SupplierDAO();
@@ -33,6 +34,7 @@ export class SupplierController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result: IDataPaginator<ISupplier> =
         await this._supplierDAO.getAllWithFilters(req);
       res.status(200).json(result);

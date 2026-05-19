@@ -6,6 +6,7 @@ import {
   IInputValidator,
 } from "@sundaysf/utils";
 import { WarehouseDAO } from "../../dao/warehouse/warehouse.dao";
+import { CompanyDAO } from "../../dao/company/company.dao";
 import { PaperStockDAO } from "../../dao/paper-stock/paper-stock.dao";
 import { SheetStockDAO } from "../../dao/sheet-stock/sheet-stock.dao";
 import { WarehouseLocationDAO } from "../../dao/warehouseLocation/warehouseLocation.dao";
@@ -16,6 +17,7 @@ import {
   WarehouseCreateInputDTO,
   WarehouseUpdateInputDTO,
 } from "../../dto/input/warehouse";
+import { getCompanyForCreate, enforceCompanyFilter } from "../../utils/companyScope";
 
 export class WarehouseController implements IBaseController {
   private _warehouseDAO: WarehouseDAO = new WarehouseDAO();
@@ -42,6 +44,7 @@ export class WarehouseController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result: IDataPaginator<IWarehouse> =
         await this._warehouseDAO.getAllWithFilters(req);
       res.status(200).json(result);
@@ -82,6 +85,9 @@ export class WarehouseController implements IBaseController {
 
   /**
    * Create a new warehouse
+   * Company is determined securely:
+   * - SuperAdmins: must provide companyId in request body
+   * - Regular users: company extracted from JWT (body companyId ignored)
    */
   public async create(
     req: Request,
@@ -90,6 +96,32 @@ export class WarehouseController implements IBaseController {
   ): Promise<void> {
     try {
       const data = req.body;
+
+      // Securely resolve company - JWT for regular users, body for SuperAdmins
+      const companyResult = getCompanyForCreate(req);
+      if (!companyResult.success) {
+        res.status(400).json({
+          success: false,
+          message: companyResult.message,
+        });
+        return;
+      }
+
+      // Convert company UUID to numeric ID
+      const companyDAO = new CompanyDAO();
+      const companyIdNumeric = await companyDAO.getIdByUuid(
+        companyResult.companyUuid,
+      );
+      if (!companyIdNumeric) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid company",
+        });
+        return;
+      }
+
+      // Inject the resolved companyId into data for DTO validation
+      data.companyId = companyIdNumeric;
 
       // Validate input using DTO
       const inputDTO = new WarehouseCreateInputDTO(data).build();
@@ -105,7 +137,7 @@ export class WarehouseController implements IBaseController {
         name: inputDTO.name,
         gridRows: inputDTO.gridRows,
         gridCols: inputDTO.gridCols,
-        companyId: inputDTO.companyId,
+        companyId: companyIdNumeric,
       };
 
       const result = await this._warehouseDAO.create(dataToCreate);

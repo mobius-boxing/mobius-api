@@ -20,16 +20,12 @@ import { v4 as uuidv4 } from "uuid";
 
 /**
  * Warehouse filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
  */
 const WAREHOUSE_FILTERS: FilterConfigs = {
   name: {
     column: "name",
     operator: "ILIKE",
-  },
-  companyId: {
-    column: "company_id",
-    operator: "=",
-    transform: (value: string) => parseInt(value, 10),
   },
   uuid: {
     column: "uuid",
@@ -287,12 +283,31 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
     // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.company_id`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.company_id`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     // Execute both queries in parallel

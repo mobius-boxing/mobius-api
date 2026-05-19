@@ -142,3 +142,74 @@ export function enforceCompanyFilter(req: Request): void {
     req.query.companyId = user.companyId as unknown as string;
   }
 }
+
+/**
+ * Result of resolving company for create/update operations
+ */
+export interface ResolvedCompanyResult {
+  /** Resolved company UUID */
+  companyUuid: string;
+  /** Whether resolution was successful */
+  success: true;
+}
+
+export interface ResolvedCompanyError {
+  /** Error message to return to client */
+  message: string;
+  /** Whether resolution failed */
+  success: false;
+}
+
+/**
+ * Get company UUID for create/update operations
+ *
+ * This is the secure way to determine which company a new resource belongs to:
+ * - SuperAdmins: MUST provide companyId in request body (they can create for any company)
+ * - Regular users: Company comes from JWT (request body companyId is IGNORED for security)
+ *
+ * @param req - Express request with authenticated user
+ * @returns Resolved company UUID or error
+ *
+ * @example
+ * // In a controller create method:
+ * const companyResult = getCompanyForCreate(req);
+ * if (!companyResult.success) {
+ *   return res.status(400).json({ success: false, message: companyResult.message });
+ * }
+ * // Use companyResult.companyUuid for DAO operations
+ */
+export function getCompanyForCreate(
+  req: Request,
+): ResolvedCompanyResult | ResolvedCompanyError {
+  const user = req.user;
+  const isSuperAdmin = user?.role === "superAdmin";
+
+  if (isSuperAdmin) {
+    // SuperAdmin MUST specify which company to create resource for
+    const bodyCompanyId = req.body?.companyId as string | undefined;
+    if (!bodyCompanyId) {
+      return {
+        success: false,
+        message: "SuperAdmin must specify a company",
+      };
+    }
+    return {
+      success: true,
+      companyUuid: bodyCompanyId,
+    };
+  }
+
+  // Regular users: use company from JWT (secure - cannot be manipulated)
+  const userCompanyId = user?.companyId as unknown as string | undefined;
+  if (!userCompanyId) {
+    return {
+      success: false,
+      message: "User must belong to a company to create resources",
+    };
+  }
+
+  return {
+    success: true,
+    companyUuid: userCompanyId,
+  };
+}

@@ -14,6 +14,7 @@ import {
   WarehouseLocationUpdateInputDTO,
   WarehouseLocationBatchUpdateInputDTO,
 } from "../../dto/input/warehouseLocation";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class WarehouseLocationController implements IBaseController {
   private _warehouseLocationDAO: WarehouseLocationDAO = new WarehouseLocationDAO();
@@ -40,6 +41,7 @@ export class WarehouseLocationController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result: IDataPaginator<IWarehouseLocation> =
         await this._warehouseLocationDAO.getAllWithFilters(req);
       res.status(200).json(result);

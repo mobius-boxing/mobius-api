@@ -34,6 +34,15 @@ export class InvitationsRouter {
       ),
     );
 
+    // Stats route (must come before /:uuid to avoid UUID validation)
+    this.router.get(
+      "/stats",
+      authenticate,
+      requireAdmin(),
+      apiRateLimiter,
+      this.invitationsController.getStats.bind(this.invitationsController),
+    );
+
     // Protected routes (authentication required)
     this.router.get(
       "/",

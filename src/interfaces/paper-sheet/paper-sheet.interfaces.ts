@@ -5,6 +5,7 @@ import { ICorrugation } from "../corrugation/corrugation.interfaces";
 export interface IPaperSheet {
   id?: number;
   uuid?: string;
+  companyId?: number;
   code: string;
   name: string;
   description?: string;

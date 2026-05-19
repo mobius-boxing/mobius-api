@@ -195,10 +195,11 @@ export class AuthController {
         { expiresIn: jwtExpire as string } as jwt.SignOptions,
       );
 
-      // Prepare user response with companyName
+      // Prepare user response with companyName and company UUID (not numeric ID)
       const { company, ...userWithoutCompany } = userWithCompany;
       const userResponse = {
         ...userWithoutCompany,
+        companyId: company?.uuid || undefined, // Use company UUID for frontend filtering
         companyName: company?.name || undefined,
       };
 
@@ -425,10 +426,11 @@ export class AuthController {
         { expiresIn: jwtExpire as string } as jwt.SignOptions,
       );
 
-      // Prepare user response with company info
+      // Prepare user response with company info and company UUID
       const { password: _, ...userWithoutPassword } = user;
       const userResponse = {
         ...userWithoutPassword,
+        companyId: userWithCompany?.company?.uuid, // Use company UUID for frontend filtering
         companyName: userWithCompany?.company?.name,
       };
 

@@ -231,6 +231,72 @@ export const sensitivePaperSupplyDeletionRateLimiter = createRateLimiter(
 );
 
 /**
+ * Route-specific rate limiter for product type deletion
+ * 10 requests per 5 minutes per product type deletion endpoint
+ */
+export const sensitiveProductTypeDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many product type deletion requests. Please try again later.",
+  "product-types:delete",
+);
+
+/**
+ * Route-specific rate limiter for box type deletion
+ * 10 requests per 5 minutes per box type deletion endpoint
+ */
+export const sensitiveBoxTypeDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many box type deletion requests. Please try again later.",
+  "box-types:delete",
+);
+
+/**
+ * Route-specific rate limiter for glue type deletion
+ * 10 requests per 5 minutes per glue type deletion endpoint
+ */
+export const sensitiveGlueTypeDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many glue type deletion requests. Please try again later.",
+  "glue-types:delete",
+);
+
+/**
+ * Route-specific rate limiter for strapping type deletion
+ * 10 requests per 5 minutes per strapping type deletion endpoint
+ */
+export const sensitiveStrappingTypeDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many strapping type deletion requests. Please try again later.",
+  "strapping-types:delete",
+);
+
+/**
+ * Route-specific rate limiter for complement deletion
+ * 10 requests per 5 minutes per complement deletion endpoint
+ */
+export const sensitiveComplementDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many complement deletion requests. Please try again later.",
+  "complements:delete",
+);
+
+/**
+ * Route-specific rate limiter for trace type deletion
+ * 10 requests per 5 minutes per trace type deletion endpoint
+ */
+export const sensitiveTraceTypeDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many trace type deletion requests. Please try again later.",
+  "trace-types:delete",
+);
+
+/**
  * Clear rate limit for a specific identifier
  * Useful for testing or manual intervention
  */

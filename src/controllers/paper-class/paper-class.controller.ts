@@ -9,6 +9,7 @@ import {
   PaperClassCreateInputDTO,
   PaperClassUpdateInputDTO,
 } from "../../dto/input/paperClass";
+import { enforceCompanyFilter } from "../../utils/companyScope";
 
 export class PaperClassController implements IBaseController {
   private _paperClassDAO: PaperClassDAO = new PaperClassDAO();
@@ -29,6 +30,7 @@ export class PaperClassController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      enforceCompanyFilter(req);
       const result = await this._paperClassDAO.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {

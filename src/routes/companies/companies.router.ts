@@ -20,6 +20,15 @@ export class CompaniesRouter {
   }
 
   private initRoutes(): void {
+    // Stats route (must come before /:uuid to avoid UUID validation)
+    this.router.get(
+      "/stats",
+      authenticate,
+      requireSuperAdmin(),
+      apiRateLimiter,
+      this.companiesController.getStats.bind(this.companiesController),
+    );
+
     this.router.get(
       "/",
       authenticate,

@@ -15,6 +15,7 @@ import { Request } from "express";
 
 /**
  * Flute Type filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
  */
 const FLUTE_TYPE_FILTERS: FilterConfigs = {
   code: {
@@ -76,6 +77,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     const [fluteType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
+        companyId: item.companyId,
         code: item.code,
         description: item.description,
         fluteFactor: item.fluteFactor,
@@ -195,12 +197,31 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
     // Build main query
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     // Build count query (same filters, no pagination/sorting)
     const countQuery = knex(this.tableName);
+
+    if (companyUuid) {
+      countQuery
+        .join("companies", `${this.tableName}.companyId`, "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
+
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     // Execute both queries in parallel
@@ -229,6 +250,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     return {
       id: record.id,
       uuid: record.uuid,
+      companyId: record.companyId,
       code: record.code,
       description: record.description,
       fluteFactor: record.fluteFactor

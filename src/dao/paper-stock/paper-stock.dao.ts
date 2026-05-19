@@ -13,44 +13,48 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 
+/**
+ * Paper Stock filter configuration
+ * Note: companyId is handled separately via join (expects UUID from frontend)
+ */
 const PAPER_STOCK_FILTERS: FilterConfigs = {
   warehouseId: {
-    column: "warehouseId",
+    column: `"paper_stock"."warehouseId"`,
     operator: "=",
     transform: (value: string) => parseInt(value, 10),
   },
   supplierId: {
-    column: "supplierId",
+    column: `"paper_stock"."supplierId"`,
     operator: "=",
     transform: (value: string) => parseInt(value, 10),
   },
   manufacturerId: {
-    column: "manufacturerId",
+    column: `"paper_stock"."manufacturerId"`,
     operator: "=",
     transform: (value: string) => parseInt(value, 10),
   },
   paperSupplyId: {
-    column: "paperSupplyId",
+    column: `"paper_stock"."paperSupplyId"`,
     operator: "=",
     transform: (value: string) => parseInt(value, 10),
   },
   minPrice: {
-    column: "price",
+    column: `"paper_stock"."price"`,
     operator: ">=",
     transform: (value: string) => parseFloat(value),
   },
   maxPrice: {
-    column: "price",
+    column: `"paper_stock"."price"`,
     operator: "<=",
     transform: (value: string) => parseFloat(value),
   },
   minWeight: {
-    column: "weight",
+    column: `"paper_stock"."weight"`,
     operator: ">=",
     transform: (value: string) => parseFloat(value),
   },
   maxWeight: {
-    column: "weight",
+    column: `"paper_stock"."weight"`,
     operator: "<=",
     transform: (value: string) => parseFloat(value),
   },
@@ -187,8 +191,24 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // Extract companyId (UUID) from filters - handle it separately via join
+    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    delete parsedQuery.filters.companyId;
+
     const dataQuery = this.buildJoinQuery(knex);
-    const countQuery = knex(this.tableName);
+    // Count query must also join with warehouses
+    const countQuery = knex(this.tableName)
+      .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id");
+
+    // Join with companies if filtering by company UUID
+    if (companyUuid) {
+      dataQuery
+        .join("companies", "warehouses.company_id", "companies.id")
+        .where("companies.uuid", companyUuid);
+      countQuery
+        .join("companies", "warehouses.company_id", "companies.id")
+        .where("companies.uuid", companyUuid);
+    }
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);

@@ -15,3 +15,6 @@ export * from "./invitation/invitation.dao";
 
 // Email Token DAO
 export * from "./email-token/email-token.dao";
+
+// Flap Type DAO
+export * from "./flap-type/flap-type.dao";

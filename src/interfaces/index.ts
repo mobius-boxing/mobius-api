@@ -15,3 +15,6 @@ export * from "./invitation/invitation.interfaces";
 
 // Email Token interfaces
 export * from "./email-token/email-token.interfaces";
+
+// Flap Type interfaces
+export * from "./flap-type/flap-type.interfaces";

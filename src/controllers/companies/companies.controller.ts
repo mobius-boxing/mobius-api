@@ -183,6 +183,57 @@ export class CompaniesController implements IBaseController {
   }
 
   /**
+   * Get company statistics (SuperAdmin only)
+   */
+  public async getStats(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const knex = require("../../database/KnexConnection").default.getConnection();
+
+      // Get total and active companies
+      const [totalResult, activeResult] = await Promise.all([
+        knex("companies").count("* as count").first(),
+        knex("companies").where("isActive", true).count("* as count").first(),
+      ]);
+
+      // Get companies with users
+      const companiesWithUsersResult = await knex("companies")
+        .whereExists(function(this: any) {
+          this.select(knex.raw(1))
+            .from("users")
+            .whereRaw('"users"."companyId" = "companies"."id"');
+        })
+        .count("* as count")
+        .first();
+
+      // Calculate average users per company
+      const totalCompanies = parseInt(totalResult?.count as string) || 0;
+      const totalUsersResult = await knex("users").count("* as count").first();
+      const totalUsers = parseInt(totalUsersResult?.count as string) || 0;
+      const averageUsersPerCompany = totalCompanies > 0
+        ? Math.round((totalUsers / totalCompanies) * 100) / 100
+        : 0;
+
+      const stats = {
+        totalCompanies,
+        activeCompanies: parseInt(activeResult?.count as string) || 0,
+        companiesWithUsers: parseInt(companiesWithUsersResult?.count as string) || 0,
+        averageUsersPerCompany,
+      };
+
+      res.status(200).json({
+        success: true,
+        data: stats,
+      });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
    * Get company with user count
    */
   public async getWithUserCount(
