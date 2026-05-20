@@ -112,14 +112,6 @@ export class CompanyModulesController {
         return;
       }
 
-      if (module.isCore) {
-        res.status(400).json({
-          success: false,
-          message: "Cannot disable core module",
-        });
-        return;
-      }
-
       const actorUuid = (req as any).user?.userId as string | undefined;
       const actorId = actorUuid
         ? await this._userDAO.getIdByUuid(actorUuid)
