@@ -2,6 +2,7 @@ import sgMail from "@sendgrid/mail";
 import {
   invitationEmailTemplate,
   storeInvitationEmailTemplate,
+  storeOrderNotificationEmailTemplate,
   welcomeEmailTemplate,
   passwordResetEmailTemplate,
   emailVerificationTemplate,
@@ -128,6 +129,40 @@ export class EmailService {
     } catch (error) {
       console.error("Error sending store invitation email:", error);
       throw error;
+    }
+  }
+
+  /**
+   * New-order notification to company admins. No price; the short uuid ref, the
+   * buyer email and the item count only. Multi-recipient: send to each admin in a
+   * loop (the private `send` takes a single `to`) so one bad address can't drop the
+   * rest. Caller invokes this fail-soft — an email failure must NOT fail the order.
+   */
+  public async sendStoreOrderNotificationEmail(
+    toEmails: string[],
+    data: {
+      orderRef: string;
+      buyerEmail: string;
+      itemCount: number;
+      companyName: string;
+    },
+  ): Promise<void> {
+    try {
+      const html = storeOrderNotificationEmailTemplate({
+        orderRef: data.orderRef,
+        buyerEmail: data.buyerEmail,
+        itemCount: data.itemCount,
+        companyName: data.companyName,
+        actionUrl: `${this.frontendUrl}/store-orders`,
+      });
+      const subject = `Nuevo pedido de tienda — ${data.companyName} (#${data.orderRef})`;
+
+      for (const to of toEmails) {
+        await this.send(to, subject, html);
+      }
+    } catch (error) {
+      console.error("Error sending store order notification email:", error);
+      throw error; // caller is fail-soft
     }
   }
 

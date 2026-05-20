@@ -11,6 +11,9 @@ interface EmailTemplateParams {
   role?: string;
   actionUrl?: string;
   email?: string;
+  orderRef?: string;
+  buyerEmail?: string;
+  itemCount?: number;
 }
 
 /**
@@ -395,6 +398,49 @@ export const emailVerificationTemplate = (
 
     <p style="font-size: 14px; color: #777777; margin-top: 20px;">
       Este enlace de verificación expirará en 48 horas. Si no creaste esta cuenta, puedes ignorar este correo de forma segura.
+    </p>
+  `;
+
+  return emailWrapper(content);
+};
+
+/**
+ * Store Order Notification Template
+ * Sent to company admins when a buyer places a new store order.
+ * No pricing is included — order ref (short uuid), buyer email and item count only.
+ */
+export const storeOrderNotificationEmailTemplate = (
+  params: EmailTemplateParams,
+): string => {
+  const {
+    companyName = "",
+    orderRef = "",
+    buyerEmail = "",
+    itemCount = 0,
+    actionUrl = "#",
+  } = params;
+
+  const content = `
+    <h2 class="greeting">Nuevo pedido de tienda</h2>
+
+    <p class="message">
+      Se ha recibido un nuevo pedido en la tienda de <strong>${companyName}</strong>.
+    </p>
+
+    <div class="info-box">
+      <p><strong>Referencia:</strong> #${orderRef}</p>
+      <p><strong>Cliente:</strong> ${buyerEmail}</p>
+      <p><strong>Artículos:</strong> ${itemCount}</p>
+    </div>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${actionUrl}" class="cta-button">Revisar pedido</a>
+    </div>
+
+    <p style="font-size: 14px; color: #777777; margin-top: 20px;">
+      Si el botón no funciona, copia y pega este enlace en tu navegador:
+      <br>
+      <a href="${actionUrl}" style="color: #1E40AF; word-break: break-all;">${actionUrl}</a>
     </p>
   `;
 

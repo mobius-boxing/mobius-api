@@ -269,6 +269,20 @@ export class UserDAO implements IBaseDAO<IUser> {
     return user ? this.mapToInterface(user) : null;
   }
 
+  // Emails of ACTIVE 'admin' users for a company — recipients of the new-order
+  // notification. superAdmins have no companyId so the companyId filter excludes
+  // them by construction. Single column-projection query; returns a flat string[].
+  async getActiveAdminEmailsByCompany(companyId: number): Promise<string[]> {
+    const knex = KnexManager.getConnection();
+    const rows = await knex(this.tableName)
+      .where("companyId", companyId)
+      .andWhere("role", "admin")
+      .andWhere("isActive", true)
+      .select("email");
+
+    return rows.map((r) => r.email);
+  }
+
   /**
    * Uses PostgreSQL to_jsonb so the joined company comes back as a nested object.
    * Strips password before returning.

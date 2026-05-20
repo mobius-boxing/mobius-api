@@ -5,8 +5,10 @@ import { StoreBoxDAO } from "../../dao/store-box/store-box.dao";
 import { StoreRollDAO } from "../../dao/store-roll/store-roll.dao";
 import { StoreUserDAO } from "../../dao/store-user/store-user.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
+import { UserDAO } from "../../dao/user/user.dao";
 import { StoreOrderCreateInputDTO } from "../../dto/input/storeOrder";
 import { getStoreOrderLimits } from "../../services/store/store-order-limits";
+import { EmailService } from "../../services/email.service";
 import {
   IStoreOrderItem,
   IStoreOrderWithItems,
@@ -18,6 +20,8 @@ export class StoreOrderController {
   private _rollDAO = new StoreRollDAO();
   private _storeUserDAO = new StoreUserDAO();
   private _companyDAO = new CompanyDAO();
+  private _userDAO = new UserDAO();
+  private _email = new EmailService();
 
   /**
    * POST /api/store/orders — AUTHENTICATED. Transactional (DAO owns the transaction).
@@ -139,6 +143,28 @@ export class StoreOrderController {
         },
         resolvedItems,
       );
+
+      // Fail-soft new-order notification to company admins. The order is already
+      // persisted; an email failure must NOT fail the order create (try/catch +
+      // console.error). No price in the payload. Order ref = short uuid.
+      try {
+        const adminEmails =
+          await this._userDAO.getActiveAdminEmailsByCompany(companyId);
+        if (adminEmails.length > 0) {
+          const company = await this._companyDAO.getById(companyId);
+          await this._email.sendStoreOrderNotificationEmail(adminEmails, {
+            orderRef: (created.uuid ?? "").slice(0, 8),
+            buyerEmail: storeUser.email,
+            itemCount: resolvedItems.length,
+            companyName: company?.name ?? "",
+          });
+        }
+      } catch (emailError) {
+        console.error(
+          "Error sending store order notification email:",
+          emailError,
+        );
+      }
 
       res.status(201).json({ success: true, data: this.toOrderDTO(created) });
     } catch (err: any) {

@@ -4,6 +4,7 @@ import {
   IStoreOrderItem,
   IStoreOrderWithItems,
   IStoreOrderWithItemCount,
+  StoreOrderStatus,
 } from "../../interfaces/store-order/store-order.interfaces";
 import { v4 as uuidv4 } from "uuid";
 
@@ -29,7 +30,7 @@ export class StoreOrderDAO {
           uuid: order.uuid ?? uuidv4(),
           companyId: order.companyId,
           storeUserId: order.storeUserId ?? null,
-          status: order.status ?? "submitted",
+          status: order.status ?? "pending",
           notes: order.notes ?? null,
         })
         .returning("*");
@@ -70,9 +71,14 @@ export class StoreOrderDAO {
   ): Promise<IStoreOrderWithItems | null> {
     const knex = KnexManager.getConnection();
 
-    const order = await knex(this.tableName)
-      .where("uuid", uuid)
-      .andWhere("companyId", companyId) // scoping — prevents cross-company reads
+    // LEFT JOIN store_users to surface the buyer email on the detail view.
+    // storeUserId may be null (SET NULL on store-user delete) -> LEFT JOIN, email nullable.
+    // Only su.email is selected — passwordHash is never exposed.
+    const order = await knex(this.tableName + " as o")
+      .leftJoin("store_users as su", "su.id", "o.storeUserId")
+      .where("o.uuid", uuid)
+      .andWhere("o.companyId", companyId) // scoping — prevents cross-company reads
+      .select("o.*", "su.email as storeUserEmail")
       .first();
 
     if (!order) return null;
@@ -83,6 +89,7 @@ export class StoreOrderDAO {
 
     return {
       ...this.mapToInterface(order),
+      storeUserEmail: order.storeUserEmail ?? undefined,
       items: items.map((i) => this.mapItemToInterface(i)),
     };
   }
@@ -108,6 +115,57 @@ export class StoreOrderDAO {
       ...this.mapToInterface(r),
       itemCount: parseInt(r.itemCount as string) || 0,
     }));
+  }
+
+  // Admin list: every order for a company, newest first, each with its item count
+  // and the buyer's email. Single query — LEFT JOIN items (aggregated to itemCount)
+  // + LEFT JOIN store_users for the email. No N+1. storeUserId may be null
+  // (store user deleted -> SET NULL), so the join is LEFT and email may be null.
+  // Only su.email is selected — passwordHash is never exposed.
+  async getAllForCompany(
+    companyId: number,
+  ): Promise<IStoreOrderWithItemCount[]> {
+    const knex = KnexManager.getConnection();
+
+    const rows = await knex(this.tableName + " as o")
+      .leftJoin(this.itemsTableName + " as i", "i.orderId", "o.id")
+      .leftJoin("store_users as su", "su.id", "o.storeUserId")
+      .where("o.companyId", companyId)
+      .groupBy("o.id", "su.email")
+      .select("o.*", "su.email as storeUserEmail")
+      .count("i.id as itemCount")
+      .orderBy("o.createdAt", "desc");
+
+    return rows.map((r) => ({
+      ...this.mapToInterface(r),
+      itemCount: parseInt(r.itemCount as string) || 0,
+      storeUserEmail: (r.storeUserEmail as string | null) ?? undefined,
+    }));
+  }
+
+  // Company-scoped status advance. One UPDATE, scoped by uuid AND companyId so a
+  // company's admin can never touch another company's order. Returns null when no
+  // row matched (wrong company / unknown uuid) -> controller 404s. On success returns
+  // the full order with items (same shape as getByUuid, incl. buyer email) by re-reading
+  // via getByUuid for response-shape parity. Single UPDATE -> no transaction.
+  // `status` is validated against STORE_ORDER_STATUSES in the controller/DTO BEFORE this call.
+  async updateStatus(
+    uuid: string,
+    companyId: number,
+    status: StoreOrderStatus,
+  ): Promise<IStoreOrderWithItems | null> {
+    const knex = KnexManager.getConnection();
+
+    const [updated] = await knex(this.tableName)
+      .where("uuid", uuid)
+      .andWhere("companyId", companyId)
+      .update({ status, updatedAt: knex.fn.now() })
+      .returning("*");
+
+    if (!updated) return null;
+
+    // Re-read via getByUuid so the response shape (incl. storeUserEmail) matches the detail view.
+    return this.getByUuid(uuid, companyId);
   }
 
   private mapToInterface(record: any): IStoreOrder {
