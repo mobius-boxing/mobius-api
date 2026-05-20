@@ -33,3 +33,6 @@ export * from "./store-roll/store-roll.interfaces";
 
 // Store User interfaces
 export * from "./store-user/store-user.interfaces";
+
+// Store Order interfaces
+export * from "./store-order/store-order.interfaces";

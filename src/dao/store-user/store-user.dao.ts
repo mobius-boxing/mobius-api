@@ -196,6 +196,68 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
     return record ? this.mapToInterface(record) : null;
   }
 
+  // --- Store login lookup -------------------------------------------------
+
+  // LOGIN ONLY. Returns ALL store_users matching the email ACROSS companies,
+  // INCLUDING passwordHash, because login does not know companyId (the single store
+  // deployment serves multiple companies). The controller bcrypt-compares each candidate,
+  // then resolves the matched row. Case-insensitive via the LOWER(email) index.
+  // JOINs companies so login gets companyUuid (for the JWT) + companyName (for the
+  // response) without extra round trips. Returns the INTERNAL shape — must only ever be
+  // consumed by the login controller, never serialized to a client.
+  async getInternalByEmail(
+    email: string,
+  ): Promise<
+    Array<IStoreUserInternal & { companyUuid: string; companyName: string }>
+  > {
+    const knex = KnexManager.getConnection();
+    const records = await knex(this.tableName)
+      .join("companies", `${this.tableName}.companyId`, "companies.id")
+      .select(
+        `${this.tableName}.*`,
+        "companies.uuid as companyUuid",
+        "companies.name as companyName",
+      )
+      .whereRaw(`LOWER(${this.tableName}.email) = LOWER(?)`, [email]);
+    return records.map((r) => ({
+      ...this.mapToInternalInterface(r),
+      companyUuid: r.companyUuid,
+      companyName: r.companyName,
+    }));
+  }
+
+  // For authenticateStore + /me: returns the public (secret-stripped) store user plus
+  // the company uuid + name, in one query. Returns null if the uuid is unknown.
+  async getByUuidWithCompany(
+    uuid: string,
+  ): Promise<(IStoreUser & { companyUuid: string; companyName: string }) | null> {
+    const knex = KnexManager.getConnection();
+    const record = await knex(this.tableName)
+      .join("companies", `${this.tableName}.companyId`, "companies.id")
+      .select(
+        `${this.tableName}.*`,
+        "companies.uuid as companyUuid",
+        "companies.name as companyName",
+      )
+      .where(`${this.tableName}.uuid`, uuid)
+      .first();
+    return record
+      ? {
+          ...this.mapToInterface(record),
+          companyUuid: record.companyUuid,
+          companyName: record.companyName,
+        }
+      : null;
+  }
+
+  // Stamp last login. Fire-and-forget from the controller after a successful auth.
+  async updateLastLogin(id: number): Promise<void> {
+    const knex = KnexManager.getConnection();
+    await knex(this.tableName)
+      .where("id", id)
+      .update({ lastLoginAt: knex.fn.now(), updatedAt: knex.fn.now() });
+  }
+
   async getAll(
     page: number,
     limit: number,
@@ -287,6 +349,29 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
       lastLoginAt: record.lastLoginAt,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
+    };
+  }
+
+  // INTERNAL mapper — KEEPS secrets (passwordHash + invitationToken). Private; used only
+  // by getInternalByEmail (login). Mirrors mapToInterface but does not strip secrets.
+  // Deliberately NOT reusing the public secret-stripping mapToInterface.
+  private mapToInternalInterface(record: any): IStoreUserInternal {
+    return {
+      id: record.id,
+      uuid: record.uuid,
+      companyId: record.companyId,
+      email: record.email,
+      firstName: record.firstName,
+      lastName: record.lastName,
+      isActive: record.isActive,
+      emailVerified: record.emailVerified,
+      invitationExpiresAt: record.invitationExpiresAt,
+      invitedBy: record.invitedBy,
+      lastLoginAt: record.lastLoginAt,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      passwordHash: record.passwordHash,
+      invitationToken: record.invitationToken,
     };
   }
 }

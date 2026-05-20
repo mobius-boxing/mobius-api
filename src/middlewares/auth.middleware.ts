@@ -7,6 +7,9 @@ interface IJWTPayload {
   email: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: string;
+  // Store customer tokens carry audience:'store'; internal tokens never set it.
+  // Used purely so internal auth can reject store tokens (see authenticate).
+  audience?: string;
   iat?: number;
   exp?: number;
 }
@@ -35,6 +38,18 @@ export const authenticate = async (
     }
 
     const decoded = jwt.verify(token, jwtSecret) as IJWTPayload;
+
+    // SECURITY: defense-in-depth token isolation. Store-customer tokens carry
+    // audience:'store'; internal tokens never do. Reject store tokens here so that even
+    // under a shared-secret fallback (STORE_JWT_SECRET unset) a store token can never pass
+    // internal auth. This guard does not affect any existing internal token.
+    if (decoded.audience === "store") {
+      res.status(401).json({
+        success: false,
+        message: "Invalid token.",
+      });
+      return;
+    }
 
     // SECURITY: re-check existence + active flag on every request so revoked/disabled accounts
     // can't keep using a still-valid JWT.

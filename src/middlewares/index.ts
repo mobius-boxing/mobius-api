@@ -17,6 +17,9 @@ export {
 // Module-enabled gate middleware
 export { requireModule, requireStoreModule } from "./module.middleware";
 
+// Store-customer authentication middleware (isolated from internal auth)
+export { authenticateStore } from "./store-auth.middleware";
+
 // Validation middleware
 export {
   validateDTO,
