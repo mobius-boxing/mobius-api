@@ -1,4 +1,4 @@
-import sgMail from "@sendgrid/mail";
+import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import {
   invitationEmailTemplate,
   storeInvitationEmailTemplate,
@@ -10,22 +10,25 @@ import {
 
 export class EmailService {
   private isConfigured: boolean;
+  private ses: SESClient | null = null;
   private fromEmail: string;
   private fromName: string;
   private frontendUrl: string;
   private storeAppUrl: string | undefined;
 
   constructor() {
-    const apiKey = process.env.SENDGRID_API_KEY;
-    this.isConfigured = !!apiKey && apiKey.trim() !== "";
+    // SES authenticates via the ambient AWS credential chain: the EC2 instance role
+    // in production (no API key to store/leak), or ~/.aws / env vars locally. We only
+    // need a region + a verified sender. With no region (typical local dev) we degrade
+    // to logging instead of failing.
+    const region = process.env.SES_REGION || process.env.AWS_REGION;
+    this.isConfigured = !!region;
 
     if (this.isConfigured) {
-      sgMail.setApiKey(apiKey as string);
-      console.log("✓ SendGrid email service initialized");
+      this.ses = new SESClient({ region });
+      console.log("✓ SES email service initialized");
     } else {
-      console.warn(
-        "⚠ SendGrid API key not configured. Emails will be logged only.",
-      );
+      console.warn("⚠ SES region not configured. Emails will be logged only.");
     }
 
     this.fromEmail = process.env.EMAIL_FROM || "noreply@mobius-tms.com";
@@ -38,32 +41,28 @@ export class EmailService {
     this.storeAppUrl = process.env.STORE_APP_URL;
   }
 
-  // If SendGrid is not configured we degrade gracefully by logging the email
-  // payload instead of failing — keeps local/dev environments usable without secrets.
+  // If SES is not configured (no region) we degrade gracefully by logging the email
+  // instead of failing — keeps local/dev environments usable without credentials.
   private async send(to: string, subject: string, html: string): Promise<void> {
-    const emailData = {
-      to,
-      from: {
-        email: this.fromEmail,
-        name: this.fromName,
-      },
-      subject,
-      html,
-    };
-
-    if (this.isConfigured) {
+    if (this.isConfigured && this.ses) {
       try {
-        await sgMail.send(emailData);
+        await this.ses.send(
+          new SendEmailCommand({
+            Source: `${this.fromName} <${this.fromEmail}>`,
+            Destination: { ToAddresses: [to] },
+            Message: {
+              Subject: { Data: subject, Charset: "UTF-8" },
+              Body: { Html: { Data: html, Charset: "UTF-8" } },
+            },
+          }),
+        );
         console.log(`✓ Email sent to ${to}: ${subject}`);
       } catch (error: any) {
-        console.error("✗ Error sending email:", error);
-        if (error.response) {
-          console.error("SendGrid error details:", error.response.body);
-        }
+        console.error("✗ Error sending email via SES:", error?.message || error);
         throw new Error("Failed to send email");
       }
     } else {
-      console.log("\n====== EMAIL (NOT SENT - SendGrid not configured) ======");
+      console.log("\n====== EMAIL (NOT SENT - SES not configured) ======");
       console.log("To:", to);
       console.log("From:", `${this.fromName} <${this.fromEmail}>`);
       console.log("Subject:", subject);

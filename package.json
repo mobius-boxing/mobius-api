@@ -18,6 +18,7 @@
     "deploy": "bash ../debug/deploy-backend.sh"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.1051.0",
     "@sendgrid/mail": "^8.1.4",
     "@sundaysf/utils": "^0.0.4",
     "bcryptjs": "^2.4.3",
