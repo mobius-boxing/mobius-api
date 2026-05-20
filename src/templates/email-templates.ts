@@ -208,6 +208,56 @@ export const invitationEmailTemplate = (
 };
 
 /**
+ * Store Invitation Email Template
+ * Sent when a store user is invited to access a company's store app.
+ * Links to STORE_APP_URL (the customer-facing store app), not the backoffice.
+ */
+export const storeInvitationEmailTemplate = (
+  params: EmailTemplateParams,
+): string => {
+  const {
+    firstName = "there",
+    companyName = "a company",
+    actionUrl = "#",
+  } = params;
+
+  const content = `
+    <h2 class="greeting">Hola ${firstName}!</h2>
+
+    <p class="message">
+      Has sido invitado a acceder a la tienda de <strong>${companyName}</strong>.
+    </p>
+
+    <p class="message">
+      Desde la tienda podrás gestionar tus pedidos de cajas y rollos de forma rápida y sencilla.
+    </p>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${actionUrl}" class="cta-button">Activar mi cuenta</a>
+    </div>
+
+    <div class="info-box">
+      <p><strong>Empresa:</strong> ${companyName}</p>
+      <p><strong>Acción Requerida:</strong> Haz clic en el botón de arriba para configurar tu contraseña</p>
+    </div>
+
+    <div class="divider"></div>
+
+    <p style="font-size: 14px; color: #777777;">
+      Si el botón no funciona, copia y pega este enlace en tu navegador:
+      <br>
+      <a href="${actionUrl}" style="color: #1E40AF; word-break: break-all;">${actionUrl}</a>
+    </p>
+
+    <p style="font-size: 14px; color: #777777; margin-top: 20px;">
+      Este enlace de invitación expirará en 72 horas. Si no esperabas esta invitación, puedes ignorar este correo de forma segura.
+    </p>
+  `;
+
+  return emailWrapper(content);
+};
+
+/**
  * Welcome Email Template
  * Sent after a user successfully creates their account
  */

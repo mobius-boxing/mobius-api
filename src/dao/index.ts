@@ -24,3 +24,12 @@ export * from "./module/module.dao";
 
 // Company Module DAO
 export * from "./company-module/company-module.dao";
+
+// Store Box DAO
+export * from "./store-box/store-box.dao";
+
+// Store Roll DAO
+export * from "./store-roll/store-roll.dao";
+
+// Store User DAO
+export * from "./store-user/store-user.dao";

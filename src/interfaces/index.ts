@@ -24,3 +24,12 @@ export * from "./module/module.interfaces";
 
 // Company Module interfaces
 export * from "./company-module/company-module.interfaces";
+
+// Store Box interfaces
+export * from "./store-box/store-box.interfaces";
+
+// Store Roll interfaces
+export * from "./store-roll/store-roll.interfaces";
+
+// Store User interfaces
+export * from "./store-user/store-user.interfaces";

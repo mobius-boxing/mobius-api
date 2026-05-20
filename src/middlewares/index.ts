@@ -14,6 +14,9 @@ export {
   generateToken,
 } from "./auth.middleware";
 
+// Module-enabled gate middleware
+export { requireModule, requireStoreModule } from "./module.middleware";
+
 // Validation middleware
 export {
   validateDTO,
