@@ -16,6 +16,11 @@ function forceCompanyAndActiveScope(req: Request, companyUuid: string): void {
   const u = new URL(req.url, "http://internal");
   u.searchParams.set("companyId", companyUuid); // forced JWT company
   u.searchParams.set("isActive", "true"); // forced active-only
+  // The customer must see the WHOLE catalog to build an order — pagination is wrong
+  // here. Force the max page size (queryBuilder caps limit at 100). A standard catalog
+  // (~31 boxes / 16 rolls) is well within this. TODO: if a company's catalog ever
+  // exceeds 100 active items, add a dedicated unpaginated getAllActiveForCompany() path.
+  u.searchParams.set("limit", "100");
   req.url = u.pathname + u.search;
 }
 
