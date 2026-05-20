@@ -2,6 +2,9 @@ import { Request, Response, NextFunction } from "express";
 import { IBaseController } from "../../types.d";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { CompanyDAO } from "../../dao/company/company.dao";
+import { ModuleDAO } from "../../dao/module/module.dao";
+import { CompanyModuleDAO } from "../../dao/company-module/company-module.dao";
+import { UserDAO } from "../../dao/user/user.dao";
 import { ICompany } from "../../interfaces/company/company.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
@@ -12,6 +15,9 @@ import {
 
 export class CompaniesController implements IBaseController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
+  private _moduleDAO: ModuleDAO = new ModuleDAO();
+  private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
+  private _userDAO: UserDAO = new UserDAO();
 
   public async getAll(
     req: Request,
@@ -75,6 +81,29 @@ export class CompaniesController implements IBaseController {
       };
 
       const result = await this._companyDAO.create(dataToCreate);
+
+      // Auto-link the `core` module to the freshly-created company so users
+      // can log in with at least one module enabled. Fail-soft: the migration
+      // backfill is the safety net for existing rows; this is the forward-fix.
+      try {
+        const coreModule = await this._moduleDAO.getBySlug("core");
+        const actorUuid = (req as any).user?.userId as string | undefined;
+        const actorId = actorUuid
+          ? await this._userDAO.getIdByUuid(actorUuid)
+          : null;
+        if (coreModule && coreModule.id && result.id) {
+          await this._companyModuleDAO.enable(
+            result.id,
+            coreModule.id,
+            actorId,
+          );
+        }
+      } catch (linkErr) {
+        console.error(
+          "Failed to auto-link core module on company create:",
+          linkErr,
+        );
+      }
 
       res.status(201).json({
         success: true,

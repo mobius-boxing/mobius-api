@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { CompaniesController } from "../../controllers/companies/companies.controller";
+import { CompanyModulesController } from "../../controllers/companies/company-modules.controller";
 import {
   authenticate,
   requireAdmin,
@@ -14,6 +15,8 @@ export class CompaniesRouter {
   public router: Router = Router();
   private readonly companiesController: CompaniesController =
     new CompaniesController();
+  private readonly companyModulesController: CompanyModulesController =
+    new CompanyModulesController();
 
   constructor() {
     this.initRoutes();
@@ -44,6 +47,32 @@ export class CompaniesRouter {
       validateUUID(),
       apiRateLimiter,
       this.companiesController.getWithUserCount.bind(this.companiesController),
+    );
+    this.router.get(
+      "/:uuid/modules",
+      authenticate,
+      requireSuperAdmin(),
+      validateUUID(),
+      apiRateLimiter,
+      this.companyModulesController.getByCompany.bind(
+        this.companyModulesController,
+      ),
+    );
+    this.router.post(
+      "/:uuid/modules/:slug",
+      authenticate,
+      requireSuperAdmin(),
+      validateUUID(),
+      apiRateLimiter,
+      this.companyModulesController.enable.bind(this.companyModulesController),
+    );
+    this.router.delete(
+      "/:uuid/modules/:slug",
+      authenticate,
+      requireSuperAdmin(),
+      validateUUID(),
+      apiRateLimiter,
+      this.companyModulesController.disable.bind(this.companyModulesController),
     );
     this.router.get(
       "/:uuid",

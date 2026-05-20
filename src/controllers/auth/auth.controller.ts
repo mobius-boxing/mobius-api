@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { UserDAO } from "../../dao/user/user.dao";
 import { InvitationDAO } from "../../dao/invitation/invitation.dao";
 import { EmailTokenDAO } from "../../dao/email-token/email-token.dao";
+import { CompanyModuleDAO } from "../../dao/company-module/company-module.dao";
 import { IUser } from "../../interfaces/user/user.interfaces";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -21,6 +22,7 @@ export class AuthController {
   private _userDAO: UserDAO = new UserDAO();
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _emailTokenDAO: EmailTokenDAO = new EmailTokenDAO();
+  private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
   private _emailService: EmailService = new EmailService();
 
   public async register(
@@ -164,6 +166,14 @@ export class AuthController {
         return;
       }
 
+      // Enrich JWT + response with enabled module slugs for the user's company.
+      // SuperAdmin has no companyId → modules: [].
+      const enabledModules = userWithCompany.companyId
+        ? await this._companyModuleDAO.getEnabledSlugsByCompany(
+            userWithCompany.companyId,
+          )
+        : [];
+
       const jwtSecret = process.env.JWT_SECRET || "";
       const jwtExpire = process.env.JWT_EXPIRE || "24h";
       const token = jwt.sign(
@@ -172,6 +182,7 @@ export class AuthController {
           email: userWithCompany.email,
           role: userWithCompany.role,
           companyId: userWithCompany.company?.uuid,
+          modules: enabledModules,
         },
         jwtSecret,
         { expiresIn: jwtExpire as string } as jwt.SignOptions,
@@ -183,6 +194,7 @@ export class AuthController {
         ...userWithoutCompany,
         companyId: company?.uuid || undefined,
         companyName: company?.name || undefined,
+        modules: enabledModules,
       };
 
       res.status(200).json({
@@ -222,12 +234,29 @@ export class AuthController {
         return;
       }
 
+      // Enrich /me with enabled module slugs. Fail-soft: existing clients that
+      // ignore `modules` keep working even if the DAO ever throws.
+      let modules: string[] = [];
+      try {
+        if (user.companyId) {
+          modules = await this._companyModuleDAO.getEnabledSlugsByCompany(
+            user.companyId,
+          );
+        }
+      } catch (err) {
+        console.error("Failed to load enabled modules for /me:", err);
+        modules = [];
+      }
+
       // SECURITY: strip password hash before sending to client.
       const { password: _, ...userWithoutPassword } = user;
 
       res.status(200).json({
         success: true,
-        data: userWithoutPassword,
+        data: {
+          ...userWithoutPassword,
+          modules,
+        },
       });
     } catch (err: any) {
       next(err);
@@ -373,6 +402,14 @@ export class AuthController {
         invitation.email,
       );
 
+      // Enrich JWT + response with enabled module slugs for the invited user's
+      // company. Invitation.companyId is the numeric column on the invitation row.
+      const enabledModules = invitation.companyId
+        ? await this._companyModuleDAO.getEnabledSlugsByCompany(
+            invitation.companyId,
+          )
+        : [];
+
       const jwtSecret = process.env.JWT_SECRET || "";
       const jwtExpire = process.env.JWT_EXPIRE || "24h";
       const authToken = jwt.sign(
@@ -381,6 +418,7 @@ export class AuthController {
           email: user.email,
           role: user.role,
           companyId: userWithCompany?.company?.uuid,
+          modules: enabledModules,
         },
         jwtSecret,
         { expiresIn: jwtExpire as string } as jwt.SignOptions,
@@ -392,6 +430,7 @@ export class AuthController {
         ...userWithoutPassword,
         companyId: userWithCompany?.company?.uuid,
         companyName: userWithCompany?.company?.name,
+        modules: enabledModules,
       };
 
       res.status(200).json({

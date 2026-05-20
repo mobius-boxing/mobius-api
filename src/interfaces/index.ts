@@ -18,3 +18,9 @@ export * from "./email-token/email-token.interfaces";
 
 // Flap Type interfaces
 export * from "./flap-type/flap-type.interfaces";
+
+// Module interfaces
+export * from "./module/module.interfaces";
+
+// Company Module interfaces
+export * from "./company-module/company-module.interfaces";

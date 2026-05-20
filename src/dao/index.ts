@@ -18,3 +18,9 @@ export * from "./email-token/email-token.dao";
 
 // Flap Type DAO
 export * from "./flap-type/flap-type.dao";
+
+// Module DAO
+export * from "./module/module.dao";
+
+// Company Module DAO
+export * from "./company-module/company-module.dao";
