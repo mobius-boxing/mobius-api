@@ -47,8 +47,7 @@ export class AppConfigController {
       const companyId = await this.companyId(req, res);
       if (companyId === null) return;
       const { key } = req.params;
-      const all = await this.service.getAll(companyId);
-      const entry = all.find((e) => e.key === key);
+      const entry = await this.service.getEntry(companyId, key);
       if (!entry) {
         res.status(404).json({ success: false, message: "Config key not found" });
         return;

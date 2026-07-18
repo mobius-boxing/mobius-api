@@ -87,6 +87,21 @@ export class AppConfigService {
     await this.dao.deleteByKey(companyId, key);
   }
 
+  /** One merged entry (single-key lookup — does not materialize the catalogue). */
+  async getEntry(companyId: number, key: string): Promise<IAppConfigEntry | null> {
+    const def = APP_CONFIG_DEFAULTS_BY_KEY.get(key);
+    if (!def) return null;
+    const row = await this.dao.getByKey(companyId, key);
+    const raw = row ? (row.value ?? "") : def.defaultValue;
+    return {
+      key,
+      valueType: def.valueType,
+      value: this.coerce(raw, def.valueType),
+      rawValue: raw,
+      isOverridden: !!row,
+    };
+  }
+
   /** Full merged view (defaults + overrides) for the settings UI. */
   async getAll(companyId: number): Promise<IAppConfigEntry[]> {
     const rows = await this.dao.getAllForCompany(companyId);

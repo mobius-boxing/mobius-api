@@ -21,23 +21,15 @@ export async function up(knex: Knex): Promise<void> {
       .inTable("companies")
       .onDelete("CASCADE");
     table.string("scope", 100).notNullable();
-    table.string("parentKey", 200);
+    // '' = no parent (global sequence). NOT NULL so the plain unique constraint
+    // covers both cases and INSERT … ON CONFLICT can target it atomically.
+    table.string("parentKey", 200).notNullable().defaultTo("");
     table.bigInteger("lastValue").notNullable().defaultTo(0);
     table.timestamp("createdAt", { useTz: true }).defaultTo(knex.fn.now());
     table.timestamp("updatedAt", { useTz: true }).defaultTo(knex.fn.now());
 
-    // Postgres treats NULLs as distinct in unique constraints; coalesce via two
-    // partial indexes so (company, scope) is unique with and without a parent.
-    table.index(["companyId", "scope"]);
+    table.unique(["companyId", "scope", "parentKey"]);
   });
-  await knex.raw(
-    `CREATE UNIQUE INDEX code_sequences_scope_parent_uq
-       ON code_sequences ("companyId", scope, "parentKey") WHERE "parentKey" IS NOT NULL`,
-  );
-  await knex.raw(
-    `CREATE UNIQUE INDEX code_sequences_scope_uq
-       ON code_sequences ("companyId", scope) WHERE "parentKey" IS NULL`,
-  );
 }
 
 export async function down(knex: Knex): Promise<void> {

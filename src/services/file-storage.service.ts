@@ -122,10 +122,13 @@ export class FileStorageService {
   /** Procusto `Copiar(guid)` analog: duplicate the bytes under a new key. */
   async copyObject(sourceKey: string, destKey: string): Promise<void> {
     if (this.s3) {
+      // Encode per path segment — encoding the whole key would percent-encode
+      // the '/' separators and make S3 resolve a nonexistent source.
+      const encodedSource = sourceKey.split("/").map(encodeURIComponent).join("/");
       await this.s3.send(
         new CopyObjectCommand({
           Bucket: this.bucket!,
-          CopySource: `${this.bucket}/${encodeURIComponent(sourceKey)}`,
+          CopySource: `${this.bucket}/${encodedSource}`,
           Key: destKey,
         }),
       );

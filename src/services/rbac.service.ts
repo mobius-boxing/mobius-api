@@ -115,6 +115,28 @@ export class RbacService {
       .ignore();
   }
 
+  /**
+   * Authorization state for the permission gate: whether the user has a role
+   * assigned at all (drives the legacy-enum fallback) and their granted codes.
+   * One targeted query on users (the DAO's mapToInterface drops roleId, so the
+   * middleware must NOT rely on UserDAO for this).
+   */
+  static async authzForUserUuid(
+    userUuid: string,
+  ): Promise<{ hasRole: boolean; codes: string[] }> {
+    const knex = KnexManager.getConnection();
+    const user = await knex("users")
+      .where("uuid", userUuid)
+      .select("roleId")
+      .first();
+    if (!user?.roleId) return { hasRole: false, codes: [] };
+    const rows = await knex("role_permissions")
+      .join("permissions", "role_permissions.permissionId", "permissions.id")
+      .where("role_permissions.roleId", user.roleId)
+      .select("permissions.code");
+    return { hasRole: true, codes: rows.map((r: any) => r.code) };
+  }
+
   /** Permission codes for a user (by users.id). Empty when the user has no role. */
   static async permissionCodesForUser(userId: number): Promise<string[]> {
     const knex = KnexManager.getConnection();

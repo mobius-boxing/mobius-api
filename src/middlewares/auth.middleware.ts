@@ -170,12 +170,11 @@ export const requirePermission = (
       let hasRole: boolean | undefined = (req as any).permissionHasRole;
       if (codes === undefined) {
         const { RbacService } = await import("../services/rbac.service");
-        const userDAO = new UserDAO();
-        const dbUser = await userDAO.getByUuid(user.userId);
-        hasRole = !!(dbUser as any)?.roleId;
-        codes = hasRole
-          ? await RbacService.permissionCodesForUserUuid(user.userId)
-          : [];
+        // NOTE: UserDAO.getByUuid must not be used here — its mapToInterface
+        // drops roleId, which would silently disable the whole grid.
+        const authz = await RbacService.authzForUserUuid(user.userId);
+        hasRole = authz.hasRole;
+        codes = authz.codes;
         (req as any).permissionCodes = codes;
         (req as any).permissionHasRole = hasRole;
       }

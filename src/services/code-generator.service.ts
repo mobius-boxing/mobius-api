@@ -63,49 +63,26 @@ export class CodeGeneratorService {
     return formatCode(value, PAD_WIDTHS[scope] ?? 0);
   }
 
-  /** The raw incremented counter value (for callers with custom formatting). */
+  /**
+   * The raw incremented counter value (for callers with custom formatting).
+   * Single atomic upsert — safe under concurrency with no row-lock dance and
+   * no aborted-transaction recovery path.
+   */
   async nextValue(
     companyId: number,
     scope: string,
     parentKey: string | null = null,
   ): Promise<number> {
     const knex = KnexManager.getConnection();
-    return knex.transaction(async (trx) => {
-      const base = trx("code_sequences")
-        .where({ companyId, scope })
-        .modify((q) =>
-          parentKey === null
-            ? q.whereNull("parentKey")
-            : q.where("parentKey", parentKey),
-        );
-
-      const row = await base.clone().forUpdate().first();
-
-      if (!row) {
-        // First use: create the counter at 1. A concurrent first-insert loses on
-        // the unique index and retries via the update path.
-        try {
-          await trx("code_sequences").insert({
-            companyId,
-            scope,
-            parentKey,
-            lastValue: 1,
-          });
-          return 1;
-        } catch (err: any) {
-          if (err?.code !== "23505") throw err;
-          const existing = await base.clone().forUpdate().first();
-          if (!existing) throw err;
-          const next = Number(existing.lastValue) + 1;
-          await base.clone().update({ lastValue: next, updatedAt: trx.fn.now() });
-          return next;
-        }
-      }
-
-      const next = Number(row.lastValue) + 1;
-      await base.clone().update({ lastValue: next, updatedAt: trx.fn.now() });
-      return next;
-    });
+    const [row] = await knex("code_sequences")
+      .insert({ companyId, scope, parentKey: parentKey ?? "", lastValue: 1 })
+      .onConflict(["companyId", "scope", "parentKey"])
+      .merge({
+        lastValue: knex.raw('"code_sequences"."lastValue" + 1'),
+        updatedAt: knex.fn.now(),
+      })
+      .returning("lastValue");
+    return Number((row as any).lastValue ?? row);
   }
 
   /**
@@ -119,20 +96,12 @@ export class CodeGeneratorService {
     lastValue: number,
   ): Promise<void> {
     const knex = KnexManager.getConnection();
-    await knex.transaction(async (trx) => {
-      const base = trx("code_sequences")
-        .where({ companyId, scope })
-        .modify((q) =>
-          parentKey === null
-            ? q.whereNull("parentKey")
-            : q.where("parentKey", parentKey),
-        );
-      const row = await base.clone().forUpdate().first();
-      if (!row) {
-        await trx("code_sequences").insert({ companyId, scope, parentKey, lastValue });
-      } else if (Number(row.lastValue) < lastValue) {
-        await base.clone().update({ lastValue, updatedAt: trx.fn.now() });
-      }
-    });
+    await knex("code_sequences")
+      .insert({ companyId, scope, parentKey: parentKey ?? "", lastValue })
+      .onConflict(["companyId", "scope", "parentKey"])
+      .merge({
+        lastValue: knex.raw('GREATEST("code_sequences"."lastValue", ?)', [lastValue]),
+        updatedAt: knex.fn.now(),
+      });
   }
 }

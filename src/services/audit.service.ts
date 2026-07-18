@@ -34,6 +34,10 @@ export class AuditService {
   ): Promise<void> {
     try {
       const user = (req as any).user;
+      const [userId, companyId] = await Promise.all([
+        user?.userId ? this.resolveUserId(user.userId) : Promise.resolve(null),
+        this.resolveCompanyId(entity, user?.companyId),
+      ]);
       const row: IAuditLog = {
         entityName,
         operation,
@@ -41,8 +45,8 @@ export class AuditService {
         entityCode: entity?.code ?? null,
         entityDescription: entity?.description ?? entity?.name ?? null,
         username: user?.email ?? null,
-        userId: user?.userId ? await this.resolveUserId(user.userId) : null,
-        companyId: await this.resolveCompanyId(entity, user?.companyId),
+        userId,
+        companyId,
         // Baja carries no snapshot (parity with GenericLogger).
         snapshot: operation === "Baja" ? null : (entity as any),
       };

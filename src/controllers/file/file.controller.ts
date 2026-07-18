@@ -2,7 +2,10 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { FileDAO } from "../../dao/file/file.dao";
 import { FileStorageService } from "../../services/file-storage.service";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
+import {
+  enforceCompanyFilter,
+  getCompanyFilterUuid,
+} from "../../utils/companyScope";
 
 // Procusto had no size/type limits; we add a defensive cap (D-note in file-storage.md).
 export const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
@@ -76,13 +79,9 @@ export class FileController {
 
   public async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      if (companyUuid) {
-        (req.query as any)["filter"] = {
-          ...((req.query as any)["filter"] || {}),
-          companyId: companyUuid,
-        };
-      }
+      // Sets the top-level companyId query param the DAO's query config reads —
+      // filters are flat (?companyId=...), NOT nested under ?filter[...].
+      enforceCompanyFilter(req);
       const result = await this.dao.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {

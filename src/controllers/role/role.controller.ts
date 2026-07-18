@@ -196,6 +196,17 @@ export class RoleController {
         return;
       }
 
+      // Cross-tenant guard on BOTH paths (assign and unassign): a non-superAdmin
+      // caller may only touch users of their own company. 404, not 403, so
+      // foreign users' existence isn't leaked.
+      if (companyUuid) {
+        const callerCompanyId = await this.dao.resolveCompanyId(companyUuid);
+        if ((user as any).companyId !== callerCompanyId) {
+          res.status(404).json({ success: false, message: "User not found" });
+          return;
+        }
+      }
+
       let roleId: number | null = null;
       if (roleUuid) {
         const role = await this.dao.getByUuid(roleUuid, companyUuid);
@@ -203,8 +214,9 @@ export class RoleController {
           res.status(404).json({ success: false, message: "Role not found" });
           return;
         }
-        // Cross-tenant guard: user and role must belong to the same company.
-        if ((user as any).companyId && (user as any).companyId !== role.companyId) {
+        // The role must belong to the user's company (guards the superAdmin
+        // path too, where companyUuid is undefined and no scope applied above).
+        if ((user as any).companyId !== role.companyId) {
           res.status(400).json({
             success: false,
             message: "User and role belong to different companies.",
@@ -239,19 +251,9 @@ export class RoleController {
         });
         return;
       }
-      try {
-        await this.dao.delete(existing.id);
-      } catch (err: any) {
-        if (err?.code === "23503") {
-          res.status(400).json({
-            success: false,
-            message:
-              "Cannot delete role: users are still assigned to it. Reassign them first.",
-          });
-          return;
-        }
-        throw err;
-      }
+      // No FK can block this: users.roleId is ON DELETE SET NULL (assigned users
+      // fall back to the legacy enum) and role_permissions cascades.
+      await this.dao.delete(existing.id);
       void this.audit.record(req, "Role", "Baja", existing as any);
       res.status(200).json({ success: true, message: "Role deleted successfully" });
     } catch (err: any) {
