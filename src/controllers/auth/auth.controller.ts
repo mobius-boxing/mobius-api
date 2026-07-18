@@ -248,6 +248,16 @@ export class AuthController {
         modules = [];
       }
 
+      // Enrich /me with RBAC permission codes (module 02). Fail-soft like modules.
+      let permissions: string[] = [];
+      try {
+        const { RbacService } = await import("../../services/rbac.service");
+        permissions = await RbacService.permissionCodesForUserUuid(userId);
+      } catch (err) {
+        console.error("Failed to load permissions for /me:", err);
+        permissions = [];
+      }
+
       // SECURITY: strip password hash before sending to client.
       const { password: _, ...userWithoutPassword } = user;
 

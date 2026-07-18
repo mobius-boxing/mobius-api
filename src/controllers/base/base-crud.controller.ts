@@ -2,14 +2,20 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { IBaseController } from "../../types.d";
 import { IDataPaginator } from "../../database/d.types";
-import { enforceCompanyFilter } from "../../utils/companyScope";
+import {
+  enforceCompanyFilter,
+  getCompanyFilterUuid,
+} from "../../utils/companyScope";
+import { AuditService } from "../../services/audit.service";
 
 type WithId = { id?: number | null };
 
 export interface ICrudDAO<T> {
   create(item: T): Promise<T>;
-  getByUuid(uuid: string): Promise<(T & WithId) | null>;
-  getIdByUuid?(uuid: string): Promise<number | null>;
+  // SECURITY (C2): companyUuid, when provided, scopes the lookup to the caller's company so a
+  // record owned by another company is invisible (IDOR protection). undefined = no scoping.
+  getByUuid(uuid: string, companyUuid?: string): Promise<(T & WithId) | null>;
+  getIdByUuid?(uuid: string, companyUuid?: string): Promise<number | null>;
   update(id: number, item: Partial<T>): Promise<T | null>;
   delete(id: number): Promise<boolean>;
   getAllWithFilters(req: Request): Promise<IDataPaginator<T>>;
@@ -18,14 +24,37 @@ export interface ICrudDAO<T> {
 export interface BaseCrudOptions {
   entityLabel: string;
   enforceCompanyOnList?: boolean;
+  // SECURITY (C2): enforce company scoping on single-item ops (getByUuid/update/delete).
+  // Defaults to enforceCompanyOnList ?? true. Set false for globally-shared reference entities.
+  enforceCompanyOnItem?: boolean;
   fkCatchOnDelete?: boolean;
   fkCatchMessage?: string;
   autoGenerateUuid?: boolean;
+  // Audit trail (audit_logs). Defaults to true — nearly every entity gets history
+  // (decision 2026-07-18, module 01 audit-log.md). Set false to opt out.
+  audit?: boolean;
 }
 
 export abstract class BaseCrudController<TEntity> implements IBaseController {
   protected abstract dao: ICrudDAO<TEntity>;
   protected abstract options: BaseCrudOptions;
+
+  private static auditService = new AuditService();
+
+  /** Best-effort audit record — fire-and-forget, never blocks the response. */
+  protected recordAudit(
+    req: Request,
+    operation: "Alta" | "Baja" | "Modificacion",
+    entity: Record<string, any> | null,
+  ): void {
+    if (this.options.audit === false) return;
+    void BaseCrudController.auditService.record(
+      req,
+      this.options.entityLabel,
+      operation,
+      entity,
+    );
+  }
 
   /**
    * On validation failure: set `req.statusCode = 400`, call `next(new Error(msg))`,
@@ -64,8 +93,33 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
     return payload;
   }
 
-  protected async getOneByUuid(uuid: string): Promise<TEntity | null> {
-    return this.dao.getByUuid(uuid);
+  /**
+   * SECURITY (C2): effective company scoping for single-item ops. Defaults to the list setting,
+   * then to true. Globally-shared reference entities opt out via enforceCompanyOnItem: false.
+   */
+  protected isCompanyScopedOnItem(): boolean {
+    return (
+      this.options.enforceCompanyOnItem ??
+      this.options.enforceCompanyOnList ??
+      true
+    );
+  }
+
+  /**
+   * SECURITY (C2): when item scoping is on, derive the caller's company UUID and pass it to the
+   * DAO so cross-company records are invisible. SuperAdmins (undefined) keep full access.
+   */
+  protected itemCompanyUuid(req: Request): string | undefined {
+    return this.isCompanyScopedOnItem()
+      ? getCompanyFilterUuid(req)
+      : undefined;
+  }
+
+  protected async getOneByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<TEntity | null> {
+    return this.dao.getByUuid(uuid, companyUuid);
   }
 
   protected sendNotFound(res: Response): void {
@@ -75,11 +129,14 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
     });
   }
 
-  protected async resolveIdByUuid(uuid: string): Promise<number | null> {
+  protected async resolveIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
     if (typeof this.dao.getIdByUuid === "function") {
-      return this.dao.getIdByUuid(uuid);
+      return this.dao.getIdByUuid(uuid, companyUuid);
     }
-    const existing = await this.dao.getByUuid(uuid);
+    const existing = await this.dao.getByUuid(uuid, companyUuid);
     return existing?.id ?? null;
   }
 
@@ -107,9 +164,11 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
   ): Promise<void> {
     try {
       const { uuid } = req.params;
-      const result = await this.getOneByUuid(uuid);
+      const companyUuid = this.itemCompanyUuid(req);
+      const result = await this.getOneByUuid(uuid, companyUuid);
 
       if (!result) {
+        // SECURITY (C2): a non-matching company yields 404, not 403, so existence isn't leaked.
         this.sendNotFound(res);
         return;
       }
@@ -142,6 +201,8 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
 
       const result = await this.dao.create(dataToCreate as TEntity);
 
+      this.recordAudit(req, "Alta", result as Record<string, any>);
+
       res.status(201).json({
         success: true,
         data: result,
@@ -159,7 +220,9 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const existingId = await this.resolveIdByUuid(uuid);
+      // SECURITY (C2): scope resolution to the caller's company; a cross-company target → 404.
+      const companyUuid = this.itemCompanyUuid(req);
+      const existingId = await this.resolveIdByUuid(uuid, companyUuid);
       if (!existingId) {
         this.sendNotFound(res);
         return;
@@ -172,6 +235,8 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
       if (payload === null) return;
 
       const result = await this.dao.update(existingId, payload);
+
+      this.recordAudit(req, "Modificacion", result as Record<string, any> | null);
 
       res.status(200).json({
         success: true,
@@ -190,15 +255,25 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const existingId = await this.resolveIdByUuid(uuid);
+      // SECURITY (C2): scope resolution to the caller's company; a cross-company target → 404.
+      const companyUuid = this.itemCompanyUuid(req);
+      const existingId = await this.resolveIdByUuid(uuid, companyUuid);
       if (!existingId) {
         this.sendNotFound(res);
         return;
       }
 
+      // Snapshot before the delete so the Baja audit row keeps the entity's
+      // code/description, as Procusto's GenericLogger does.
+      const existing =
+        this.options.audit === false
+          ? null
+          : await this.dao.getByUuid(uuid, companyUuid);
+
       const result = await this.dao.delete(existingId);
 
       if (result) {
+        this.recordAudit(req, "Baja", (existing as Record<string, any>) ?? { uuid });
         res.status(200).json({
           success: true,
           message: `${this.options.entityLabel} deleted successfully`,

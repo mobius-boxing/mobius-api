@@ -33,3 +33,18 @@ export * from "./store-roll/store-roll.dao";
 
 // Store User DAO
 export * from "./store-user/store-user.dao";
+
+// App Config DAO
+export * from "./app-config/app-config.dao";
+
+// File DAO
+export * from "./file/file.dao";
+
+// Audit Log DAO
+export * from "./audit-log/audit-log.dao";
+
+// Role DAO
+export * from "./role/role.dao";
+
+// Permission DAO
+export * from "./permission/permission.dao";

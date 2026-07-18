@@ -7,6 +7,8 @@ interface IJWTPayload {
   email: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: string;
+  // Enabled module slugs for the user's company (empty for superAdmin / no company).
+  modules?: string[];
   // Store customer tokens carry audience:'store'; internal tokens never set it.
   // Used purely so internal auth can reject store tokens (see authenticate).
   audience?: string;
@@ -129,6 +131,87 @@ export const optionalAuth = async (
   }
 };
 
+/**
+ * Data-driven permission gate (module 02 RBAC grid). Checks the caller's role
+ * grants for `code`; with allowReadOnly, the `.readonly` variant also passes
+ * (Procusto's SoloLectura pairing — use on GET routes).
+ *
+ * Transition semantics (02/08-migration-notes dual-read): superAdmin always
+ * passes; a user with NO roleId falls back to the legacy enum (admin passes,
+ * member is denied). Once every user carries a roleId the fallback dies with
+ * the enum column.
+ */
+export const requirePermission = (
+  code: string,
+  options?: { allowReadOnly?: boolean },
+) => {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const user = (req as any).user;
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+      return;
+    }
+
+    if (user.role === "superAdmin") {
+      next();
+      return;
+    }
+
+    try {
+      // Cache per request — several gates may run on one request.
+      let codes: string[] | undefined = (req as any).permissionCodes;
+      let hasRole: boolean | undefined = (req as any).permissionHasRole;
+      if (codes === undefined) {
+        const { RbacService } = await import("../services/rbac.service");
+        const userDAO = new UserDAO();
+        const dbUser = await userDAO.getByUuid(user.userId);
+        hasRole = !!(dbUser as any)?.roleId;
+        codes = hasRole
+          ? await RbacService.permissionCodesForUserUuid(user.userId)
+          : [];
+        (req as any).permissionCodes = codes;
+        (req as any).permissionHasRole = hasRole;
+      }
+
+      if (!hasRole) {
+        // Legacy fallback: no role assigned yet — honor the old enum.
+        if (user.role === "admin") {
+          next();
+          return;
+        }
+        res.status(403).json({
+          success: false,
+          message: `Insufficient permissions. Required: ${code}`,
+        });
+        return;
+      }
+
+      const allowed =
+        codes.includes(code) ||
+        (options?.allowReadOnly === true && codes.includes(`${code}.readonly`));
+
+      if (!allowed) {
+        res.status(403).json({
+          success: false,
+          message: `Insufficient permissions. Required: ${code}`,
+        });
+        return;
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+};
+
 export const requireRole = (
   roles: Array<"member" | "admin" | "superAdmin">,
 ) => {
@@ -212,7 +295,9 @@ export const generateToken = (user: {
   email: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: string;
+  modules?: string[];
 }): string => {
+  // SECURITY (H1): fail closed — never sign with an empty secret.
   const jwtSecret = process.env.JWT_SECRET;
   const jwtExpire = process.env.JWT_EXPIRE || "5h";
 
@@ -225,6 +310,7 @@ export const generateToken = (user: {
     email: user.email,
     role: user.role,
     companyId: user.companyId,
+    modules: user.modules ?? [],
   };
 
   return jwt.sign(payload, jwtSecret, {

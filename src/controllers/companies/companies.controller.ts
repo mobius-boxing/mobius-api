@@ -105,6 +105,24 @@ export class CompaniesController implements IBaseController {
         );
       }
 
+      // Provision the RBAC catalogue (permissions clone + protected Admin role +
+      // Procusto profile templates — module 02, Model B). Fail-soft: the seed
+      // migration backfills existing rows; re-running the seed is idempotent.
+      try {
+        if (result.id) {
+          const { RbacService } = await import("../../services/rbac.service");
+          const KnexManager = (
+            await import("../../database/KnexConnection")
+          ).default;
+          await RbacService.seedCompanyRbac(
+            KnexManager.getConnection(),
+            result.id,
+          );
+        }
+      } catch (rbacErr) {
+        console.error("Failed to seed RBAC catalogue on company create:", rbacErr);
+      }
+
       res.status(201).json({
         success: true,
         data: result,
