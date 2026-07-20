@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is handled separately via a join because the client sends a UUID, not a numeric id.
@@ -78,6 +79,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
     const [tooling] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
+        code: item.code,
         name: item.name,
         description: item.description,
         manufacturerId: item.manufacturerId,
@@ -97,20 +99,25 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
     return tooling ? this.mapToInterface(tooling) : null;
   }
 
-  async getByUuid(uuid: string): Promise<ITooling | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ITooling | null> {
     const knex = KnexManager.getConnection();
-    const tooling = await this.buildJoinQuery(knex)
-      .where(`${this.tableName}.uuid`, uuid)
-      .first();
+    const query = this.buildJoinQuery(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const tooling = await query.first();
     return tooling ? this.mapWithRelations(tooling) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
@@ -118,6 +125,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
     const knex = KnexManager.getConnection();
     const updateData: any = {};
 
+    if (item.code !== undefined) updateData.code = item.code;
     if (item.name !== undefined) updateData.name = item.name;
     if (item.description !== undefined) updateData.description = item.description;
     if (item.manufacturerId !== undefined) updateData.manufacturerId = item.manufacturerId;
@@ -223,6 +231,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   private mapToInterface(record: any): ITooling {
     return {
       uuid: record.uuid,
+      code: record.code,
       name: record.name,
       description: record.description,
       minimumStock: record.minimumStock,

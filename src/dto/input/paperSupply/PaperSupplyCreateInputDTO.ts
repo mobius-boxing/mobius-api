@@ -8,7 +8,11 @@ export class PaperSupplyCreateInputDTO {
   paperTypeId?: number;
   grammage?: number;
   price?: number;
-  minimumStock?: { pallets: number; boxes: number };
+  color?: string;
+  // Numeric by the time the DTO is built — the controller resolves the client's
+  // uuid to a numeric id BEFORE constructing the DTO (same as manufacturerId).
+  fscTypeId?: number;
+  minimumStock?: { weightKg?: number | null; diameterMm?: number | null };
 
   constructor(data: any) {
     this.companyId =
@@ -41,10 +45,22 @@ export class PaperSupplyCreateInputDTO {
     if (data.price !== undefined)
       this.price =
         typeof data.price === "string" ? parseFloat(data.price) : data.price;
+    if (data.color !== undefined) this.color = data.color;
+    if (data.fscTypeId !== undefined) this.fscTypeId = data.fscTypeId;
     if (data.minimumStock !== undefined) {
-      this.minimumStock = data.minimumStock;
+      // Corrected shape (§L.3): CantidadBobina — weight (kg) + diameter (mm).
+      this.minimumStock = {
+        weightKg:
+          data.minimumStock.weightKg !== undefined && data.minimumStock.weightKg !== null
+            ? Number(data.minimumStock.weightKg)
+            : null,
+        diameterMm:
+          data.minimumStock.diameterMm !== undefined && data.minimumStock.diameterMm !== null
+            ? Number(data.minimumStock.diameterMm)
+            : null,
+      };
     } else {
-      this.minimumStock = { pallets: 0, boxes: 0 };
+      this.minimumStock = { weightKg: null, diameterMm: null };
     }
   }
 

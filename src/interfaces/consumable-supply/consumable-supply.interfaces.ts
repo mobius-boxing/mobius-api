@@ -12,6 +12,12 @@ export interface IConsumableSupply {
   supplierId?: number;
   manufacturerId?: number;
   consumableTypeId?: number;
+  /** Warehouse location — free text (Procusto Ubicacion). */
+  location?: string;
+  /** Expiry — FREE TEXT by design (live data holds strings like "15-07-22"; Q-09-8). */
+  expiry?: string;
+  minimumStock?: number | null;
+  colorId?: number | null;
   createdAt?: Date;
   updatedAt?: Date;
 

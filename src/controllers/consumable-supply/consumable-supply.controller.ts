@@ -22,7 +22,14 @@ export class ConsumableSupplyController extends BaseCrudController<IConsumableSu
   private _manufacturerDAO = new ManufacturerDAO();
   private _consumableTypeDAO = new ConsumableTypeDAO();
 
-  protected async getOneByUuid(uuid: string): Promise<IConsumableSupply | null> {
+  protected async getOneByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IConsumableSupply | null> {
+    // SECURITY (C2): ownership gate via the company-scoped getByUuid before returning details.
+    if (companyUuid && !(await this.dao.getByUuid(uuid, companyUuid))) {
+      return null;
+    }
     return this.dao.getWithDetails(uuid);
   }
 
@@ -100,6 +107,17 @@ export class ConsumableSupplyController extends BaseCrudController<IConsumableSu
       }
     }
 
+    // SECURITY: resolve client-supplied color UUID to internal numeric ID.
+    let colorId: number | undefined;
+    if (inputDTO.colorUuid) {
+      const { ColorDAO } = await import("../../dao/color/color.dao");
+      colorId = (await new ColorDAO().getIdByUuid(inputDTO.colorUuid)) ?? undefined;
+      if (!colorId) {
+        res.status(400).json({ success: false, message: "Color not found" });
+        return null;
+      }
+    }
+
     return {
       code: inputDTO.code,
       name: inputDTO.name,
@@ -107,6 +125,10 @@ export class ConsumableSupplyController extends BaseCrudController<IConsumableSu
       supplierId,
       manufacturerId,
       consumableTypeId,
+      location: inputDTO.location,
+      expiry: inputDTO.expiry,
+      minimumStock: inputDTO.minimumStock,
+      colorId,
     };
   }
 
@@ -171,6 +193,25 @@ export class ConsumableSupplyController extends BaseCrudController<IConsumableSu
           return null;
         }
         updateData.consumableTypeId = consumableTypeId;
+      }
+    }
+
+    if (inputDTO.location !== undefined) updateData.location = inputDTO.location;
+    if (inputDTO.expiry !== undefined) updateData.expiry = inputDTO.expiry;
+    if (inputDTO.minimumStock !== undefined)
+      updateData.minimumStock = inputDTO.minimumStock;
+
+    if (inputDTO.colorUuid !== undefined) {
+      if (inputDTO.colorUuid === "" || inputDTO.colorUuid === null) {
+        updateData.colorId = null;
+      } else {
+        const { ColorDAO } = await import("../../dao/color/color.dao");
+        const colorId = await new ColorDAO().getIdByUuid(inputDTO.colorUuid);
+        if (!colorId) {
+          res.status(400).json({ success: false, message: "Color not found" });
+          return null;
+        }
+        updateData.colorId = colorId;
       }
     }
 

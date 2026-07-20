@@ -48,3 +48,12 @@ export * from "./role/role.dao";
 
 // Permission DAO
 export * from "./permission/permission.dao";
+
+// Color Type DAO
+export * from "./color-type/color-type.dao";
+
+// Color DAO
+export * from "./color/color.dao";
+
+// FSC Type DAO
+export * from "./fsc-type/fsc-type.dao";

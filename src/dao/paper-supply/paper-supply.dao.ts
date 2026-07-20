@@ -102,8 +102,10 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         paperTypeId: item.paperTypeId,
         grammage: item.grammage,
         price: item.price,
+        color: item.color,
+        fscTypeId: item.fscTypeId,
         minimumStock: JSON.stringify(
-          item.minimumStock || { pallets: 0, boxes: 0 },
+          item.minimumStock || { weightKg: null, diameterMm: null },
         ),
       })
       .returning("*");
@@ -164,6 +166,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       updateData.paperTypeId = item.paperTypeId;
     if (item.grammage !== undefined) updateData.grammage = item.grammage;
     if (item.price !== undefined) updateData.price = item.price;
+    if (item.color !== undefined) updateData.color = item.color;
+    if (item.fscTypeId !== undefined) updateData.fscTypeId = item.fscTypeId;
     if (item.minimumStock !== undefined)
       updateData.minimumStock = JSON.stringify(item.minimumStock);
 
@@ -378,7 +382,11 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   }
 
   private mapToInterface(record: any): IPaperSupply {
-    let minimumStock = { pallets: 0, boxes: 0 };
+    // Corrected shape (§L.3): {weightKg, diameterMm}; pre-migration values kept under `legacy`.
+    let minimumStock: IPaperSupply["minimumStock"] = {
+      weightKg: null,
+      diameterMm: null,
+    };
 
     try {
       if (record.minimumStock) {
@@ -402,6 +410,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       paperTypeId: record.paperTypeId,
       grammage: record.grammage ? parseFloat(record.grammage) : undefined,
       price: record.price ? parseFloat(record.price) : undefined,
+      color: record.color,
+      fscTypeId: record.fscTypeId,
       minimumStock,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

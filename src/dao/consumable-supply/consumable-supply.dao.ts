@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -84,6 +85,10 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
         manufacturerId: item.manufacturerId,
         consumableTypeId: item.consumableTypeId,
         companyId: item.companyId,
+        location: item.location,
+        expiry: item.expiry,
+        minimumStock: item.minimumStock,
+        colorId: item.colorId,
       })
       .returning("*");
 
@@ -96,18 +101,22 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IConsumableSupply | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IConsumableSupply | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
@@ -121,6 +130,10 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
     if (item.supplierId !== undefined) updateData.supplierId = item.supplierId;
     if (item.manufacturerId !== undefined) updateData.manufacturerId = item.manufacturerId;
     if (item.consumableTypeId !== undefined) updateData.consumableTypeId = item.consumableTypeId;
+    if (item.location !== undefined) updateData.location = item.location;
+    if (item.expiry !== undefined) updateData.expiry = item.expiry;
+    if (item.minimumStock !== undefined) updateData.minimumStock = item.minimumStock;
+    if (item.colorId !== undefined) updateData.colorId = item.colorId;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -236,6 +249,13 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
       manufacturerId: record.manufacturerId,
       consumableTypeId: record.consumableTypeId,
       companyId: record.companyId,
+      location: record.location,
+      expiry: record.expiry,
+      minimumStock:
+        record.minimumStock !== null && record.minimumStock !== undefined
+          ? parseFloat(record.minimumStock)
+          : null,
+      colorId: record.colorId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

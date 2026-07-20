@@ -9,6 +9,8 @@ import { PaperSupplyDAO } from "../../dao/paper-supply/paper-supply.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { ManufacturerDAO } from "../../dao/manufacturer/manufacturer.dao";
 import { SupplierDAO } from "../../dao/supplier/supplier.dao";
+import { PaperTypeDAO } from "../../dao/paper-type/paper-type.dao";
+import { FscTypeDAO } from "../../dao/fsc-type/fsc-type.dao";
 import { IPaperSupply } from "../../interfaces/paper-supply/paper-supply.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
@@ -152,6 +154,33 @@ export class PaperSupplyController implements IBaseController {
         }
         data.supplierId = supplierNumericId;
       }
+      if (data.paperTypeId && typeof data.paperTypeId === "string") {
+        const paperTypeDAO = new PaperTypeDAO();
+        const paperTypeNumericId = await paperTypeDAO.getIdByUuid(
+          data.paperTypeId,
+        );
+        if (!paperTypeNumericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid paper type",
+          });
+          return;
+        }
+        data.paperTypeId = paperTypeNumericId;
+      }
+
+      if (data.fscTypeId && typeof data.fscTypeId === "string") {
+        const fscTypeDAO = new FscTypeDAO();
+        const fscTypeNumericId = await fscTypeDAO.getIdByUuid(data.fscTypeId);
+        if (!fscTypeNumericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid FSC type",
+          });
+          return;
+        }
+        data.fscTypeId = fscTypeNumericId;
+      }
 
       const inputDTO = new PaperSupplyCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -169,6 +198,12 @@ export class PaperSupplyController implements IBaseController {
         name: inputDTO.name,
         manufacturerId: inputDTO.manufacturerId,
         supplierId: inputDTO.supplierId,
+        // Pre-existing gap fixed: paperTypeId/grammage/price were dropped on create.
+        paperTypeId: inputDTO.paperTypeId,
+        grammage: inputDTO.grammage,
+        price: inputDTO.price,
+        color: inputDTO.color,
+        fscTypeId: inputDTO.fscTypeId,
         minimumStock: inputDTO.minimumStock,
       };
 
@@ -232,6 +267,33 @@ export class PaperSupplyController implements IBaseController {
           return;
         }
         data.supplierId = supplierNumericId;
+      }
+      if (data.paperTypeId && typeof data.paperTypeId === "string") {
+        const paperTypeDAO = new PaperTypeDAO();
+        const paperTypeNumericId = await paperTypeDAO.getIdByUuid(
+          data.paperTypeId,
+        );
+        if (!paperTypeNumericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid paper type",
+          });
+          return;
+        }
+        data.paperTypeId = paperTypeNumericId;
+      }
+
+      if (data.fscTypeId && typeof data.fscTypeId === "string") {
+        const fscTypeDAO = new FscTypeDAO();
+        const fscTypeNumericId = await fscTypeDAO.getIdByUuid(data.fscTypeId);
+        if (!fscTypeNumericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid FSC type",
+          });
+          return;
+        }
+        data.fscTypeId = fscTypeNumericId;
       }
 
       const inputDTO = new PaperSupplyUpdateInputDTO(data).build();

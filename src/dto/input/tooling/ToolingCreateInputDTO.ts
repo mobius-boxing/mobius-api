@@ -1,4 +1,5 @@
 export class ToolingCreateInputDTO {
+  code?: string;
   name: string;
   description?: string;
   manufacturerUuid?: string;
@@ -9,6 +10,7 @@ export class ToolingCreateInputDTO {
   constructor(data: any) {
     this.name = data.name;
     this.toolingTypeUuid = data.toolingTypeUuid;
+    if (data.code !== undefined) this.code = data.code;
     if (data.description !== undefined) this.description = data.description;
     if (data.manufacturerUuid !== undefined) this.manufacturerUuid = data.manufacturerUuid;
     if (data.supplierUuid !== undefined) this.supplierUuid = data.supplierUuid;

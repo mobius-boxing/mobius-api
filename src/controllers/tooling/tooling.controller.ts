@@ -94,6 +94,7 @@ export class ToolingController extends BaseCrudController<ITooling> {
     }
 
     return {
+      code: inputDTO.code,
       name: inputDTO.name,
       description: inputDTO.description,
       manufacturerId,
