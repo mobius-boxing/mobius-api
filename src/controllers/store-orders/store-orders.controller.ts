@@ -1,14 +1,24 @@
 import { Request, Response, NextFunction } from "express";
-import { inputValidator, IInputValidator } from "@sundaysf/utils";
+import {
+  inputValidator,
+  IInputValidator,
+  paginationHelper,
+} from "@sundaysf/utils";
 import { StoreOrderDAO } from "../../dao/store-order/store-order.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
+import { EmailService } from "../../services/email.service";
 import {
   STORE_ORDER_STATUSES,
   StoreOrderStatus,
   IStoreOrderWithItems,
+  canAdminTransition,
 } from "../../interfaces/store-order/store-order.interfaces";
 import { StoreOrderStatusInputDTO } from "../../dto/input/storeOrder";
-import { getCompanyScope, enforceCompanyFilter } from "../../utils/companyScope";
+import { parseStoreOrderListParams } from "../../utils/storeOrderListParams";
+import {
+  getCompanyScope,
+  enforceCompanyFilter,
+} from "../../utils/companyScope";
 
 /**
  * Admin order-management surface (backoffice). Mirrors the store-users admin
@@ -19,6 +29,7 @@ import { getCompanyScope, enforceCompanyFilter } from "../../utils/companyScope"
 export class StoreOrdersController {
   private _dao = new StoreOrderDAO();
   private _companyDAO = new CompanyDAO();
+  private _email = new EmailService();
 
   /**
    * Resolve the numeric companyId from scope.
@@ -46,10 +57,18 @@ export class StoreOrdersController {
         return;
       }
 
-      const orders = await this._dao.getAllForCompany(companyId);
+      const parsed = parseStoreOrderListParams(req);
+      if (!parsed.ok) {
+        res.status(400).json({ success: false, message: parsed.error });
+        return;
+      }
+
+      const result = await this._dao.getAllForCompany(companyId, parsed.params);
+      // Map each item to the list DTO shape but keep the IDataPaginator envelope
+      // (success/page/limit/count/totalCount/totalPages) intact.
       res.status(200).json({
-        success: true,
-        data: orders.map((o) => ({
+        ...result,
+        data: result.data.map((o) => ({
           uuid: o.uuid,
           status: o.status,
           createdAt: o.createdAt,
@@ -103,9 +122,7 @@ export class StoreOrdersController {
         req.statusCode = 400;
         return next(new Error(validation.message));
       }
-      if (
-        !STORE_ORDER_STATUSES.includes(inputDTO.status as StoreOrderStatus)
-      ) {
+      if (!STORE_ORDER_STATUSES.includes(inputDTO.status as StoreOrderStatus)) {
         res.status(400).json({ success: false, message: "Invalid status" });
         return;
       }
@@ -118,18 +135,60 @@ export class StoreOrdersController {
         return;
       }
 
-      const updated = await this._dao.updateStatus(
-        uuid,
-        companyId,
-        inputDTO.status as StoreOrderStatus,
-      );
-      if (!updated) {
+      const newStatus = inputDTO.status as StoreOrderStatus;
+
+      // Fetch the current order (company-scoped) so the transition can be
+      // validated server-side against the state machine BEFORE writing.
+      const current = await this._dao.getByUuid(uuid, companyId);
+      if (!current) {
         res.status(404).json({ success: false, message: "Order not found" });
         return;
       }
+
+      if (!canAdminTransition(current.status as StoreOrderStatus, newStatus)) {
+        res
+          .status(409)
+          .json({ success: false, message: "Invalid status transition" });
+        return;
+      }
+
+      const updated = await this._dao.updateStatus(uuid, companyId, newStatus);
+      if (!updated) {
+        // Lost-race / vanished between read and write — treat as not found.
+        res.status(404).json({ success: false, message: "Order not found" });
+        return;
+      }
+
+      // Fail-soft buyer notification (confirmed/in_production/shipped/delivered
+      // AND admin cancel). The update is already persisted; an email failure must
+      // NOT fail the request. Buyer email comes from the re-read (storeUserEmail).
+      await this.notifyBuyerStatus(updated, companyId);
+
       res.status(200).json({ success: true, data: this.toOrderDTO(updated) });
     } catch (err: any) {
       next(err);
+    }
+  }
+
+  /**
+   * Fail-soft buyer status email. No-op (logged) if the order has no buyer email
+   * (store user deleted → SET NULL). Resolves the company name for the copy.
+   */
+  private async notifyBuyerStatus(
+    order: IStoreOrderWithItems,
+    companyId: number,
+  ): Promise<void> {
+    try {
+      if (!order.storeUserEmail || !order.uuid || !order.status) return;
+      const company = await this._companyDAO.getById(companyId);
+      await this._email.sendStoreOrderStatusEmail(order.storeUserEmail, {
+        orderRef: order.uuid.slice(0, 8),
+        orderUuid: order.uuid,
+        status: order.status as StoreOrderStatus,
+        companyName: company?.name ?? "",
+      });
+    } catch (emailError) {
+      console.error("Error sending store order status email:", emailError);
     }
   }
 

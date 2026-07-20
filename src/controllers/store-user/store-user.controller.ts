@@ -23,11 +23,10 @@ import {
   enforceCompanyFilter,
 } from "../../utils/companyScope";
 import { EmailService } from "../../services/email.service";
+import { validatePassword, BCRYPT_COST } from "../../utils/passwordPolicy";
 
 // Invitation tokens live for 72 hours.
 const INVITE_TTL_HOURS = 72;
-// Minimum admin-set password length.
-const MIN_PASSWORD_LENGTH = 8;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export class StoreUserController implements IBaseController {
@@ -142,16 +141,16 @@ export class StoreUserController implements IBaseController {
         return;
       }
 
-      if (
-        inputDTO.password !== undefined &&
-        (typeof inputDTO.password !== "string" ||
-          inputDTO.password.length < MIN_PASSWORD_LENGTH)
-      ) {
-        res.status(400).json({
-          success: false,
-          message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
-        });
-        return;
+      // SECURITY (M4): when a password is supplied, enforce the shared policy.
+      if (inputDTO.password !== undefined) {
+        const policy = validatePassword(inputDTO.password);
+        if (!policy.valid) {
+          res.status(400).json({
+            success: false,
+            message: policy.message,
+          });
+          return;
+        }
       }
 
       // Resolve target company.
@@ -200,7 +199,10 @@ export class StoreUserController implements IBaseController {
       let created: IStoreUser;
       if (hasPassword) {
         // Admin-set-password path → active, verified user.
-        const passwordHash = await bcrypt.hash(inputDTO.password as string, 10);
+        const passwordHash = await bcrypt.hash(
+          inputDTO.password as string,
+          BCRYPT_COST,
+        );
         created = await this._dao.create({ ...basePayload, passwordHash });
       } else {
         // Invite path → generate token + expiry, persist, send email (fail-soft).
@@ -338,13 +340,12 @@ export class StoreUserController implements IBaseController {
         req.statusCode = 400;
         return next(new Error(validation.message));
       }
-      if (
-        typeof inputDTO.password !== "string" ||
-        inputDTO.password.length < MIN_PASSWORD_LENGTH
-      ) {
+      // SECURITY (M4): enforce the shared password policy.
+      const policy = validatePassword(inputDTO.password);
+      if (!policy.valid) {
         res.status(400).json({
           success: false,
-          message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+          message: policy.message,
         });
         return;
       }
@@ -359,7 +360,7 @@ export class StoreUserController implements IBaseController {
         return;
       }
 
-      const passwordHash = await bcrypt.hash(inputDTO.password, 10);
+      const passwordHash = await bcrypt.hash(inputDTO.password, BCRYPT_COST);
       // setPassword also clears any pending invitation token/expiry.
       await this._dao.setPassword(record.id, passwordHash);
       // Mark verified now that a password exists.

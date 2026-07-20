@@ -1,4 +1,6 @@
 import KnexManager from "../../database/KnexConnection";
+import { Knex } from "knex";
+import { IDataPaginator } from "../../database/d.types";
 import {
   IStoreOrder,
   IStoreOrderItem,
@@ -7,6 +9,18 @@ import {
   StoreOrderStatus,
 } from "../../interfaces/store-order/store-order.interfaces";
 import { v4 as uuidv4 } from "uuid";
+
+// Shared list-query params for both admin and customer list variants.
+// All optional: the controller resolves defaults via paginationHelper and
+// validates `status` against STORE_ORDER_STATUSES before passing it here.
+export interface IStoreOrderListParams {
+  page: number;
+  limit: number;
+  status?: StoreOrderStatus;
+  search?: string; // ILIKE on o.uuid::text (+ su.email for the admin variant)
+  sortBy?: "createdAt" | "status";
+  sortOrder?: "asc" | "desc";
+}
 
 // StoreOrderDAO does NOT implement IBaseDAO<IStoreOrder>: create has a two-arg
 // (order, items) signature and there is no update/delete/getById in v1 scope.
@@ -94,53 +108,180 @@ export class StoreOrderDAO {
     };
   }
 
-  // A store user's own orders (company-scoped defense-in-depth), newest first.
-  // Single query: LEFT JOIN + GROUP BY computes itemCount in the DB — no N+1.
+  // Single source of truth for list scoping/filtering/search, shared by both list
+  // variants AND by their data + count queries. Mutates and returns the builder so
+  // the caller can chain GROUP BY / select / count. `joinStoreUsers` is true only for
+  // the admin variant (it needs su.email for output + search); for the customer
+  // variant ownership is enforced by the storeUserId param, so the join is skipped.
+  //
+  // DRY guarantee: the exact same WHERE/ILIKE predicates are applied to the data
+  // query and the count query, so a filtered list and its total can never disagree.
+  private applyListScope(
+    knex: Knex,
+    builder: Knex.QueryBuilder,
+    params: {
+      companyId: number;
+      storeUserId?: number; // customer variant only
+      status?: StoreOrderStatus;
+      search?: string;
+      joinStoreUsers: boolean;
+    },
+  ): Knex.QueryBuilder {
+    builder.where("o.companyId", params.companyId);
+    if (params.storeUserId !== undefined) {
+      builder.andWhere("o.storeUserId", params.storeUserId);
+    }
+    if (params.status) {
+      builder.andWhere("o.status", params.status);
+    }
+    if (params.search && params.search.trim().length > 0) {
+      const term = `%${params.search.trim()}%`;
+      builder.andWhere((qb) => {
+        qb.whereRaw("o.uuid::text ILIKE ?", [term]);
+        if (params.joinStoreUsers) {
+          qb.orWhereRaw("su.email ILIKE ?", [term]);
+        }
+      });
+    }
+    return builder;
+  }
+
+  // Distinct-order total for the paginator. Reuses applyListScope so the count
+  // matches the filtered/searched data set exactly. countDistinct over o.id
+  // because the items LEFT JOIN would otherwise multiply rows.
+  private async countList(
+    knex: Knex,
+    params: {
+      companyId: number;
+      storeUserId?: number;
+      status?: StoreOrderStatus;
+      search?: string;
+      joinStoreUsers: boolean;
+    },
+  ): Promise<number> {
+    let builder = knex(this.tableName + " as o");
+    if (params.joinStoreUsers) {
+      builder = builder.leftJoin("store_users as su", "su.id", "o.storeUserId");
+    }
+    builder = this.applyListScope(knex, builder, params);
+    const row = await builder.countDistinct("o.id as count").first();
+    return parseInt((row?.count as string) ?? "0", 10) || 0;
+  }
+
+  private resolveSort(params: IStoreOrderListParams): {
+    column: string;
+    order: "asc" | "desc";
+  } {
+    const column = params.sortBy === "status" ? "o.status" : "o.createdAt"; // default createdAt
+    const order = params.sortOrder === "asc" ? "asc" : "desc"; // default desc
+    return { column, order };
+  }
+
+  // A store user's own orders (company-scoped defense-in-depth), paginated.
+  // Single data query: LEFT JOIN + GROUP BY computes itemCount in the DB — no N+1.
+  // Returns the standard IDataPaginator shape; count query reuses applyListScope.
   async getAllForStoreUser(
     storeUserId: number,
     companyId: number,
-  ): Promise<IStoreOrderWithItemCount[]> {
+    params: IStoreOrderListParams,
+  ): Promise<IDataPaginator<IStoreOrderWithItemCount>> {
     const knex = KnexManager.getConnection();
+    const { page, limit } = params;
+    const offset = (page - 1) * limit;
+    const scope = {
+      companyId,
+      storeUserId,
+      status: params.status,
+      search: params.search,
+      joinStoreUsers: false,
+    };
+    const sort = this.resolveSort(params);
 
-    const rows = await knex(this.tableName + " as o")
-      .leftJoin(this.itemsTableName + " as i", "i.orderId", "o.id")
-      .where("o.storeUserId", storeUserId)
-      .andWhere("o.companyId", companyId)
-      .groupBy("o.id")
-      .select("o.*")
-      .count("i.id as itemCount")
-      .orderBy("o.createdAt", "desc");
+    let dataQuery = knex(this.tableName + " as o").leftJoin(
+      this.itemsTableName + " as i",
+      "i.orderId",
+      "o.id",
+    );
+    dataQuery = this.applyListScope(knex, dataQuery, scope);
 
-    return rows.map((r) => ({
+    const [rows, totalCount] = await Promise.all([
+      dataQuery
+        .groupBy("o.id")
+        .select("o.*")
+        .count("i.id as itemCount")
+        .orderBy(sort.column, sort.order)
+        .limit(limit)
+        .offset(offset),
+      this.countList(knex, scope),
+    ]);
+
+    const data = rows.map((r) => ({
       ...this.mapToInterface(r),
       itemCount: parseInt(r.itemCount as string) || 0,
     }));
+
+    return {
+      success: true,
+      data,
+      page,
+      limit,
+      count: data.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+    };
   }
 
-  // Admin list: every order for a company, newest first, each with its item count
-  // and the buyer's email. Single query — LEFT JOIN items (aggregated to itemCount)
-  // + LEFT JOIN store_users for the email. No N+1. storeUserId may be null
+  // Admin list: every order for a company, paginated, each with its item count and
+  // the buyer's email. Single data query — LEFT JOIN items (aggregated to itemCount)
+  // + LEFT JOIN store_users for the email/search. No N+1. storeUserId may be null
   // (store user deleted -> SET NULL), so the join is LEFT and email may be null.
   // Only su.email is selected — passwordHash is never exposed.
   async getAllForCompany(
     companyId: number,
-  ): Promise<IStoreOrderWithItemCount[]> {
+    params: IStoreOrderListParams,
+  ): Promise<IDataPaginator<IStoreOrderWithItemCount>> {
     const knex = KnexManager.getConnection();
+    const { page, limit } = params;
+    const offset = (page - 1) * limit;
+    const scope = {
+      companyId,
+      status: params.status,
+      search: params.search,
+      joinStoreUsers: true,
+    };
+    const sort = this.resolveSort(params);
 
-    const rows = await knex(this.tableName + " as o")
+    let dataQuery = knex(this.tableName + " as o")
       .leftJoin(this.itemsTableName + " as i", "i.orderId", "o.id")
-      .leftJoin("store_users as su", "su.id", "o.storeUserId")
-      .where("o.companyId", companyId)
-      .groupBy("o.id", "su.email")
-      .select("o.*", "su.email as storeUserEmail")
-      .count("i.id as itemCount")
-      .orderBy("o.createdAt", "desc");
+      .leftJoin("store_users as su", "su.id", "o.storeUserId");
+    dataQuery = this.applyListScope(knex, dataQuery, scope);
 
-    return rows.map((r) => ({
+    const [rows, totalCount] = await Promise.all([
+      dataQuery
+        .groupBy("o.id", "su.email")
+        .select("o.*", "su.email as storeUserEmail")
+        .count("i.id as itemCount")
+        .orderBy(sort.column, sort.order)
+        .limit(limit)
+        .offset(offset),
+      this.countList(knex, scope),
+    ]);
+
+    const data = rows.map((r) => ({
       ...this.mapToInterface(r),
       itemCount: parseInt(r.itemCount as string) || 0,
       storeUserEmail: (r.storeUserEmail as string | null) ?? undefined,
     }));
+
+    return {
+      success: true,
+      data,
+      page,
+      limit,
+      count: data.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+    };
   }
 
   // Company-scoped status advance. One UPDATE, scoped by uuid AND companyId so a

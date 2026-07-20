@@ -9,9 +9,11 @@ import { UserDAO } from "../../dao/user/user.dao";
 import { StoreOrderCreateInputDTO } from "../../dto/input/storeOrder";
 import { getStoreOrderLimits } from "../../services/store/store-order-limits";
 import { EmailService } from "../../services/email.service";
+import { parseStoreOrderListParams } from "../../utils/storeOrderListParams";
 import {
   IStoreOrderItem,
   IStoreOrderWithItems,
+  StoreOrderStatus,
 } from "../../interfaces/store-order/store-order.interfaces";
 
 export class StoreOrderController {
@@ -166,6 +168,20 @@ export class StoreOrderController {
         );
       }
 
+      // Fail-soft buyer "order received" notification (status: pending). Separate
+      // try/catch so it can't affect the admin notification or the order create.
+      try {
+        const company = await this._companyDAO.getById(companyId);
+        await this._email.sendStoreOrderStatusEmail(storeUser.email, {
+          orderRef: (created.uuid ?? "").slice(0, 8),
+          orderUuid: created.uuid ?? "",
+          status: "pending",
+          companyName: company?.name ?? "",
+        });
+      } catch (emailError) {
+        console.error("Error sending store order status email:", emailError);
+      }
+
       res.status(201).json({ success: true, data: this.toOrderDTO(created) });
     } catch (err: any) {
       next(err);
@@ -174,7 +190,8 @@ export class StoreOrderController {
 
   /**
    * GET /api/store/orders — AUTHENTICATED. The store user's own orders, newest first.
-   * Returns a plain array of list-shaped items.
+   * Returns an IDataPaginator envelope (page/limit/count/totalCount/totalPages).
+   * Supports ?page&limit&status&search&sortBy&sortOrder via the shared list parser.
    */
   public async list(
     req: Request,
@@ -193,14 +210,22 @@ export class StoreOrderController {
         return;
       }
 
-      const orders = await this._orderDAO.getAllForStoreUser(
+      const parsed = parseStoreOrderListParams(req);
+      if (!parsed.ok) {
+        res.status(400).json({ success: false, message: parsed.error });
+        return;
+      }
+
+      const result = await this._orderDAO.getAllForStoreUser(
         storeUser.id,
         companyId,
+        parsed.params,
       );
 
+      // Keep the IDataPaginator envelope; map items to the customer list shape.
       res.status(200).json({
-        success: true,
-        data: orders.map((o) => ({
+        ...result,
+        data: result.data.map((o) => ({
           uuid: o.uuid,
           status: o.status,
           createdAt: o.createdAt,
@@ -249,6 +274,63 @@ export class StoreOrderController {
       }
 
       res.status(200).json({ success: true, data: this.toOrderDTO(order) });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/store/orders/:uuid/cancel — AUTHENTICATED.
+   * Customer-initiated cancel. Only the buyer who placed the order may cancel it,
+   * and only while it is still `pending`. Double scoping (company + ownership);
+   * any mismatch → 404 (never reveal existence). Reuses the DAO updateStatus method
+   * (DRY) to set status `cancelled`. No buyer email (the buyer initiated it).
+   */
+  public async cancel(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { uuid } = req.params;
+
+      const companyId = await this._companyDAO.getIdByUuid(
+        req.storeUser!.companyId,
+      );
+      const storeUser = await this._storeUserDAO.getByUuid(
+        req.storeUser!.storeUserId,
+      );
+      if (!companyId || !storeUser?.id) {
+        res.status(401).json({ success: false, message: "Unauthorized" });
+        return;
+      }
+
+      const order = await this._orderDAO.getByUuid(uuid, companyId);
+      // Not found OR not the caller's own order → 404 (never reveal existence).
+      if (!order || order.storeUserId !== storeUser.id) {
+        res.status(404).json({ success: false, message: "Order not found" });
+        return;
+      }
+
+      if (order.status !== "pending") {
+        res.status(409).json({
+          success: false,
+          message: "Only pending orders can be cancelled",
+        });
+        return;
+      }
+
+      const updated = await this._orderDAO.updateStatus(
+        uuid,
+        companyId,
+        "cancelled" as StoreOrderStatus,
+      );
+      if (!updated) {
+        res.status(404).json({ success: false, message: "Order not found" });
+        return;
+      }
+
+      res.status(200).json({ success: true, data: this.toOrderDTO(updated) });
     } catch (err: any) {
       next(err);
     }

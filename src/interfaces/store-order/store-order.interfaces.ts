@@ -1,8 +1,12 @@
 // Status union — validated/enforced in TS, no DB enum/CHECK.
-// Ordered lifecycle: pending → confirmed → in_production → shipped → delivered.
-// STORE_ORDER_STATUSES is the single source of truth for validation/iteration;
-// StoreOrderStatus is derived from it so the two can never drift.
-export const STORE_ORDER_STATUSES = [
+//
+// Single source of truth for the lifecycle. Two const tuples, one purpose each:
+//   - STORE_ORDER_FLOW: the LINEAR happy-path lifecycle, in order. Iterate THIS
+//     when you need the ordered steps (e.g. the frontend stepper).
+//   - STORE_ORDER_STATUSES: the FULL validation set = the linear flow PLUS the
+//     terminal `cancelled` branch. Use THIS for `.includes()` validation.
+// StoreOrderStatus is derived from STORE_ORDER_STATUSES so they can never drift.
+export const STORE_ORDER_FLOW = [
   "pending",
   "confirmed",
   "in_production",
@@ -10,7 +14,31 @@ export const STORE_ORDER_STATUSES = [
   "delivered",
 ] as const;
 
+export const STORE_ORDER_STATUSES = [...STORE_ORDER_FLOW, "cancelled"] as const; // all valid statuses
+
 export type StoreOrderStatus = (typeof STORE_ORDER_STATUSES)[number];
+
+// Admin-driven transitions: advance exactly one step along the linear flow, or
+// cancel while still pre-shipped. `delivered` and `cancelled` are terminal (no
+// outgoing transitions). This is the ONLY allow-list the server enforces for
+// admin status changes; the customer cancel path is gated separately (pending-only).
+export const STORE_ORDER_ADMIN_TRANSITIONS: Record<
+  StoreOrderStatus,
+  StoreOrderStatus[]
+> = {
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["in_production", "cancelled"],
+  in_production: ["shipped", "cancelled"],
+  shipped: ["delivered"],
+  delivered: [],
+  cancelled: [],
+};
+
+// True iff an admin may move an order from `from` to `to`. Unknown statuses → false.
+export const canAdminTransition = (
+  from: StoreOrderStatus,
+  to: StoreOrderStatus,
+): boolean => STORE_ORDER_ADMIN_TRANSITIONS[from]?.includes(to) ?? false;
 
 export type StoreOrderItemType = "box" | "roll";
 

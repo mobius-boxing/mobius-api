@@ -79,5 +79,12 @@ export class StoreRouter {
       apiRateLimiter,
       this.orders.getOne.bind(this.orders),
     );
+    this.router.post(
+      "/orders/:uuid/cancel",
+      authenticateStore,
+      validateUUID(),
+      apiRateLimiter,
+      this.orders.cancel.bind(this.orders),
+    );
   }
 }
