@@ -11,6 +11,8 @@ import {
   BaseCrudController,
   BaseCrudOptions,
 } from "../base/base-crud.controller";
+import { getIdByUuid } from "../../utils/foreignKeyResolver";
+import { ICorrugationLayer } from "../../interfaces/corrugation/corrugation.interfaces";
 
 export class CorrugationController extends BaseCrudController<ICorrugation> {
   protected dao = new CorrugationDAO();
@@ -19,6 +21,56 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
   };
 
   private _corrugationClassDAO = new CorrugationClassDAO();
+
+  /**
+   * Resolve a Capas payload: sort by the client-given position, then resolve
+   * each layer's lookup UUIDs to internal ids. Returns null (after writing the
+   * 400) when a referenced lookup doesn't exist. Positions are renumbered 1..N
+   * by the DAO from array order — Procusto grid semantics.
+   */
+  private async resolveLayers(
+    layers:
+      | Array<{ position?: number; isLiner?: boolean; paperClassUuid?: string; fluteTypeUuid?: string }>
+      | undefined,
+    res: Response,
+  ): Promise<ICorrugationLayer[] | null | undefined> {
+    if (layers === undefined) return undefined;
+
+    const ordered = [...layers].sort(
+      (a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER),
+    );
+
+    const resolved: ICorrugationLayer[] = [];
+    for (const [index, layer] of ordered.entries()) {
+      const paperClassId = layer.paperClassUuid
+        ? await getIdByUuid(layer.paperClassUuid, "paper_classes")
+        : null;
+      if (layer.paperClassUuid && !paperClassId) {
+        res.status(400).json({
+          success: false,
+          message: `Layer ${index + 1}: paper class not found`,
+        });
+        return null;
+      }
+      const fluteTypeId = layer.fluteTypeUuid
+        ? await getIdByUuid(layer.fluteTypeUuid, "flute_types")
+        : null;
+      if (layer.fluteTypeUuid && !fluteTypeId) {
+        res.status(400).json({
+          success: false,
+          message: `Layer ${index + 1}: flute type not found`,
+        });
+        return null;
+      }
+      resolved.push({
+        position: index + 1,
+        isLiner: layer.isLiner ?? false,
+        paperClassId,
+        fluteTypeId,
+      });
+    }
+    return resolved;
+  }
 
   protected async buildCreateDTO(
     req: Request,
@@ -71,6 +123,9 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
       corrugationClassId = classId;
     }
 
+    const layers = await this.resolveLayers(inputDTO.layers, res);
+    if (layers === null) return null;
+
     return {
       code: inputDTO.code,
       description: inputDTO.description,
@@ -78,6 +133,7 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
       suggestedWidth: inputDTO.suggestedWidth,
       caliper: inputDTO.caliper,
       corrugationClassId,
+      ...(layers !== undefined ? { layers } : {}),
     };
   }
 
@@ -89,6 +145,11 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
   ): Promise<any | null> {
     const updateData: any = { ...inputDTO };
     delete updateData.corrugationClassUuid;
+    delete updateData.layers;
+
+    const layers = await this.resolveLayers(inputDTO.layers, res);
+    if (layers === null) return null;
+    if (layers !== undefined) updateData.layers = layers;
 
     if (inputDTO.corrugationClassUuid) {
       const corrugationClassId = await this._corrugationClassDAO.getIdByUuid(
