@@ -93,7 +93,7 @@ describe('PaperTypeDAO', () => {
 
       const result = await dao.getByUuid(testData.uuid);
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('paper_types.uuid', testData.uuid);
       expect(result?.code).toBe(testData.code);
     });
 

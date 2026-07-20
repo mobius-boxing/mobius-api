@@ -23,6 +23,7 @@ import {
 // Store reference to mock functions
 const mockCompanyDAO = {
   getAll: jest.fn(),
+  getAllWithFilters: jest.fn(),
   getByUuid: jest.fn(),
   create: jest.fn(),
   update: jest.fn(),
@@ -42,6 +43,7 @@ jest.mock('../../../dao/company/company.dao', () => {
     CompanyDAO: function() {
       return {
         getAll: (...args) => mf.getAll(...args),
+        getAllWithFilters: (...args) => mf.getAllWithFilters(...args),
         getByUuid: (...args) => mf.getByUuid(...args),
         create: (...args) => mf.create(...args),
         update: (...args) => mf.update(...args),
@@ -84,6 +86,7 @@ describe('CompaniesController', () => {
 
     // Reset all mock functions
     mockCompanyDAO.getAll.mockReset();
+    mockCompanyDAO.getAllWithFilters.mockReset();
     mockCompanyDAO.getByUuid.mockReset();
     mockCompanyDAO.create.mockReset();
     mockCompanyDAO.update.mockReset();
@@ -106,20 +109,20 @@ describe('CompaniesController', () => {
       ];
       const paginatedResult = createPaginatedResponse(testData, 1, 10, 2);
 
-      mockCompanyDAO.getAll.mockResolvedValue(paginatedResult);
+      mockCompanyDAO.getAllWithFilters.mockResolvedValue(paginatedResult);
 
       const mockReq = createPaginatedRequest(1, 10) as Request;
 
       await controller.getAll(mockReq, mockRes as Response, mockNext);
 
-      expect(mockCompanyDAO.getAll).toHaveBeenCalledWith(1, 10);
+      expect(mockCompanyDAO.getAllWithFilters).toHaveBeenCalledWith(mockReq);
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith(paginatedResult);
     });
 
     it('should call next with error on DAO failure', async () => {
       const error = new Error('Database error');
-      mockCompanyDAO.getAll.mockRejectedValue(error);
+      mockCompanyDAO.getAllWithFilters.mockRejectedValue(error);
 
       const mockReq = createPaginatedRequest() as Request;
 

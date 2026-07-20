@@ -80,11 +80,11 @@ describe('CustomerDAO', () => {
     });
 
     it('should stringify JSON fields on insert', async () => {
+      // deliveryLocations/deliveryDays moved to real tables (20260720000008);
+      // contacts is the only remaining JSON column.
       const contacts = [{ name: 'John', email: 'john@test.com' }];
-      const deliveryLocations = [{ address: '123 Main St' }];
-      const deliveryDays = ['Monday', 'Wednesday'];
 
-      const testData = createTestCustomer({ contacts, deliveryLocations, deliveryDays });
+      const testData = createTestCustomer({ contacts });
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
       await dao.create({
@@ -92,15 +92,16 @@ describe('CustomerDAO', () => {
         companyId: testData.companyId,
         name: testData.name,
         contacts,
-        deliveryLocations,
-        deliveryDays,
       } as any);
 
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           contacts: JSON.stringify(contacts),
-          deliveryLocations: JSON.stringify(deliveryLocations),
-          deliveryDays: JSON.stringify(deliveryDays),
+        })
+      );
+      expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          deliveryLocations: expect.anything(),
         })
       );
     });
@@ -380,13 +381,9 @@ describe('CustomerDAO', () => {
   describe('JSON field parsing', () => {
     it('should parse JSON string fields from database', async () => {
       const contacts = [{ name: 'Contact 1' }];
-      const deliveryLocations = [{ address: 'Location 1' }];
-      const deliveryDays = ['Monday'];
 
       const testData = createTestCustomer({
         contacts: JSON.stringify(contacts),
-        deliveryLocations: JSON.stringify(deliveryLocations),
-        deliveryDays: JSON.stringify(deliveryDays),
       });
 
       mockQueryBuilder.first.mockResolvedValue(testData);
@@ -394,8 +391,6 @@ describe('CustomerDAO', () => {
       const result = await dao.getById(testData.id);
 
       expect(Array.isArray(result?.contacts)).toBe(true);
-      expect(Array.isArray(result?.deliveryLocations)).toBe(true);
-      expect(Array.isArray(result?.deliveryDays)).toBe(true);
     });
 
     it('should handle already parsed JSON fields', async () => {
@@ -412,8 +407,6 @@ describe('CustomerDAO', () => {
     it('should handle null JSON fields', async () => {
       const testData = createTestCustomer({
         contacts: null,
-        deliveryLocations: null,
-        deliveryDays: null,
       });
 
       mockQueryBuilder.first.mockResolvedValue(testData);
@@ -421,8 +414,6 @@ describe('CustomerDAO', () => {
       const result = await dao.getById(testData.id);
 
       expect(result?.contacts).toEqual([]);
-      expect(result?.deliveryLocations).toEqual([]);
-      expect(result?.deliveryDays).toEqual([]);
     });
   });
 

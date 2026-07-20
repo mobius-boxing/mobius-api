@@ -303,7 +303,9 @@ describe('ProductDAO', () => {
 
       const result = await dao.getById(testData.id);
 
-      expect(result?.customerId).toBeNull();
+      // The mapper omits numeric FK ids from the public surface when null
+      // (uuid-only API); undefined is the mapped value for a null customerId.
+      expect(result?.customerId).toBeUndefined();
     });
 
     it('should handle empty code', async () => {

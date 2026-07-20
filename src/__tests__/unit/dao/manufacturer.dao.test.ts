@@ -93,7 +93,7 @@ describe('ManufacturerDAO', () => {
 
       const result = await dao.getByUuid(testData.uuid);
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('manufacturers.uuid', testData.uuid);
       expect(result?.name).toBe(testData.name);
     });
 
@@ -113,8 +113,8 @@ describe('ManufacturerDAO', () => {
 
       const result = await dao.getIdByUuid(testData.uuid);
 
-      expect(mockQueryBuilder.select).toHaveBeenCalledWith('id');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith('manufacturers.id');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('manufacturers.uuid', testData.uuid);
       expect(result).toBe(testData.id);
     });
 

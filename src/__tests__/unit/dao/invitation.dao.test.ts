@@ -59,17 +59,26 @@ describe('InvitationDAO', () => {
         isUsed: testData.isUsed,
       } as any);
 
+      const crypto = require('crypto');
+      const expectedHash = crypto
+        .createHash('sha256')
+        .update(testData.token)
+        .digest('hex');
+
       expect(mockKnex).toHaveBeenCalledWith('invitations');
+      // SECURITY (M5): the stored token is the SHA-256 hash, not the raw value.
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           uuid: testData.uuid,
           email: testData.email,
-          token: testData.token,
+          token: expectedHash,
           role: testData.role,
         })
       );
       expect(result.email).toBe(testData.email);
       expect(result.uuid).toBe(testData.uuid);
+      // SECURITY (C4): create returns the token-less shape.
+      expect(result.token).toBeUndefined();
     });
 
     it('should set default value for isUsed to false', async () => {
@@ -122,8 +131,14 @@ describe('InvitationDAO', () => {
 
       const result = await dao.getByUuid(testData.uuid);
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      // SECURITY (C4): column is now table-qualified to support the optional company join.
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        'invitations.uuid',
+        testData.uuid,
+      );
       expect(result?.email).toBe(testData.email);
+      // SECURITY (C4): token must never be returned in single-record responses.
+      expect(result?.token).toBeUndefined();
     });
 
     it('should return null when invitation not found by UUID', async () => {
@@ -221,7 +236,10 @@ describe('InvitationDAO', () => {
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('created_at', 'desc');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        'invitations.created_at',
+        'desc',
+      );
     });
 
     it('should calculate correct pagination', async () => {
@@ -238,15 +256,25 @@ describe('InvitationDAO', () => {
   });
 
   describe('getByToken', () => {
-    it('should return invitation by token', async () => {
+    it('should look up by the SHA-256 hash of the raw token', async () => {
+      const crypto = require('crypto');
       const testData = createTestInvitation();
-      mockQueryBuilder.first.mockResolvedValue(testData);
+      const expectedHash = crypto
+        .createHash('sha256')
+        .update(testData.token)
+        .digest('hex');
+      // The stored row carries the hash, not the raw token.
+      mockQueryBuilder.first.mockResolvedValue({
+        ...testData,
+        token: expectedHash,
+      });
 
       const result = await dao.getByToken(testData.token);
 
       expect(mockKnex).toHaveBeenCalledWith('invitations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('token', testData.token);
-      expect(result?.token).toBe(testData.token);
+      // SECURITY (M5): lookup is by hash of the raw token, never the raw token.
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('token', expectedHash);
+      expect(result?.email).toBe(testData.email);
     });
 
     it('should return null when token not found', async () => {
@@ -259,7 +287,7 @@ describe('InvitationDAO', () => {
   });
 
   describe('getActiveInvitations', () => {
-    it('should return active invitations for a company', async () => {
+    it('should return active invitations (token stripped)', async () => {
       const testData = [
         createTestInvitation({ companyId: 1, isUsed: false }),
         createTestInvitation({ companyId: 1, isUsed: false }),
@@ -267,29 +295,40 @@ describe('InvitationDAO', () => {
 
       mockQueryBuilder.orderBy.mockResolvedValue(testData);
 
-      const result = await dao.getActiveInvitations(1);
+      // SECURITY (C4): now scoped by company UUID (or undefined for all).
+      const result = await dao.getActiveInvitations();
 
       expect(mockKnex).toHaveBeenCalledWith('invitations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('companyId', 1);
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('isUsed', false);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        'invitations.isUsed',
+        false,
+      );
       expect(result).toHaveLength(2);
+      // SECURITY (C4): token stripped from active-list responses.
+      expect(result.every((i: any) => i.token === undefined)).toBe(true);
     });
 
     it('should filter out used invitations', async () => {
       mockQueryBuilder.orderBy.mockResolvedValue([]);
 
-      const result = await dao.getActiveInvitations(1);
+      const result = await dao.getActiveInvitations();
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('isUsed', false);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        'invitations.isUsed',
+        false,
+      );
       expect(result).toHaveLength(0);
     });
 
     it('should order by created_at descending', async () => {
       mockQueryBuilder.orderBy.mockResolvedValue([]);
 
-      await dao.getActiveInvitations(1);
+      await dao.getActiveInvitations();
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('created_at', 'desc');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        'invitations.created_at',
+        'desc',
+      );
     });
   });
 

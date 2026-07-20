@@ -110,7 +110,7 @@ describe('CorrugationClassDAO', () => {
       const result = await dao.getByUuid(testData.uuid);
 
       expect(mockKnex).toHaveBeenCalledWith('corrugation_classes');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('corrugation_classes.uuid', testData.uuid);
 
       // SECURITY: Verify no numeric ID in response
       expect(result).not.toHaveProperty('id');
@@ -135,8 +135,8 @@ describe('CorrugationClassDAO', () => {
       const result = await dao.getIdByUuid(testData.uuid);
 
       expect(mockKnex).toHaveBeenCalledWith('corrugation_classes');
-      expect(mockQueryBuilder.select).toHaveBeenCalledWith('id');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith('corrugation_classes.id');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('corrugation_classes.uuid', testData.uuid);
       expect(result).toBe(testData.id);
     });
 

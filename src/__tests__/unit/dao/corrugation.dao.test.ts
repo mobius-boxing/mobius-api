@@ -34,9 +34,26 @@ describe('CorrugationDAO', () => {
 
     // Create fresh mocks for each test
     mockQueryBuilder = createMockQueryBuilder();
-    mockKnex = jest.fn().mockReturnValue(mockQueryBuilder);
+
+    // The DAO now loads/writes the corrugation_layers child table: reads await
+    // the builder directly (needs a real thenable) and writes go through
+    // knex.transaction(cb). Route the layers table to its own resolving
+    // builder; everything else keeps the shared chainable mock.
+    const layersQueryBuilder: any = createMockQueryBuilder();
+    layersQueryBuilder.insert = jest.fn().mockResolvedValue([]);
+    layersQueryBuilder.delete = jest.fn().mockResolvedValue(0);
+    layersQueryBuilder.then = jest.fn((resolve: any, reject: any) =>
+      Promise.resolve([]).then(resolve, reject)
+    );
+
+    mockKnex = jest.fn((table: string) =>
+      typeof table === 'string' && table.startsWith('corrugation_layers')
+        ? layersQueryBuilder
+        : mockQueryBuilder
+    );
     (mockKnex as any).fn = { now: jest.fn().mockReturnValue(new Date().toISOString()) };
     (mockKnex as any).raw = jest.fn().mockReturnValue('');
+    (mockKnex as any).transaction = jest.fn(async (cb: any) => cb(mockKnex));
 
     dao = new CorrugationDAO();
   });
@@ -147,8 +164,8 @@ describe('CorrugationDAO', () => {
       const result = await dao.getIdByUuid(testData.uuid);
 
       expect(mockKnex).toHaveBeenCalledWith('corrugations');
-      expect(mockQueryBuilder.select).toHaveBeenCalledWith('id');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith('corrugations.id');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('corrugations.uuid', testData.uuid);
       expect(result).toBe(testData.id);
     });
 

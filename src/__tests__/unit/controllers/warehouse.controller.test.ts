@@ -35,6 +35,13 @@ jest.mock('uuid', () => ({
 }));
 
 // Mock the WarehouseDAO module
+// SECURITY (C2): warehouse create resolves the caller's company via CompanyDAO.
+jest.mock('../../../dao/company/company.dao', () => ({
+  CompanyDAO: function () {
+    return { getIdByUuid: jest.fn().mockResolvedValue(1) };
+  },
+}));
+
 jest.mock('../../../dao/warehouse/warehouse.dao', () => {
   const { mockWarehouseDAO: mf } = require('./warehouse.controller.test');
   return {
@@ -135,7 +142,7 @@ describe('WarehouseController', () => {
 
       await controller.getByUuid(mockReq, mockRes as Response, mockNext);
 
-      expect(mockWarehouseDAO.getByUuid).toHaveBeenCalledWith(testData.uuid);
+      expect(mockWarehouseDAO.getByUuid).toHaveBeenCalledWith(testData.uuid, undefined);
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
@@ -175,7 +182,9 @@ describe('WarehouseController', () => {
 
       mockWarehouseDAO.create.mockResolvedValue(createdData);
 
-      const mockReq = createBodyRequest(inputData) as Request;
+      const mockReq = createBodyRequest(inputData, {
+        user: { role: 'admin', companyId: 'company-uuid' },
+      } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -192,7 +201,9 @@ describe('WarehouseController', () => {
 
     it('should call next with error on validation failure', async () => {
       const invalidData = { name: '', gridRows: 10, gridCols: 10 };
-      const mockReq = createBodyRequest(invalidData) as Request;
+      const mockReq = createBodyRequest(invalidData, {
+        user: { role: 'admin', companyId: 'company-uuid' },
+      } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -203,7 +214,9 @@ describe('WarehouseController', () => {
       const error = new Error('Database error');
       mockWarehouseDAO.create.mockRejectedValue(error);
 
-      const mockReq = createBodyRequest({ name: 'New Warehouse' }) as Request;
+      const mockReq = createBodyRequest({ name: 'New Warehouse' }, {
+        user: { role: 'admin', companyId: 'company-uuid' },
+      } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -227,7 +240,7 @@ describe('WarehouseController', () => {
 
       await controller.update(mockReq, mockRes as Response, mockNext);
 
-      expect(mockWarehouseDAO.getByUuid).toHaveBeenCalledWith('existing-uuid');
+      expect(mockWarehouseDAO.getByUuid).toHaveBeenCalledWith('existing-uuid', undefined);
       expect(mockWarehouseDAO.update).toHaveBeenCalledWith(1, expect.any(Object));
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });

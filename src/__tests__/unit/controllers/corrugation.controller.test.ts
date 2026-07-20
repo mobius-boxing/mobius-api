@@ -24,6 +24,7 @@ import {
 // Store reference to mock functions for CorrugationDAO
 const mockCorrugationDAO = {
   getAll: jest.fn(),
+  getAllWithFilters: jest.fn(),
   getByUuid: jest.fn(),
   getIdByUuid: jest.fn(),
   create: jest.fn(),
@@ -48,6 +49,7 @@ jest.mock('../../../dao/corrugation/corrugation.dao', () => {
     CorrugationDAO: function() {
       return {
         getAll: (...args) => mf.getAll(...args),
+        getAllWithFilters: (...args) => mf.getAllWithFilters(...args),
         getByUuid: (...args) => mf.getByUuid(...args),
         getIdByUuid: (...args) => mf.getIdByUuid(...args),
         create: (...args) => mf.create(...args),
@@ -102,6 +104,7 @@ describe('CorrugationController', () => {
 
     // Reset all mock functions
     mockCorrugationDAO.getAll.mockReset();
+    mockCorrugationDAO.getAllWithFilters.mockReset();
     mockCorrugationDAO.getByUuid.mockReset();
     mockCorrugationDAO.getIdByUuid.mockReset();
     mockCorrugationDAO.create.mockReset();
@@ -125,20 +128,20 @@ describe('CorrugationController', () => {
       ];
       const paginatedResult = createPaginatedResponse(testData, 1, 10, 2);
 
-      mockCorrugationDAO.getAll.mockResolvedValue(paginatedResult);
+      mockCorrugationDAO.getAllWithFilters.mockResolvedValue(paginatedResult);
 
       const mockReq = createPaginatedRequest(1, 10) as Request;
 
       await controller.getAll(mockReq, mockRes as Response, mockNext);
 
-      expect(mockCorrugationDAO.getAll).toHaveBeenCalledWith(1, 10);
+      expect(mockCorrugationDAO.getAllWithFilters).toHaveBeenCalledWith(mockReq);
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith(paginatedResult);
     });
 
     it('should call next with error on DAO failure', async () => {
       const error = new Error('Database error');
-      mockCorrugationDAO.getAll.mockRejectedValue(error);
+      mockCorrugationDAO.getAllWithFilters.mockRejectedValue(error);
 
       const mockReq = createPaginatedRequest() as Request;
 
@@ -157,7 +160,7 @@ describe('CorrugationController', () => {
 
       await controller.getByUuid(mockReq, mockRes as Response, mockNext);
 
-      expect(mockCorrugationDAO.getByUuid).toHaveBeenCalledWith(testData.uuid);
+      expect(mockCorrugationDAO.getByUuid).toHaveBeenCalledWith(testData.uuid, undefined);
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
@@ -284,7 +287,7 @@ describe('CorrugationController', () => {
 
       await controller.update(mockReq, mockRes as Response, mockNext);
 
-      expect(mockCorrugationDAO.getIdByUuid).toHaveBeenCalledWith(testUuid);
+      expect(mockCorrugationDAO.getIdByUuid).toHaveBeenCalledWith(testUuid, undefined);
       expect(mockCorrugationDAO.update).toHaveBeenCalledWith(existingId, expect.any(Object));
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
@@ -364,7 +367,7 @@ describe('CorrugationController', () => {
 
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
-      expect(mockCorrugationDAO.getIdByUuid).toHaveBeenCalledWith(testUuid);
+      expect(mockCorrugationDAO.getIdByUuid).toHaveBeenCalledWith(testUuid, undefined);
       expect(mockCorrugationDAO.delete).toHaveBeenCalledWith(existingId);
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
