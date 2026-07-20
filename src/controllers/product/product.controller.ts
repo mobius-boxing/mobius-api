@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { AuditService } from "../../services/audit.service";
 import { IBaseController } from "../../types.d";
 import {
   paginationHelper,
@@ -20,6 +21,13 @@ import {
 import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
 
 export class ProductController implements IBaseController {
+  private _audit = new AuditService();
+
+  /** Best-effort audit hook (audit_logs) — fire-and-forget. */
+  private recordAudit(req: any, op: "Alta" | "Baja" | "Modificacion", entity: any): void {
+    void this._audit.record(req, "Product", op, entity ?? null);
+  }
+
   private _productDAO: ProductDAO = new ProductDAO();
 
   /**
@@ -190,6 +198,8 @@ export class ProductController implements IBaseController {
 
       const result = await this._productDAO.create(dataToCreate);
 
+      this.recordAudit(req, "Alta", result);
+
       res.status(201).json({
         success: true,
         data: result,
@@ -270,6 +280,8 @@ export class ProductController implements IBaseController {
 
       const result = await this._productDAO.update(existingId, inputDTO);
 
+      this.recordAudit(req, "Modificacion", result);
+
       res.status(200).json({
         success: true,
         data: result,
@@ -300,6 +312,8 @@ export class ProductController implements IBaseController {
       }
 
       const result = await this._productDAO.delete(existingId);
+
+      if (result) this.recordAudit(req, "Baja", { uuid: req.params.uuid });
 
       if (result) {
         res.status(200).json({

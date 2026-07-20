@@ -1,4 +1,5 @@
 import { Request } from "express";
+import { getIdByUuid } from "../../utils/foreignKeyResolver";
 import KnexManager from "../../database/KnexConnection";
 import { IDataPaginator } from "../../database/d.types";
 import { IRole } from "../../interfaces/role/role.interfaces";
@@ -147,8 +148,6 @@ export class RoleDAO {
   }
 
   async resolveCompanyId(companyUuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const row = await knex("companies").where("uuid", companyUuid).select("id").first();
-    return row?.id ?? null;
+    return getIdByUuid(companyUuid, "companies");
   }
 }

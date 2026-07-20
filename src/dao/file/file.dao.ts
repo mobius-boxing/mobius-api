@@ -1,4 +1,5 @@
 import { Request } from "express";
+import { getIdByUuid } from "../../utils/foreignKeyResolver";
 import KnexManager from "../../database/KnexConnection";
 import { IDataPaginator } from "../../database/d.types";
 import { IFile } from "../../interfaces/file/file.interfaces";
@@ -107,14 +108,10 @@ export class FileDAO {
   }
 
   async resolveCompanyId(companyUuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const row = await knex("companies").where("uuid", companyUuid).select("id").first();
-    return row?.id ?? null;
+    return getIdByUuid(companyUuid, "companies");
   }
 
   async resolveUserId(userUuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const row = await knex("users").where("uuid", userUuid).select("id").first();
-    return row?.id ?? null;
+    return getIdByUuid(userUuid, "users");
   }
 }

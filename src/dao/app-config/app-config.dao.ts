@@ -1,4 +1,5 @@
 import KnexManager from "../../database/KnexConnection";
+import { getIdByUuid } from "../../utils/foreignKeyResolver";
 import { IAppConfig } from "../../interfaces/app-config/app-config.interfaces";
 
 /**
@@ -49,11 +50,6 @@ export class AppConfigDAO {
 
   /** Resolve a company UUID (as carried by the JWT) to its numeric id. */
   async resolveCompanyId(companyUuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const row = await knex("companies")
-      .where("uuid", companyUuid)
-      .select("id")
-      .first();
-    return row?.id ?? null;
+    return getIdByUuid(companyUuid, "companies");
   }
 }

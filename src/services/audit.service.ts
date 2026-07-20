@@ -1,4 +1,5 @@
 import { Request } from "express";
+import { getIdByUuid } from "../utils/foreignKeyResolver";
 import KnexManager from "../database/KnexConnection";
 import { AuditLogDAO } from "../dao/audit-log/audit-log.dao";
 import {
@@ -58,9 +59,7 @@ export class AuditService {
 
   private async resolveUserId(userUuid: string): Promise<number | null> {
     try {
-      const knex = KnexManager.getConnection();
-      const row = await knex("users").where("uuid", userUuid).select("id").first();
-      return row?.id ?? null;
+      return await getIdByUuid(userUuid, "users");
     } catch {
       return null;
     }
@@ -78,12 +77,7 @@ export class AuditService {
     if (typeof own === "number") return own;
     if (!companyUuid) return null;
     try {
-      const knex = KnexManager.getConnection();
-      const row = await knex("companies")
-        .where("uuid", companyUuid)
-        .select("id")
-        .first();
-      return row?.id ?? null;
+      return await getIdByUuid(companyUuid, "companies");
     } catch {
       return null;
     }
