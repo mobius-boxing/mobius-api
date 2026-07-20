@@ -106,10 +106,10 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
     companyUuid?: string,
   ): Promise<IConsumableSupply | null> {
     const knex = KnexManager.getConnection();
-    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    const query = this.buildJoinQuery(knex).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
-    const record = await query.select(`${this.tableName}.*`).first();
-    return record ? this.mapToInterface(record) : null;
+    const record = await query.first();
+    return record ? this.mapWithRelations(record) : null;
   }
 
   async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
@@ -232,11 +232,13 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
         `${this.tableName}.*`,
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
-        knex.raw('to_jsonb(consumable_types.*) as "consumableType"')
+        knex.raw('to_jsonb(consumable_types.*) as "consumableType"'),
+        knex.raw("to_jsonb(colors.*) as color")
       )
       .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
       .leftJoin("manufacturers", `${this.tableName}.manufacturerId`, "manufacturers.id")
-      .leftJoin("consumable_types", `${this.tableName}.consumableTypeId`, "consumable_types.id");
+      .leftJoin("consumable_types", `${this.tableName}.consumableTypeId`, "consumable_types.id")
+      .leftJoin("colors", `${this.tableName}.colorId`, "colors.id");
   }
 
   private mapToInterface(record: any): IConsumableSupply {
@@ -275,6 +277,10 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
     if (record.consumableType) {
       const { id, ...consumableTypeWithoutId } = record.consumableType;
       mapped.consumableType = consumableTypeWithoutId;
+    }
+    if (record.color) {
+      const { id, ...colorWithoutId } = record.color;
+      mapped.color = colorWithoutId;
     }
 
     return mapped;

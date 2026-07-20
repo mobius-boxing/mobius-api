@@ -5,10 +5,10 @@ import { EmailTokenDAO } from "../../dao/email-token/email-token.dao";
 import { CompanyModuleDAO } from "../../dao/company-module/company-module.dao";
 import { IUser } from "../../interfaces/user/user.interfaces";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
+import { getAllowedOrigins } from "../../common/config/origins/origins.config";
 import {
   LoginInputDTO,
   RegisterInputDTO,
@@ -17,6 +17,9 @@ import {
   PasswordResetDTO,
 } from "../../dto/input/auth";
 import { EmailService } from "../../services/email.service";
+import { generateToken } from "../../middlewares/auth.middleware";
+import { validatePassword, BCRYPT_COST } from "../../utils/passwordPolicy";
+import { hashToken } from "../../utils/tokenHash";
 
 export class AuthController {
   private _userDAO: UserDAO = new UserDAO();
@@ -76,7 +79,17 @@ export class AuthController {
         return;
       }
 
-      const hashedPassword = await bcrypt.hash(inputDTO.password, 10);
+      // SECURITY (M4): enforce password policy + raised bcrypt cost.
+      const policy = validatePassword(inputDTO.password);
+      if (!policy.valid) {
+        res.status(400).json({
+          success: false,
+          message: policy.message,
+        });
+        return;
+      }
+
+      const hashedPassword = await bcrypt.hash(inputDTO.password, BCRYPT_COST);
 
       const userToCreate: IUser = {
         email: inputDTO.email,
@@ -174,19 +187,27 @@ export class AuthController {
           )
         : [];
 
-      const jwtSecret = process.env.JWT_SECRET || "";
-      const jwtExpire = process.env.JWT_EXPIRE || "24h";
-      const token = jwt.sign(
-        {
-          userId: userWithCompany.uuid,
-          email: userWithCompany.email,
-          role: userWithCompany.role,
-          companyId: userWithCompany.company?.uuid,
-          modules: enabledModules,
-        },
-        jwtSecret,
-        { expiresIn: jwtExpire as string } as jwt.SignOptions,
-      );
+      // SECURITY (H1): generateToken fails closed if JWT_SECRET is unset (no `|| ""` fallback).
+      const token = generateToken({
+        id: userWithCompany.uuid,
+        email: userWithCompany.email,
+        role: userWithCompany.role,
+        companyId: userWithCompany.company?.uuid,
+        modules: enabledModules,
+      });
+
+      // RBAC permission codes — same enrichment as /me so usePermissions works
+      // immediately after login without a full-page reload. Fail-soft.
+      let permissions: string[] = [];
+      try {
+        const { RbacService } = await import("../../services/rbac.service");
+        permissions = await RbacService.permissionCodesForUserUuid(
+          userWithCompany.uuid!,
+        );
+      } catch (err) {
+        console.error("Failed to load permissions for login:", err);
+        permissions = [];
+      }
 
       // SECURITY: expose only the company UUID; never leak the internal numeric id to the client.
       const { company, ...userWithoutCompany } = userWithCompany;
@@ -195,6 +216,7 @@ export class AuthController {
         companyId: company?.uuid || undefined,
         companyName: company?.name || undefined,
         modules: enabledModules,
+        permissions,
       };
 
       res.status(200).json({
@@ -261,11 +283,20 @@ export class AuthController {
       // SECURITY: strip password hash before sending to client.
       const { password: _, ...userWithoutPassword } = user;
 
+      // Expose the company as a UUID (consistent with the login response); the raw numeric
+      // companyId is internal and is stripped from responses, so resolve the UUID here.
+      const withCompany = await this._userDAO.getUserByEmailWithCompany(
+        user.email,
+      );
+
       res.status(200).json({
         success: true,
         data: {
           ...userWithoutPassword,
+          companyId: withCompany?.company?.uuid,
+          companyName: withCompany?.company?.name,
           modules,
+          permissions,
         },
       });
     } catch (err: any) {
@@ -318,9 +349,24 @@ export class AuthController {
         return;
       }
 
-      const hashedPassword = await bcrypt.hash(inputDTO.newPassword, 10);
+      // SECURITY (M4): enforce password policy + raised bcrypt cost.
+      const policy = validatePassword(inputDTO.newPassword);
+      if (!policy.valid) {
+        res.status(400).json({
+          success: false,
+          message: policy.message,
+        });
+        return;
+      }
 
-      await this._userDAO.update(userId, { password: hashedPassword });
+      const hashedPassword = await bcrypt.hash(
+        inputDTO.newPassword,
+        BCRYPT_COST,
+      );
+
+      // BUGFIX: UserDAO.update expects the numeric id; passing the JWT UUID updated 0 rows
+      // (change-password silently no-op'd). Use the resolved numeric id.
+      await this._userDAO.update(user.id!, { password: hashedPassword });
 
       res.status(200).json({
         success: true,
@@ -385,7 +431,17 @@ export class AuthController {
         return;
       }
 
-      const hashedPassword = await bcrypt.hash(password, 10);
+      // SECURITY (M4): enforce password policy + raised bcrypt cost.
+      const policy = validatePassword(password);
+      if (!policy.valid) {
+        res.status(400).json({
+          success: false,
+          message: policy.message,
+        });
+        return;
+      }
+
+      const hashedPassword = await bcrypt.hash(password, BCRYPT_COST);
 
       const userToCreate: IUser = {
         uuid: uuidv4(),
@@ -420,19 +476,14 @@ export class AuthController {
           )
         : [];
 
-      const jwtSecret = process.env.JWT_SECRET || "";
-      const jwtExpire = process.env.JWT_EXPIRE || "24h";
-      const authToken = jwt.sign(
-        {
-          userId: userWithCompany?.uuid || user.uuid,
-          email: user.email,
-          role: user.role,
-          companyId: userWithCompany?.company?.uuid,
-          modules: enabledModules,
-        },
-        jwtSecret,
-        { expiresIn: jwtExpire as string } as jwt.SignOptions,
-      );
+      // SECURITY (H1): generateToken fails closed if JWT_SECRET is unset (no `|| ""` fallback).
+      const authToken = generateToken({
+        id: userWithCompany?.uuid || user.uuid,
+        email: user.email,
+        role: user.role,
+        companyId: userWithCompany?.company?.uuid,
+        modules: enabledModules,
+      });
 
       // SECURITY: expose only the company UUID; never leak the internal numeric id to the client.
       const { password: _, ...userWithoutPassword } = user;
@@ -495,6 +546,12 @@ export class AuthController {
         isUsed: false,
       });
 
+      // Return the reset link to the app that initiated the request (web app vs backoffice),
+      // but only when its Origin is in our allowlist — never trust an arbitrary Origin (open-redirect).
+      const origin = req.headers.origin;
+      const baseUrl =
+        origin && getAllowedOrigins().includes(origin) ? origin : undefined;
+
       // Tradeoff: token row is already committed; swallow email failures so we still return the
       // same generic 200 response regardless of email success (preserves email-enumeration safety).
       try {
@@ -502,6 +559,7 @@ export class AuthController {
           user.email,
           token,
           user.firstName,
+          baseUrl,
         );
       } catch (emailError) {
         console.error("Error sending password reset email:", emailError);
@@ -565,7 +623,20 @@ export class AuthController {
         return;
       }
 
-      const hashedPassword = await bcrypt.hash(inputDTO.newPassword, 10);
+      // SECURITY (M4): enforce password policy + raised bcrypt cost.
+      const policy = validatePassword(inputDTO.newPassword);
+      if (!policy.valid) {
+        res.status(400).json({
+          success: false,
+          message: policy.message,
+        });
+        return;
+      }
+
+      const hashedPassword = await bcrypt.hash(
+        inputDTO.newPassword,
+        BCRYPT_COST,
+      );
 
       await this._userDAO.update(emailToken.userId, {
         password: hashedPassword,

@@ -18,6 +18,7 @@ import {
 } from "../warehouseLocation/warehouseLocation.dao";
 import { v4 as uuidv4 } from "uuid";
 
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 // companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const WAREHOUSE_FILTERS: FilterConfigs = {
   name: {
@@ -110,19 +111,24 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     return warehouse ? this.mapToInterface(warehouse) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IWarehouse | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IWarehouse | null> {
     const knex = KnexManager.getConnection();
-    const warehouse = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    // warehouses link to companies via the snake_case `company_id` column.
+    applyCompanyUuidScope(query, this.tableName, companyUuid, "company_id");
+    const warehouse = await query.select(`${this.tableName}.*`).first();
 
     return warehouse ? this.mapToInterface(warehouse) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const warehouse = await knex(this.tableName)
-      .where("uuid", uuid)
-      .select("id")
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid, "company_id");
+    const warehouse = await query.select(`${this.tableName}.id`).first();
 
     return warehouse ? warehouse.id : null;
   }

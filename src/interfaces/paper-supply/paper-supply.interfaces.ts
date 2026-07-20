@@ -37,4 +37,5 @@ export interface IPaperSupply {
   supplier?: ISupplier;
   company?: ICompany;
   paperType?: IPaperType;
+  fscType?: { uuid: string; code?: string | null; description?: string | null } | null;
 }

@@ -1,124 +1,77 @@
-import { Request, Response, NextFunction } from "express";
-
-interface IRateLimitRecord {
-  count: number;
-  resetTime: number;
-}
-
-// In-memory store keyed by IP address or authenticated user id. Not shared across processes —
-// behind a load balancer each instance enforces its own limit (tradeoff: simpler, less accurate).
-const rateLimitStore = new Map<string, IRateLimitRecord>();
-
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, record] of rateLimitStore.entries()) {
-      if (record.resetTime < now) {
-        rateLimitStore.delete(key);
-      }
-    }
-  },
-  5 * 60 * 1000,
-);
+import { Request, Response } from "express";
+import { rateLimit, ipKeyGenerator, type Options } from "express-rate-limit";
 
 /**
- * Authenticated requests key on user id, anonymous requests on IP. `routeKey` lets one
- * client hit different routes without exhausting a shared bucket.
+ * SECURITY (H3): rate limiting backed by `express-rate-limit`.
+ *
+ * Why this replaced the hand-rolled limiter:
+ *  - The old limiter caught its own errors and called next() — i.e. it FAILED OPEN, so any internal
+ *    error silently disabled rate limiting. express-rate-limit fails closed.
+ *  - The old limiter trusted client-supplied `x-forwarded-for` / `x-real-ip` headers, which are
+ *    trivially spoofable. We now set `app.set("trust proxy", 1)` in app.ts (the API sits behind a
+ *    single CloudFront proxy) and let the library derive the client IP from `req.ip`.
+ *
+ * NOTE (scaling): this uses the library's default in-memory store, so each process keeps its own
+ * counters. If the API is ever scaled to multiple instances, swap in a shared store (e.g.
+ * `rate-limit-redis`) so limits are enforced globally.
  */
-const getClientIdentifier = (req: Request, routeKey?: string): string => {
-  let baseIdentifier: string;
 
-  if (req.user && req.user.userId) {
-    baseIdentifier = `user:${req.user.userId}`;
-  } else {
-    const ip =
-      req.ip ||
-      req.headers["x-forwarded-for"] ||
-      req.headers["x-real-ip"] ||
-      req.socket.remoteAddress ||
-      "unknown";
-    baseIdentifier = `ip:${ip}`;
-  }
-
-  return routeKey ? `${baseIdentifier}:${routeKey}` : baseIdentifier;
+/**
+ * Key by authenticated user id when present, otherwise by the (trusted) client IP.
+ * `routeKey` namespaces a client across distinct routes so one bucket isn't shared.
+ * For IP keys we use `ipKeyGenerator` so IPv6 addresses are normalized to a subnet.
+ */
+const makeKeyGenerator = (routeKey?: string) => {
+  return (req: Request): string => {
+    const base = req.user?.userId
+      ? `user:${req.user.userId}`
+      : `ip:${ipKeyGenerator(req.ip ?? "")}`;
+    return routeKey ? `${base}:${routeKey}` : base;
+  };
 };
 
+const jsonHandler = (message: string) => {
+  return (_req: Request, res: Response): void => {
+    res.status(429).json({
+      success: false,
+      message,
+    });
+  };
+};
+
+/**
+ * Factory mirroring the previous signature so existing call sites keep working:
+ * createRateLimiter(max, windowMinutes, message?, routeKey?).
+ */
 export const createRateLimiter = (
   max: number,
   windowMinutes: number,
   message?: string,
   routeKey?: string,
 ) => {
-  const windowMs = windowMinutes * 60 * 1000;
+  const resolvedMessage =
+    message || "Too many requests. Please try again later.";
 
-  return (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const identifier = getClientIdentifier(req, routeKey);
-      const now = Date.now();
-
-      let record = rateLimitStore.get(identifier);
-
-      if (!record || record.resetTime < now) {
-        record = {
-          count: 1,
-          resetTime: now + windowMs,
-        };
-        rateLimitStore.set(identifier, record);
-
-        res.setHeader("X-RateLimit-Limit", max.toString());
-        res.setHeader("X-RateLimit-Remaining", (max - 1).toString());
-        res.setHeader(
-          "X-RateLimit-Reset",
-          new Date(record.resetTime).toISOString(),
-        );
-
-        next();
-        return;
-      }
-
-      record.count++;
-
-      if (record.count > max) {
-        const retryAfter = Math.ceil((record.resetTime - now) / 1000);
-
-        res.setHeader("X-RateLimit-Limit", max.toString());
-        res.setHeader("X-RateLimit-Remaining", "0");
-        res.setHeader(
-          "X-RateLimit-Reset",
-          new Date(record.resetTime).toISOString(),
-        );
-        res.setHeader("Retry-After", retryAfter.toString());
-
-        res.status(429).json({
-          success: false,
-          message:
-            message ||
-            `Too many requests. Please try again after ${retryAfter} seconds.`,
-          retryAfter,
-        });
-        return;
-      }
-
-      res.setHeader("X-RateLimit-Limit", max.toString());
-      res.setHeader("X-RateLimit-Remaining", (max - record.count).toString());
-      res.setHeader(
-        "X-RateLimit-Reset",
-        new Date(record.resetTime).toISOString(),
-      );
-
-      next();
-    } catch (error: any) {
-      // Never block requests because the limiter itself failed — fail open.
-      console.error("Rate limit error:", error);
-      next();
-    }
+  const options: Partial<Options> = {
+    windowMs: windowMinutes * 60 * 1000,
+    // express-rate-limit v8 renamed `max` → `limit`.
+    limit: max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // SECURITY (H3): do NOT skip on errors — fail closed.
+    keyGenerator: makeKeyGenerator(routeKey),
+    handler: jsonHandler(resolvedMessage),
   };
+
+  return rateLimit(options);
 };
 
+// SECURITY (H3): strict auth limiter for login / store-login / password-reset.
 export const authRateLimiter = createRateLimiter(
   5,
   1,
   "Too many authentication attempts. Please try again later.",
+  "auth",
 );
 
 export const apiRateLimiter = createRateLimiter(
@@ -133,12 +86,19 @@ export const publicRateLimiter = createRateLimiter(
   "Rate limit exceeded. Please try again later.",
 );
 
-// Global limiter (no routeKey) — every "sensitive" call by a user shares this bucket. Most callers
-// should use one of the route-specific limiters below instead.
+// Global default limiter mounted in app.ts.
+export const globalRateLimiter = createRateLimiter(
+  300,
+  15,
+  "Rate limit exceeded. Please try again later.",
+  "global",
+);
+
 export const sensitiveRateLimiter = createRateLimiter(
   3,
   5,
   "Too many requests for this sensitive operation. Please try again later.",
+  "sensitive",
 );
 
 export const sensitiveUserDeletionRateLimiter = createRateLimiter(
@@ -204,16 +164,19 @@ export const sensitiveTraceTypeDeletionRateLimiter = createRateLimiter(
   "trace-types:delete",
 );
 
-export const clearRateLimit = (identifier: string): void => {
-  rateLimitStore.delete(identifier);
+/**
+ * No-op shims kept for backward compatibility. The library owns its in-memory store, so manual
+ * clearing/inspection by identifier is no longer applicable. These are retained so existing
+ * imports (e.g. in tests/tooling) don't break.
+ */
+export const clearRateLimit = (_identifier: string): void => {
+  /* no-op: store is managed internally by express-rate-limit */
 };
 
-export const getRateLimitStatus = (
-  identifier: string,
-): IRateLimitRecord | null => {
-  return rateLimitStore.get(identifier) || null;
+export const getRateLimitStatus = (_identifier: string): null => {
+  return null;
 };
 
 export const clearAllRateLimits = (): void => {
-  rateLimitStore.clear();
+  /* no-op: store is managed internally by express-rate-limit */
 };

@@ -3,10 +3,13 @@ import {
   invitationEmailTemplate,
   storeInvitationEmailTemplate,
   storeOrderNotificationEmailTemplate,
+  storeOrderStatusEmailTemplate,
+  STORE_ORDER_STATUS_LABELS,
   welcomeEmailTemplate,
   passwordResetEmailTemplate,
   emailVerificationTemplate,
 } from "../templates/email-templates";
+import { StoreOrderStatus } from "../interfaces/store-order/store-order.interfaces";
 
 export class EmailService {
   private isConfigured: boolean;
@@ -58,7 +61,10 @@ export class EmailService {
         );
         console.log(`✓ Email sent to ${to}: ${subject}`);
       } catch (error: any) {
-        console.error("✗ Error sending email via SES:", error?.message || error);
+        console.error(
+          "✗ Error sending email via SES:",
+          error?.message || error,
+        );
         throw new Error("Failed to send email");
       }
     } else {
@@ -165,6 +171,47 @@ export class EmailService {
     }
   }
 
+  /**
+   * Buyer-facing order status email. One method for every status transition
+   * (created → pending, plus confirmed/in_production/shipped/delivered/cancelled):
+   * the template picks the Spanish copy from a status → message map (DRY). The CTA
+   * deep-links to the buyer's order in the store app (falls back to the web app URL
+   * when STORE_APP_URL is unset — same fallback as the store invite). Caller invokes
+   * this fail-soft — an email failure must NEVER block the order create/update.
+   *
+   * `data.orderUuid` is the full uuid for the deep link; `data.orderRef` is the short
+   * uuid shown in the copy/subject — never expose more than the short ref to the buyer.
+   */
+  public async sendStoreOrderStatusEmail(
+    to: string,
+    data: {
+      orderRef: string;
+      orderUuid: string;
+      status: StoreOrderStatus;
+      companyName: string;
+    },
+  ): Promise<void> {
+    try {
+      const baseUrl = this.storeAppUrl ?? this.frontendUrl;
+      const actionUrl = `${baseUrl}/orders/${data.orderUuid}`;
+
+      const html = storeOrderStatusEmailTemplate({
+        orderRef: data.orderRef,
+        status: data.status,
+        companyName: data.companyName,
+        actionUrl,
+      });
+
+      const statusLabel = STORE_ORDER_STATUS_LABELS[data.status] ?? data.status;
+      const subject = `Pedido #${data.orderRef} — ${statusLabel}`;
+
+      await this.send(to, subject, html);
+    } catch (error) {
+      console.error("Error sending store order status email:", error);
+      throw error; // caller is fail-soft
+    }
+  }
+
   public async sendWelcomeEmail(
     email: string,
     firstName: string,
@@ -187,9 +234,13 @@ export class EmailService {
     email: string,
     token: string,
     firstName?: string,
+    baseUrl?: string,
   ): Promise<void> {
     try {
-      const actionUrl = `${this.frontendUrl}/reset-password?token=${token}`;
+      // baseUrl returns the link to the app that requested the reset (web app vs backoffice).
+      // The caller passes only origins it has validated against the allowlist; never an
+      // arbitrary client-supplied URL (open-redirect). Falls back to the web app URL.
+      const actionUrl = `${baseUrl || this.frontendUrl}/reset-password?token=${token}`;
 
       const html = passwordResetEmailTemplate({
         firstName,

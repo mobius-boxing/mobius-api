@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScopeViaWarehouse } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is handled separately via a join (against warehouses.company_id) because the client sends a UUID, not a numeric id.
@@ -113,18 +114,23 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IPaperStock | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IPaperStock | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    // SECURITY (C2): no direct companyId column — scope via warehouses.company_id.
+    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 

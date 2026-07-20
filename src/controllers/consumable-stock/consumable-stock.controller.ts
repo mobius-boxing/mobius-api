@@ -26,7 +26,14 @@ export class ConsumableStockController extends BaseCrudController<IConsumableSto
   private _manufacturerDAO = new ManufacturerDAO();
   private _consumableSupplyDAO = new ConsumableSupplyDAO();
 
-  protected async getOneByUuid(uuid: string): Promise<IConsumableStock | null> {
+  protected async getOneByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IConsumableStock | null> {
+    // SECURITY (C2): ownership gate via the company-scoped getByUuid before returning details.
+    if (companyUuid && !(await this.dao.getByUuid(uuid, companyUuid))) {
+      return null;
+    }
     return this.dao.getWithDetails(uuid);
   }
 

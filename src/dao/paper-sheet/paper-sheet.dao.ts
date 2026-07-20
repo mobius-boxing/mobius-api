@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is handled separately via a join because the client sends a UUID, not a numeric id.
@@ -118,19 +119,23 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     return paperSheet ? this.mapToInterface(paperSheet) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IPaperSheet | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IPaperSheet | null> {
     const knex = KnexManager.getConnection();
-    const paperSheet = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const paperSheet = await query.select(`${this.tableName}.*`).first();
 
     return paperSheet ? this.mapToInterface(paperSheet) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 

@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -77,18 +78,22 @@ export class BoxTypeDAO implements IBaseDAO<IBoxType> {
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IBoxType | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IBoxType | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 

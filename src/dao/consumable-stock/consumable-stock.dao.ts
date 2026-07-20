@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScopeViaWarehouse } from "../../utils/daoScope";
 import { Request } from "express";
 
 const CONSUMABLE_STOCK_FILTERS: FilterConfigs = {
@@ -108,18 +109,23 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IConsumableStock | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IConsumableStock | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    // SECURITY (C2): no direct companyId column — scope via warehouses.company_id.
+    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 

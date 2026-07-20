@@ -14,6 +14,7 @@ interface EmailTemplateParams {
   orderRef?: string;
   buyerEmail?: string;
   itemCount?: number;
+  status?: string;
 }
 
 /**
@@ -435,6 +436,74 @@ export const storeOrderNotificationEmailTemplate = (
 
     <div style="text-align: center; margin: 30px 0;">
       <a href="${actionUrl}" class="cta-button">Revisar pedido</a>
+    </div>
+
+    <p style="font-size: 14px; color: #777777; margin-top: 20px;">
+      Si el botón no funciona, copia y pega este enlace en tu navegador:
+      <br>
+      <a href="${actionUrl}" style="color: #1E40AF; word-break: break-all;">${actionUrl}</a>
+    </p>
+  `;
+
+  return emailWrapper(content);
+};
+
+/**
+ * Store Order Status Template (buyer-facing)
+ * Sent to the buyer when their order is created or its status changes.
+ * Status-driven copy: a single `status → message` map keeps it DRY — one template,
+ * one send method (EmailService.sendStoreOrderStatusEmail), status-driven body.
+ * Spanish, no pricing. The CTA deep-links to the buyer's order in the store app.
+ */
+const STORE_ORDER_STATUS_MESSAGES: Record<string, string> = {
+  pending: "Recibimos tu pedido y está pendiente de confirmación.",
+  confirmed: "Tu pedido fue confirmado.",
+  in_production: "Tu pedido está en producción.",
+  shipped: "Tu pedido fue enviado.",
+  delivered: "Tu pedido fue entregado.",
+  cancelled: "Tu pedido fue cancelado.",
+};
+
+// Human-readable Spanish label per status, used in the body heading/info box
+// and (re-used, DRY) by EmailService to build the subject line.
+export const STORE_ORDER_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendiente",
+  confirmed: "Confirmado",
+  in_production: "En producción",
+  shipped: "Enviado",
+  delivered: "Entregado",
+  cancelled: "Cancelado",
+};
+
+export const storeOrderStatusEmailTemplate = (
+  params: EmailTemplateParams,
+): string => {
+  const {
+    companyName = "",
+    orderRef = "",
+    status = "pending",
+    actionUrl = "#",
+  } = params;
+
+  const message =
+    STORE_ORDER_STATUS_MESSAGES[status] ?? "El estado de tu pedido cambió.";
+  const statusLabel = STORE_ORDER_STATUS_LABELS[status] ?? status;
+
+  const content = `
+    <h2 class="greeting">Actualización de tu pedido</h2>
+
+    <p class="message">
+      ${message}
+    </p>
+
+    <div class="info-box">
+      <p><strong>Pedido:</strong> #${orderRef}</p>
+      <p><strong>Estado:</strong> ${statusLabel}</p>
+      ${companyName ? `<p><strong>Tienda:</strong> ${companyName}</p>` : ""}
+    </div>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${actionUrl}" class="cta-button">Ver mi pedido</a>
     </div>
 
     <p style="font-size: 14px; color: #777777; margin-top: 20px;">

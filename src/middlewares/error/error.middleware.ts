@@ -1,5 +1,10 @@
 import { NextFunction, Response, Request } from "express";
 
+// SECURITY (M2): verbose error detail is gated on an EXPLICIT opt-in flag, not on NODE_ENV.
+// When off (the default), responses are generic and never leak DB column/constraint names,
+// stack traces, or raw error objects.
+const debugErrors = (): boolean => process.env.DEBUG_ERRORS === "true";
+
 export const errorMiddleware = (
   err: any,
   req: Request | any,
@@ -33,17 +38,20 @@ export const errorMiddleware = (
   }
 
   // PostgreSQL error codes — see https://www.postgresql.org/docs/current/errcodes-appendix.html
+  // SECURITY (M2): by default we return generic messages and omit the offending field/column.
+  // The specific field is only revealed when DEBUG_ERRORS is explicitly enabled.
   if (err.code) {
     if (err.code === "23505") {
       // unique_violation
-      const field = extractFieldFromError(err);
+      const field = debugErrors() ? extractFieldFromError(err) : null;
       return res.status(409).json({
         success: false,
-        message: field
-          ? `${field} already exists. Please use a different value.`
-          : "Duplicate entry. This record already exists.",
+        message:
+          field && debugErrors()
+            ? `${field} already exists. Please use a different value.`
+            : "Duplicate entry. This record already exists.",
         code: "DUPLICATE_ENTRY",
-        field,
+        ...(field && debugErrors() ? { field } : {}),
       });
     }
 
@@ -59,12 +67,15 @@ export const errorMiddleware = (
 
     if (err.code === "23502") {
       // not_null_violation
-      const field = err.column || "field";
+      const field = debugErrors() ? err.column || "field" : null;
       return res.status(400).json({
         success: false,
-        message: `${field} is required and cannot be null.`,
+        message:
+          field && debugErrors()
+            ? `${field} is required and cannot be null.`
+            : "A required field is missing.",
         code: "NOT_NULL_VIOLATION",
-        field,
+        ...(field && debugErrors() ? { field } : {}),
       });
     }
 
@@ -90,7 +101,7 @@ export const errorMiddleware = (
       // undefined_table
       return res.status(500).json({
         success: false,
-        message: "Database table not found. Please contact support.",
+        message: "An unexpected error occurred. Please contact support.",
         code: "UNDEFINED_TABLE",
       });
     }
@@ -99,7 +110,7 @@ export const errorMiddleware = (
       // undefined_column
       return res.status(500).json({
         success: false,
-        message: "Database column not found. Please contact support.",
+        message: "An unexpected error occurred. Please contact support.",
         code: "UNDEFINED_COLUMN",
       });
     }
@@ -110,7 +121,8 @@ export const errorMiddleware = (
       success: false,
       message: err.message || "Validation failed",
       code: "VALIDATION_ERROR",
-      errors: err.errors || err.details,
+      // SECURITY (M2): only echo detailed validation errors when explicitly debugging.
+      ...(debugErrors() ? { errors: err.errors || err.details } : {}),
     });
   }
 
@@ -150,7 +162,8 @@ export const errorMiddleware = (
   res.status(statusError).json({
     success: false,
     message,
-    ...(process.env.NODE_ENV === "development" && {
+    // SECURITY (M2): stack + raw error object only when DEBUG_ERRORS=true.
+    ...(debugErrors() && {
       stack: err.stack,
       details: err,
     }),
@@ -161,6 +174,7 @@ export const errorMiddleware = (
  * Pull the offending field name out of a PostgreSQL unique-violation.
  * Tries constraint name (e.g. "users_email_unique" -> "email"), falls back to
  * the detail string (e.g. "Key (email)=(...) already exists.").
+ * Only invoked when DEBUG_ERRORS is enabled (see callers).
  */
 function extractFieldFromError(err: any): string | null {
   if (err.constraint) {

@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScopeViaWarehouse } from "../../utils/daoScope";
 import { Request } from "express";
 
 /**
@@ -185,19 +186,34 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
     return location ? this.mapToInterface(location) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IWarehouseLocation | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IWarehouseLocation | null> {
     const knex = KnexManager.getConnection();
-    const location = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    // SECURITY (C2): no direct companyId column — scope via the parent warehouse's company.
+    applyCompanyUuidScopeViaWarehouse(
+      query,
+      this.tableName,
+      companyUuid,
+      "warehouse_id",
+    );
+    const location = await query.select(`${this.tableName}.*`).first();
 
     return location ? this.mapToInterface(location) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const location = await knex(this.tableName)
-      .where("uuid", uuid)
-      .select("id")
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScopeViaWarehouse(
+      query,
+      this.tableName,
+      companyUuid,
+      "warehouse_id",
+    );
+    const location = await query.select(`${this.tableName}.id`).first();
 
     return location ? location.id : null;
   }

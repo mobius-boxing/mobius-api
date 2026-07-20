@@ -25,4 +25,5 @@ export interface IConsumableSupply {
   supplier?: ISupplier;
   manufacturer?: IManufacturer;
   consumableType?: IConsumableType;
+  color?: { uuid: string; code?: string | null; name?: string | null } | null;
 }

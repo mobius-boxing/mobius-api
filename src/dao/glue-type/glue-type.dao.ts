@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -78,9 +79,14 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     return glueType ? this.mapToInterface(glueType) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IGlueType | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IGlueType | null> {
     const knex = KnexManager.getConnection();
-    const glueType = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const glueType = await query.select(`${this.tableName}.*`).first();
 
     return glueType ? this.mapToInterface(glueType) : null;
   }

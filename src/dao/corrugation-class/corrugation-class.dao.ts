@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -78,11 +79,14 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     return corrugationClass ? this.mapToInterface(corrugationClass) : null;
   }
 
-  async getByUuid(uuid: string): Promise<ICorrugationClass | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ICorrugationClass | null> {
     const knex = KnexManager.getConnection();
-    const corrugationClass = await knex(this.tableName)
-      .where("uuid", uuid)
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const corrugationClass = await query.select(`${this.tableName}.*`).first();
 
     return corrugationClass ? this.mapToInterface(corrugationClass) : null;
   }
@@ -218,12 +222,11 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     };
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
     const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 }

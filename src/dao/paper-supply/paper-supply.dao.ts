@@ -134,9 +134,21 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         .where("companies.uuid", companyUuid);
     }
 
-    const paperSupply = await query.select(`${this.tableName}.*`).first();
+    const paperSupply = await query
+      .leftJoin("fsc_types", "paper_supplies.fscTypeId", "fsc_types.id")
+      .select(
+        `${this.tableName}.*`,
+        knex.raw('to_jsonb(fsc_types.*) as "fscType"'),
+      )
+      .first();
 
-    return paperSupply ? this.mapToInterface(paperSupply) : null;
+    if (!paperSupply) return null;
+    const mapped = this.mapToInterface(paperSupply);
+    if (paperSupply.fscType) {
+      const { id, ...fscTypeWithoutId } = paperSupply.fscType;
+      mapped.fscType = fscTypeWithoutId;
+    }
+    return mapped;
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
@@ -203,6 +215,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw('to_jsonb(paper_types.*) as "paperType"'),
+        knex.raw('to_jsonb(fsc_types.*) as "fscType"'),
       )
       .leftJoin(
         "manufacturers",
@@ -210,7 +223,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         "manufacturers.id",
       )
       .leftJoin("suppliers", "paper_supplies.supplierId", "suppliers.id")
-      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id");
+      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id")
+      .leftJoin("fsc_types", "paper_supplies.fscTypeId", "fsc_types.id");
 
     const countQuery = knex(this.tableName);
 
@@ -249,6 +263,10 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
           const { id, ...paperTypeWithoutId } = paperSupply.paperType;
           mapped.paperType = paperTypeWithoutId;
         }
+        if (paperSupply.fscType) {
+          const { id, ...fscTypeWithoutId } = paperSupply.fscType;
+          mapped.fscType = fscTypeWithoutId;
+        }
         return mapped;
       }),
       page,
@@ -272,6 +290,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw('to_jsonb(paper_types.*) as "paperType"'),
+        knex.raw('to_jsonb(fsc_types.*) as "fscType"'),
       )
       .leftJoin(
         "manufacturers",
@@ -279,7 +298,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         "manufacturers.id",
       )
       .leftJoin("suppliers", "paper_supplies.supplierId", "suppliers.id")
-      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id");
+      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id")
+      .leftJoin("fsc_types", "paper_supplies.fscTypeId", "fsc_types.id");
 
     const countQuery = knex(this.tableName);
 
@@ -317,6 +337,10 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         if (paperSupply.paperType) {
           const { id, ...paperTypeWithoutId } = paperSupply.paperType;
           mapped.paperType = paperTypeWithoutId;
+        }
+        if (paperSupply.fscType) {
+          const { id, ...fscTypeWithoutId } = paperSupply.fscType;
+          mapped.fscType = fscTypeWithoutId;
         }
         return mapped;
       }),

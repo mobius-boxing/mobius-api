@@ -157,7 +157,11 @@ export class UserDAO implements IBaseDAO<IUser> {
 
     const [users, totalResult] = await Promise.all([
       knex(this.tableName)
-        .select(`${this.tableName}.*`, "companies.name as companyName")
+        .select(
+          `${this.tableName}.*`,
+          "companies.name as companyName",
+          "companies.uuid as companyUuid",
+        )
         .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
         .orderBy(`${this.tableName}.createdAt`, "desc")
         .limit(limit)
@@ -237,7 +241,11 @@ export class UserDAO implements IBaseDAO<IUser> {
 
     const [users, totalResult] = await Promise.all([
       knex(this.tableName)
-        .select(`${this.tableName}.*`, "companies.name as companyName")
+        .select(
+          `${this.tableName}.*`,
+          "companies.name as companyName",
+          "companies.uuid as companyUuid",
+        )
         .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
         .where(`${this.tableName}.companyId`, companyId)
         .orderBy(`${this.tableName}.createdAt`, "desc")
@@ -353,6 +361,8 @@ export class UserDAO implements IBaseDAO<IUser> {
   ): IUser & { companyName?: string } {
     return {
       ...this.mapToInterface(record),
+      // SECURITY (M3): expose the company as its UUID, never the internal numeric id.
+      companyId: record.companyUuid || undefined,
       companyName: record.companyName || undefined,
     };
   }

@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -78,9 +79,14 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     return complement ? this.mapToInterface(complement) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IComplement | null> {
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IComplement | null> {
     const knex = KnexManager.getConnection();
-    const complement = await knex(this.tableName).where("uuid", uuid).first();
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const complement = await query.select(`${this.tableName}.*`).first();
 
     return complement ? this.mapToInterface(complement) : null;
   }

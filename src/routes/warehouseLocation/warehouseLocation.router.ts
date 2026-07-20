@@ -1,5 +1,13 @@
 import { Router } from "express";
 import { WarehouseLocationController } from "../../controllers/warehouseLocation/warehouseLocation.controller";
+import {
+  authenticate,
+  requireAdmin,
+  validateUUID,
+  validatePagination,
+  apiRateLimiter,
+  sensitiveRateLimiter,
+} from "../../middlewares";
 
 export class WarehouseLocationRouter {
   private _router: Router;
@@ -13,30 +21,49 @@ export class WarehouseLocationRouter {
   private initRoutes(): void {
     this._router.get(
       "/",
+      authenticate,
+      requireAdmin(),
+      validatePagination,
+      apiRateLimiter,
       this._warehouseLocationController.getAll.bind(
         this._warehouseLocationController,
       ),
     );
     this._router.get(
       "/:uuid",
+      authenticate,
+      requireAdmin(),
+      validateUUID(),
+      apiRateLimiter,
       this._warehouseLocationController.getByUuid.bind(
         this._warehouseLocationController,
       ),
     );
     this._router.post(
       "/",
+      authenticate,
+      requireAdmin(),
+      apiRateLimiter,
       this._warehouseLocationController.create.bind(
         this._warehouseLocationController,
       ),
     );
     this._router.put(
       "/:uuid",
+      authenticate,
+      requireAdmin(),
+      validateUUID(),
+      apiRateLimiter,
       this._warehouseLocationController.update.bind(
         this._warehouseLocationController,
       ),
     );
     this._router.delete(
       "/:uuid",
+      authenticate,
+      requireAdmin(),
+      validateUUID(),
+      sensitiveRateLimiter,
       this._warehouseLocationController.delete.bind(
         this._warehouseLocationController,
       ),
@@ -44,12 +71,20 @@ export class WarehouseLocationRouter {
 
     this._router.get(
       "/warehouse/:warehouseUuid",
+      authenticate,
+      requireAdmin(),
+      validateUUID("warehouseUuid"),
+      apiRateLimiter,
       this._warehouseLocationController.getByWarehouse.bind(
         this._warehouseLocationController,
       ),
     );
     this._router.put(
       "/warehouse/:warehouseUuid/batch",
+      authenticate,
+      requireAdmin(),
+      validateUUID("warehouseUuid"),
+      apiRateLimiter,
       this._warehouseLocationController.batchUpdate.bind(
         this._warehouseLocationController,
       ),

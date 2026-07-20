@@ -604,7 +604,7 @@ export class UserRouter {
 Required in `.env` file:
 
 ```env
-JWT_SECRET=kL9mN3pQ7rS5tV2wX4yB6zC8dF1gH4jM5nP7qT9vW3xY5zA7b
+JWT_SECRET=<your-jwt-secret>
 JWT_EXPIRE=5h
 NODE_ENV=development
 ```

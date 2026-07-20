@@ -22,7 +22,14 @@ export class PaperStockController extends BaseCrudController<IPaperStock> {
     entityLabel: "Paper stock",
   };
 
-  protected async getOneByUuid(uuid: string): Promise<IPaperStock | null> {
+  protected async getOneByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IPaperStock | null> {
+    // SECURITY (C2): ownership gate via the company-scoped getByUuid before returning details.
+    if (companyUuid && !(await this.dao.getByUuid(uuid, companyUuid))) {
+      return null;
+    }
     return this.dao.getWithDetails(uuid);
   }
 
