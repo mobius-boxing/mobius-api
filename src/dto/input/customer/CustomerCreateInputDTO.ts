@@ -14,8 +14,6 @@ export class CustomerCreateInputDTO {
   address?: string;
   tradeName?: string;
   contacts?: any;
-  deliveryLocations?: any;
-  deliveryDays?: any;
 
   constructor(data: any) {
     this.companyId =
@@ -44,9 +42,6 @@ export class CustomerCreateInputDTO {
     if (data.address !== undefined) this.address = data.address;
     if (data.tradeName !== undefined) this.tradeName = data.tradeName;
     if (data.contacts !== undefined) this.contacts = data.contacts;
-    if (data.deliveryLocations !== undefined)
-      this.deliveryLocations = data.deliveryLocations;
-    if (data.deliveryDays !== undefined) this.deliveryDays = data.deliveryDays;
   }
 
   public build(): this {

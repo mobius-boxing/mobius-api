@@ -93,8 +93,8 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
         address: item.address,
         tradeName: item.tradeName,
         contacts: JSON.stringify(item.contacts || []),
-        deliveryLocations: JSON.stringify(item.deliveryLocations || []),
-        deliveryDays: JSON.stringify(item.deliveryDays || []),
+        // deliveryLocations/deliveryDays live in delivery_locations /
+        // delivery_schedules since 20260720000008 (§L.6).
       })
       .returning("*");
 
@@ -165,10 +165,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     if (item.tradeName !== undefined) updateData.tradeName = item.tradeName;
     if (item.contacts !== undefined)
       updateData.contacts = JSON.stringify(item.contacts);
-    if (item.deliveryLocations !== undefined)
-      updateData.deliveryLocations = JSON.stringify(item.deliveryLocations);
-    if (item.deliveryDays !== undefined)
-      updateData.deliveryDays = JSON.stringify(item.deliveryDays);
+    // deliveryLocations/deliveryDays moved to real tables (20260720000008).
 
     updateData.updatedAt = knex.fn.now();
 
@@ -317,8 +314,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
   private mapToInterface(record: any): ICustomer {
     let contacts = [];
-    let deliveryLocations = [];
-    let deliveryDays = [];
 
     try {
       if (record.contacts) {
@@ -326,18 +321,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
           typeof record.contacts === "string"
             ? JSON.parse(record.contacts)
             : record.contacts;
-      }
-      if (record.deliveryLocations) {
-        deliveryLocations =
-          typeof record.deliveryLocations === "string"
-            ? JSON.parse(record.deliveryLocations)
-            : record.deliveryLocations;
-      }
-      if (record.deliveryDays) {
-        deliveryDays =
-          typeof record.deliveryDays === "string"
-            ? JSON.parse(record.deliveryDays)
-            : record.deliveryDays;
       }
     } catch (error) {
       console.error("Error parsing customer JSON fields:", error);
@@ -362,8 +345,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       address: record.address,
       tradeName: record.tradeName,
       contacts,
-      deliveryLocations,
-      deliveryDays,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

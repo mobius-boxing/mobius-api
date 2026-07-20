@@ -182,8 +182,7 @@ export class CustomerController implements IBaseController {
         address: inputDTO.address,
         tradeName: inputDTO.tradeName,
         contacts: inputDTO.contacts || [],
-        deliveryLocations: inputDTO.deliveryLocations || [],
-        deliveryDays: inputDTO.deliveryDays || [],
+        // deliveryLocations/deliveryDays moved to real tables (20260720000008).
       };
 
       const result = await this._customerDAO.create(dataToCreate);

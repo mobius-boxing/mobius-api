@@ -54,8 +54,6 @@ export interface ICustomer {
   address?: string;
   tradeName?: string;
   contacts?: IContactInfo[];
-  deliveryLocations?: IDeliveryLocation[];
-  deliveryDays?: IDeliveryDay[];
   createdAt?: Date;
   updatedAt?: Date;
   // Joined data
