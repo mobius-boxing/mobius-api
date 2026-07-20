@@ -1,6 +1,11 @@
 export class CustomerCreateInputDTO {
   companyId: number;
   name: string;
+  code?: string;
+  dispatchable?: boolean;
+  notes?: string;
+  excludeLogoOnLabels?: boolean;
+  requiresQualityCertificate?: boolean;
   supplierCode?: string;
   salesPersonId?: number;
   categoryId?: number;
@@ -18,6 +23,11 @@ export class CustomerCreateInputDTO {
         ? parseInt(data.companyId, 10)
         : data.companyId;
     this.name = data.name;
+    if (data.code !== undefined) this.code = data.code;
+    if (data.dispatchable !== undefined) this.dispatchable = data.dispatchable === true;
+    if (data.notes !== undefined) this.notes = data.notes;
+    if (data.excludeLogoOnLabels !== undefined) this.excludeLogoOnLabels = data.excludeLogoOnLabels === true;
+    if (data.requiresQualityCertificate !== undefined) this.requiresQualityCertificate = data.requiresQualityCertificate === true;
     if (data.supplierCode !== undefined) this.supplierCode = data.supplierCode;
     if (data.salesPersonId !== undefined)
       this.salesPersonId =

@@ -79,6 +79,11 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
         uuid: item.uuid,
         companyId: item.companyId,
         name: item.name,
+        code: item.code,
+        dispatchable: item.dispatchable ?? true,
+        notes: item.notes,
+        excludeLogoOnLabels: item.excludeLogoOnLabels ?? false,
+        requiresQualityCertificate: item.requiresQualityCertificate ?? false,
         supplier_code: item.supplierCode,
         salesPersonId: item.salesPersonId,
         categoryId: item.categoryId,
@@ -140,6 +145,14 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const updateData: any = {};
 
     if (item.name !== undefined) updateData.name = item.name;
+    if (item.code !== undefined) updateData.code = item.code;
+    if (item.dispatchable !== undefined)
+      updateData.dispatchable = item.dispatchable;
+    if (item.notes !== undefined) updateData.notes = item.notes;
+    if (item.excludeLogoOnLabels !== undefined)
+      updateData.excludeLogoOnLabels = item.excludeLogoOnLabels;
+    if (item.requiresQualityCertificate !== undefined)
+      updateData.requiresQualityCertificate = item.requiresQualityCertificate;
     if (item.supplierCode !== undefined)
       updateData.supplier_code = item.supplierCode;
     if (item.salesPersonId !== undefined)
@@ -335,6 +348,11 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       uuid: record.uuid,
       companyId: record.companyId,
       name: record.name,
+      code: record.code,
+      dispatchable: record.dispatchable ?? true,
+      notes: record.notes,
+      excludeLogoOnLabels: record.excludeLogoOnLabels ?? false,
+      requiresQualityCertificate: record.requiresQualityCertificate ?? false,
       supplierCode: record.supplier_code,
       salesPersonId: record.salesPersonId,
       categoryId: record.categoryId,

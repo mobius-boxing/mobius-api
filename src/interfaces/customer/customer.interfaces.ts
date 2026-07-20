@@ -40,6 +40,11 @@ export interface ICustomer {
   uuid?: string;
   companyId: number;
   name: string;
+  code?: string | null;
+  dispatchable?: boolean;
+  notes?: string | null;
+  excludeLogoOnLabels?: boolean;
+  requiresQualityCertificate?: boolean;
   supplierCode?: string;
   salesPersonId?: number;
   categoryId?: number;
