@@ -57,3 +57,9 @@ export * from "./color/color.dao";
 
 // FSC Type DAO
 export * from "./fsc-type/fsc-type.dao";
+
+// Machine Type DAO
+export * from "./machine-type/machine-type.dao";
+
+// Machine DAO
+export * from "./machine/machine.dao";
