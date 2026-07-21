@@ -51,28 +51,83 @@ export class PartController {
     void this.audit.record(req, "Part", op, entity ?? null);
   }
 
-  private async resolveRefs(
+  /** Res-free ref resolution; returns an error message instead of writing the response. */
+  private async resolveRefsCore(
     inputDTO: any,
-    res: Response,
-  ): Promise<Record<string, number | null> | null> {
-    const resolved: Record<string, number | null> = {};
+  ): Promise<{ refs: Record<string, number | null> } | { error: string }> {
+    const refs: Record<string, number | null> = {};
     for (const [uuidKey, table] of Object.entries(REF_TABLES)) {
       if (inputDTO[uuidKey] === undefined) continue;
       if (!inputDTO[uuidKey]) {
-        resolved[REF_ID_KEYS[uuidKey]] = null;
+        refs[REF_ID_KEYS[uuidKey]] = null;
         continue;
       }
       const id = await getIdByUuid(inputDTO[uuidKey], table);
       if (!id) {
-        res.status(400).json({
-          success: false,
-          message: `Referenced ${table.replace(/_/g, " ")} not found`,
-        });
-        return null;
+        return { error: `Referenced ${table.replace(/_/g, " ")} not found` };
       }
-      resolved[REF_ID_KEYS[uuidKey]] = id;
+      refs[REF_ID_KEYS[uuidKey]] = id;
     }
-    return resolved;
+    return { refs };
+  }
+
+  private async resolveRefs(
+    inputDTO: any,
+    res: Response,
+  ): Promise<Record<string, number | null> | null> {
+    const outcome = await this.resolveRefsCore(inputDTO);
+    if ("error" in outcome) {
+      res.status(400).json({ success: false, message: outcome.error });
+      return null;
+    }
+    return outcome.refs;
+  }
+
+  /**
+   * Res-free create core, shared by POST /parts and the product `initialPart`
+   * atomic-create path (module 06 ProductoSimpleForm semantics).
+   */
+  public async createPartFromInput(
+    body: any,
+    companyId: number,
+    productId: number,
+    userEmail: string | null,
+  ): Promise<
+    { ok: true; part: any } | { ok: false; status: number; message: string }
+  > {
+    let inputDTO: any;
+    try {
+      inputDTO = new PartCreateInputDTO(body).build();
+    } catch (e: any) {
+      return { ok: false, status: 400, message: e.message };
+    }
+
+    const outcome = await this.resolveRefsCore(inputDTO);
+    if ("error" in outcome) {
+      return { ok: false, status: 400, message: outcome.error };
+    }
+
+    const payload: any = { ...inputDTO, ...outcome.refs, productId, companyId };
+    for (const key of Object.keys(REF_TABLES)) delete payload[key];
+    delete payload.productUuid;
+    // The code is derived server-side ({producto}/{n} MAX+1) — never client-set.
+    delete payload.code;
+    payload.uuid = uuidv4();
+    payload.createdByUsername = userEmail;
+
+    try {
+      const created = await this.dao.create(payload);
+      return { ok: true, part: created };
+    } catch (err: any) {
+      if (err?.code === "23505") {
+        return {
+          ok: false,
+          status: 400,
+          message: "A part with this code and revision already exists.",
+        };
+      }
+      throw err;
+    }
   }
 
   public async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -116,14 +171,6 @@ export class PartController {
       // Nested create: POST /product/:productUuid/parts
       if ((req.params as any).productUuid) body.productUuid = (req.params as any).productUuid;
 
-      let inputDTO: any;
-      try {
-        inputDTO = new PartCreateInputDTO(body).build();
-      } catch (e: any) {
-        res.status(400).json({ success: false, message: e.message });
-        return;
-      }
-
       const company = getCompanyForCreate(req);
       if (!company.success) {
         res.status(400).json({ success: false, message: company.message });
@@ -135,34 +182,30 @@ export class PartController {
         return;
       }
 
-      const productId = await getIdByUuid(inputDTO.productUuid, "products");
+      if (!body.productUuid) {
+        res.status(400).json({ success: false, message: "productUuid is required" });
+        return;
+      }
+      const productId = await getIdByUuid(body.productUuid, "products");
       if (!productId) {
         res.status(404).json({ success: false, message: "Product not found" });
         return;
       }
 
-      const refs = await this.resolveRefs(inputDTO, res);
-      if (refs === null) return;
-
-      const payload: any = { ...inputDTO, ...refs, productId, companyId };
-      for (const key of Object.keys(REF_TABLES)) delete payload[key];
-      delete payload.productUuid;
-      // The code is derived server-side ({producto}/{n} MAX+1) — never client-set.
-      delete payload.code;
-      payload.uuid = uuidv4();
-      payload.createdByUsername = (req as any).user?.email ?? null;
-
-      const created = await this.dao.create(payload);
-      this.recordAudit(req, "Alta", created);
-      res.status(201).json({ success: true, data: created });
-    } catch (err: any) {
-      if (err?.code === "23505") {
-        res.status(400).json({
-          success: false,
-          message: "A part with this code and revision already exists.",
-        });
+      const outcome = await this.createPartFromInput(
+        body,
+        companyId,
+        productId,
+        (req as any).user?.email ?? null,
+      );
+      if (!outcome.ok) {
+        res.status(outcome.status).json({ success: false, message: outcome.message });
         return;
       }
+
+      this.recordAudit(req, "Alta", outcome.part);
+      res.status(201).json({ success: true, data: outcome.part });
+    } catch (err: any) {
       next(err);
     }
   }

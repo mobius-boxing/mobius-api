@@ -19,6 +19,8 @@ import {
   ProductUpdateInputDTO,
 } from "../../dto/input/product";
 import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
+import { PartController } from "../part/part.controller";
+import { getIdByUuid } from "../../utils/foreignKeyResolver";
 
 export class ProductController implements IBaseController {
   private _audit = new AuditService();
@@ -202,11 +204,51 @@ export class ProductController implements IBaseController {
 
       const result = await this._productDAO.create(dataToCreate);
 
+      // Simple-product atomic create (module 06 ProductoSimpleForm): an
+      // optional initialPart is created right after the product; a part
+      // failure rolls the product back so no partless "simple" product is
+      // left behind. The part inherits the product's description when the
+      // client didn't provide one; its code derives as {producto}/1.
+      let initialPart: any = null;
+      if (data.initialPart !== undefined && data.initialPart !== null) {
+        const productId = await getIdByUuid(result.uuid!, "products");
+        const partController = new PartController();
+        const partBody = {
+          ...data.initialPart,
+          productUuid: result.uuid,
+          description: data.initialPart.description ?? inputDTO.description,
+        };
+        let outcome:
+          | Awaited<ReturnType<PartController["createPartFromInput"]>>
+          | null = null;
+        let partError: any = null;
+        try {
+          outcome = await partController.createPartFromInput(
+            partBody,
+            companyIdNumeric,
+            productId!,
+            (req as any).user?.email ?? null,
+          );
+        } catch (err) {
+          partError = err;
+        }
+        if (!outcome || !outcome.ok) {
+          if (productId) await this._productDAO.delete(productId);
+          if (partError) throw partError;
+          res.status((outcome as any)?.status ?? 400).json({
+            success: false,
+            message: `Initial part: ${(outcome as any)?.message ?? "creation failed"}`,
+          });
+          return;
+        }
+        initialPart = outcome.part;
+      }
+
       this.recordAudit(req, "Alta", result);
 
       res.status(201).json({
         success: true,
-        data: result,
+        data: initialPart ? { ...result, initialPart } : result,
       });
     } catch (err: any) {
       next(err);
