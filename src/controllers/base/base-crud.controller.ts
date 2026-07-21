@@ -7,6 +7,8 @@ import {
   getCompanyFilterUuid,
 } from "../../utils/companyScope";
 import { AuditService } from "../../services/audit.service";
+import { getCompanyForCreate } from "../../utils/companyScope";
+import { getIdByUuid } from "../../utils/foreignKeyResolver";
 
 type WithId = { id?: number | null };
 
@@ -33,6 +35,11 @@ export interface BaseCrudOptions {
   // Audit trail (audit_logs). Defaults to true — nearly every entity gets history
   // (decision 2026-07-18, module 01 audit-log.md). Set false to opt out.
   audit?: boolean;
+  // Inject the caller's numeric companyId into create payloads that lack one
+  // (default true). 17 subclasses never resolved it, so creates hit NOT NULL
+  // violations or silently inserted NULL (rows invisible to scoped lists).
+  // Entities without a companyId column simply ignore the injected field.
+  injectCompany?: boolean;
 }
 
 export abstract class BaseCrudController<TEntity> implements IBaseController {
@@ -193,6 +200,34 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
 
       const payload = await this.beforeCreate(dto, req, res);
       if (payload === null) return;
+
+      // Company injection: non-superAdmins always get their JWT company; a
+      // superAdmin's body-supplied companyId (uuid) is resolved when present,
+      // otherwise left alone (global-row creation stays possible for them).
+      if (
+        this.options.injectCompany !== false &&
+        (payload as any).companyId === undefined
+      ) {
+        const company = getCompanyForCreate(req);
+        if (company.success) {
+          const companyId = await getIdByUuid(company.companyUuid, "companies");
+          if (companyId) (payload as any).companyId = companyId;
+        } else if ((req as any).user?.role !== "superAdmin") {
+          res.status(400).json({ success: false, message: company.message });
+          return;
+        }
+      } else if (
+        this.options.injectCompany !== false &&
+        typeof (payload as any).companyId === "string"
+      ) {
+        // A uuid slipped through a DTO — resolve it to the numeric id.
+        const companyId = await getIdByUuid((payload as any).companyId, "companies");
+        if (!companyId) {
+          res.status(400).json({ success: false, message: "Invalid company" });
+          return;
+        }
+        (payload as any).companyId = companyId;
+      }
 
       const autoUuid = this.options.autoGenerateUuid ?? true;
       const dataToCreate = autoUuid
