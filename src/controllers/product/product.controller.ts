@@ -51,6 +51,12 @@ export class ProductController implements IBaseController {
       { key: "boxTypeId", dao: new BoxTypeDAO(), label: "box type" },
     ];
     for (const { key, dao, label } of resolvers) {
+      // Unselected optional dropdowns submit "" — that's "no value", not a ref;
+      // left as-is it reaches the integer FK column and 400s (22P02).
+      if (data[key] === "" || data[key] === null) {
+        data[key] = null;
+        continue;
+      }
       if (data[key] && typeof data[key] === "string") {
         const numericId = await dao.getIdByUuid(data[key]);
         if (!numericId) {
