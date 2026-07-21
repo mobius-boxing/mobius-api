@@ -3,6 +3,7 @@ import { ProductController } from "../../controllers/product/product.controller"
 import {
   authenticate,
   requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -57,6 +58,15 @@ export class ProductRouter {
       validateUUID(),
       apiRateLimiter,
       this.productController.update.bind(this.productController),
+    );
+    // Product technical approval (Procusto ProductoForm - Aprobacion tecnica).
+    this.router.patch(
+      "/:uuid/approval",
+      authenticate,
+      requirePermission("products.approve.technical"),
+      validateUUID(),
+      apiRateLimiter,
+      this.productController.setApproval.bind(this.productController),
     );
     this.router.delete(
       "/:uuid",

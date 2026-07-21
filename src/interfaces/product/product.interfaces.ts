@@ -14,6 +14,17 @@ export interface IProduct {
   vip?: boolean;
   productTypeId?: number | null;
   boxTypeId?: number | null;
+  // File refs (Ficha/Plano/Boceto/Imagen → files.uuid)
+  technicalSheetFileUuid?: string | null;
+  blueprintFileUuid?: string | null;
+  sketchFileUuid?: string | null;
+  imageFileUuid?: string | null;
+  // Approval pair (AprobacionProducto/CancelacionProducto; user = username snapshot)
+  productApprovalAt?: Date | null;
+  productApprovalBy?: string | null;
+  productCancellationAt?: Date | null;
+  productCancellationBy?: string | null;
+  legacyId?: number | null;
   createdAt?: Date;
   updatedAt?: Date;
   // Joined data

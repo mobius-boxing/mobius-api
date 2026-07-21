@@ -63,3 +63,9 @@ export * from "./machine-type/machine-type.dao";
 
 // Machine DAO
 export * from "./machine/machine.dao";
+
+// Pallet Type DAO
+export * from "./pallet-type/pallet-type.dao";
+
+// Palletization DAO
+export * from "./palletization/palletization.dao";

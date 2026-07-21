@@ -76,6 +76,10 @@ export class ProductDAO implements IBaseDAO<IProduct> {
         vip: item.vip ?? false,
         productTypeId: item.productTypeId,
         boxTypeId: item.boxTypeId,
+        technicalSheetFileUuid: item.technicalSheetFileUuid ?? null,
+        blueprintFileUuid: item.blueprintFileUuid ?? null,
+        sketchFileUuid: item.sketchFileUuid ?? null,
+        imageFileUuid: item.imageFileUuid ?? null,
       })
       .returning("*");
 
@@ -122,6 +126,10 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     if (item.productTypeId !== undefined)
       updateData.productTypeId = item.productTypeId;
     if (item.boxTypeId !== undefined) updateData.boxTypeId = item.boxTypeId;
+    if (item.technicalSheetFileUuid !== undefined) updateData.technicalSheetFileUuid = item.technicalSheetFileUuid;
+    if (item.blueprintFileUuid !== undefined) updateData.blueprintFileUuid = item.blueprintFileUuid;
+    if (item.sketchFileUuid !== undefined) updateData.sketchFileUuid = item.sketchFileUuid;
+    if (item.imageFileUuid !== undefined) updateData.imageFileUuid = item.imageFileUuid;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -317,8 +325,48 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       description: record.description,
       revision: record.revision,
       vip: record.vip,
+      technicalSheetFileUuid: record.technicalSheetFileUuid,
+      blueprintFileUuid: record.blueprintFileUuid,
+      sketchFileUuid: record.sketchFileUuid,
+      imageFileUuid: record.imageFileUuid,
+      productApprovalAt: record.productApprovalAt,
+      productApprovalBy: record.productApprovalBy,
+      productCancellationAt: record.productCancellationAt,
+      productCancellationBy: record.productCancellationBy,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
+  }
+
+  /**
+   * Product approval pair semantics (module 06 §04-state-and-lifecycle):
+   * approve sets AprobacionProducto(+user snapshot) and CLEARS the
+   * cancellation pair; cancel does the reverse. Pending = both NULL.
+   */
+  async setApproval(
+    id: number,
+    action: "approve" | "cancel",
+    username: string,
+  ): Promise<IProduct | null> {
+    const knex = KnexManager.getConnection();
+    const updateData =
+      action === "approve"
+        ? {
+            productApprovalAt: knex.fn.now(),
+            productApprovalBy: username,
+            productCancellationAt: null,
+            productCancellationBy: null,
+          }
+        : {
+            productCancellationAt: knex.fn.now(),
+            productCancellationBy: username,
+            productApprovalAt: null,
+            productApprovalBy: null,
+          };
+    const [product] = await knex(this.tableName)
+      .where("id", id)
+      .update({ ...updateData, updatedAt: knex.fn.now() })
+      .returning("*");
+    return product ? this.mapToInterface(product) : null;
   }
 }

@@ -194,6 +194,10 @@ export class ProductController implements IBaseController {
         vip: inputDTO.vip,
         productTypeId: inputDTO.productTypeId,
         boxTypeId: inputDTO.boxTypeId,
+        technicalSheetFileUuid: inputDTO.technicalSheetFileUuid,
+        blueprintFileUuid: inputDTO.blueprintFileUuid,
+        sketchFileUuid: inputDTO.sketchFileUuid,
+        imageFileUuid: inputDTO.imageFileUuid,
       };
 
       const result = await this._productDAO.create(dataToCreate);
@@ -367,6 +371,51 @@ export class ProductController implements IBaseController {
         success: true,
         data: result,
       });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
+   * PATCH /product/:uuid/approval — { action: 'approve' | 'cancel' }.
+   * Pair semantics per module 06 §04: approve clears cancellation and vice
+   * versa; the acting user's email is stored as a denormalized snapshot.
+   * TODO(slice 2.5): cascade approve/cancel to the product's parts once the
+   * parts entity exists (confirm-dialog driven, per 04-state-and-lifecycle).
+   */
+  public async setApproval(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { uuid } = req.params;
+      const { action } = req.body;
+      if (action !== "approve" && action !== "cancel") {
+        res.status(400).json({
+          success: false,
+          message: "action must be 'approve' or 'cancel'",
+        });
+        return;
+      }
+
+      const companyId = getCompanyFilterUuid(req);
+      const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
+      if (!existingId) {
+        res.status(404).json({ success: false, message: "Product not found" });
+        return;
+      }
+
+      const username = (req as any).user?.email ?? "unknown";
+      const result = await this._productDAO.setApproval(
+        existingId,
+        action,
+        username,
+      );
+
+      this.recordAudit(req, "Modificacion", result);
+
+      res.status(200).json({ success: true, data: result });
     } catch (err: any) {
       next(err);
     }
