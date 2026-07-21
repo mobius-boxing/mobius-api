@@ -39,6 +39,17 @@ const mockRes = () => {
 };
 
 (async () => {
+  // ── SAFETY GUARD ─────────────────────────────────────────────────────────
+  // This script INSERTs and DELETEs through real DAOs/controllers. localhost
+  // port 5432 can be an SSH tunnel to production — refuse to run against
+  // anything that isn't an explicitly *_test database.
+  if (!process.env.SQL_DB_NAME?.endsWith("_test") || process.env.NODE_ENV === "production") {
+    console.error(
+      `REFUSING TO RUN: SQL_DB_NAME='${process.env.SQL_DB_NAME}' must end in '_test' ` +
+        `and NODE_ENV ('${process.env.NODE_ENV}') must not be 'production'.`,
+    );
+    process.exit(1);
+  }
   await (KnexManager as any).connect();
   const knex = KnexManager.getConnection();
   const dao = new PartDAO();
@@ -287,6 +298,17 @@ const mockRes = () => {
     console.log("SMOKE ERROR:", e.message);
     process.exitCode = 1;
   } finally {
+    // ── CLEANUP ──────────────────────────────────────────────────────────────
+    // Every row this script creates hangs off the TAG'd company; company
+    // delete cascades the rest. Users go first (their company FK may not
+    // cascade). Best-effort — a cleanup failure must not mask test results.
+    try {
+      await knex("users").where("email", "like", `%-${TAG}@x`).delete();
+      await knex("companies").where("name", `Review Fix Co ${TAG}`).delete();
+      console.log("cleanup: TAG'd test data removed");
+    } catch (cleanupErr) {
+      console.error("cleanup failed (test data left behind):", cleanupErr);
+    }
     await knex.destroy();
   }
 })();

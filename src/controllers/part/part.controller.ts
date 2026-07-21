@@ -7,15 +7,16 @@ import {
   PartUpdateInputDTO,
   PartCascadeInputDTO,
 } from "../../dto/input/part";
-import { ApprovalMachine } from "../../interfaces/part/part.interfaces";
+import {
+  APPROVAL_MACHINES,
+  ApprovalMachine,
+} from "../../interfaces/part/part.interfaces";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
 import {
   enforceCompanyFilter,
   getCompanyFilterUuid,
   getCompanyForCreate,
 } from "../../utils/companyScope";
-
-const MACHINES: ApprovalMachine[] = ["dimensions", "technical", "sketch", "part"];
 
 const REF_TABLES: Record<string, string> = {
   corrugationUuid: "corrugations",
@@ -196,7 +197,7 @@ export class PartController {
         body,
         companyId,
         productId,
-        (req as any).user?.email ?? null,
+        req.user?.email ?? null,
       );
       if (!outcome.ok) {
         res.status(outcome.status).json({ success: false, message: outcome.message });
@@ -277,10 +278,10 @@ export class PartController {
     try {
       const machine = req.params.machine as ApprovalMachine;
       const { action } = req.body;
-      if (!MACHINES.includes(machine)) {
+      if (!(APPROVAL_MACHINES as readonly string[]).includes(machine)) {
         res.status(400).json({
           success: false,
-          message: `machine must be one of: ${MACHINES.join(", ")}`,
+          message: `machine must be one of: ${APPROVAL_MACHINES.join(", ")}`,
         });
         return;
       }
@@ -296,7 +297,7 @@ export class PartController {
         res.status(404).json({ success: false, message: "Part not found" });
         return;
       }
-      const username = (req as any).user?.email ?? "unknown";
+      const username = req.user?.email ?? "unknown";
       const updated = await this.dao.setApproval(existingId, machine, action, username);
       this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated });
@@ -320,7 +321,7 @@ export class PartController {
           const id = await this.dao.getIdByUuid(uuid, companyUuid);
           if (id) ids.push(id);
         }
-        const username = (req as any).user?.email ?? "unknown";
+        const username = req.user?.email ?? "unknown";
         const count =
           action === "approve"
             ? await this.dao.bulkApprove(ids, username)

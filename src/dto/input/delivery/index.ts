@@ -1,3 +1,5 @@
+import { toNumberInput as num } from "../../../utils/numbers";
+
 export class DeliveryZoneCreateInputDTO {
   code?: string;
   description?: string;
@@ -29,8 +31,6 @@ export class DeliveryZoneUpdateInputDTO {
   }
 }
 
-const num = (v: any): number | undefined =>
-  v === undefined ? undefined : typeof v === "string" ? parseFloat(v) : v;
 
 export class DeliveryLocationCreateInputDTO {
   customerUuid: string;

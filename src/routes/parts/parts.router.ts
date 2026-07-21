@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { PartController } from "../../controllers/part/part.controller";
+import { APPROVAL_MACHINES } from "../../interfaces/part/part.interfaces";
 import {
   authenticate,
   requireAdmin,
@@ -84,7 +85,9 @@ export class PartsRouter {
       authenticate,
       (req, res, next) => {
         const machine = String(req.params.machine);
-        const code = ["dimensions", "technical", "sketch", "part"].includes(machine)
+        // Derived from the single source — adding a machine to
+        // APPROVAL_MACHINES automatically maps its parts.approve.* code here.
+        const code = (APPROVAL_MACHINES as readonly string[]).includes(machine)
           ? `parts.approve.${machine}`
           : "parts.approve.part";
         requirePermission(code)(req, res, next);

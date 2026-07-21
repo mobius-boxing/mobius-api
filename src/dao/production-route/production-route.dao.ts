@@ -2,6 +2,7 @@ import { Request } from "express";
 import KnexManager from "../../database/KnexConnection";
 import { IDataPaginator } from "../../database/d.types";
 import {
+  SUPPLY_TABLES,
   IProductionRoute,
   IRouteStage,
   StageSupplyType,
@@ -19,13 +20,9 @@ import {
 import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { v4 as uuidv4 } from "uuid";
 
-export const SUPPLY_TABLES: Record<StageSupplyType, string> = {
-  paper: "paper_supplies",
-  sheet: "paper_sheets",
-  consumable: "consumable_supplies",
-  tooling: "toolings",
-  finishedGood: "finished_goods",
-};
+// Re-exported for existing importers; the definition lives in the interfaces
+// (single source with the type union and the DTO/validator lists).
+export { SUPPLY_TABLES };
 
 const ROUTE_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },

@@ -19,6 +19,9 @@ import {
   ProductUpdateInputDTO,
 } from "../../dto/input/product";
 import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
+import KnexManager from "../../database/KnexConnection";
+import { PartDAO } from "../../dao/part/part.dao";
+import { RbacService } from "../../services/rbac.service";
 import { PartController } from "../part/part.controller";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
 
@@ -31,6 +34,34 @@ export class ProductController implements IBaseController {
   }
 
   private _productDAO: ProductDAO = new ProductDAO();
+
+  /**
+   * Map-driven FK resolution (client sends UUIDs; numeric ids pass through
+   * untouched for internal callers) — shared by create and update.
+   * Returns false when it already responded with a 400.
+   */
+  private async resolveProductRefs(data: any, res: Response): Promise<boolean> {
+    const resolvers: Array<{
+      key: "customerId" | "productTypeId" | "boxTypeId";
+      dao: { getIdByUuid(uuid: string): Promise<number | null> };
+      label: string;
+    }> = [
+      { key: "customerId", dao: new CustomerDAO(), label: "customer" },
+      { key: "productTypeId", dao: new ProductTypeDAO(), label: "product type" },
+      { key: "boxTypeId", dao: new BoxTypeDAO(), label: "box type" },
+    ];
+    for (const { key, dao, label } of resolvers) {
+      if (data[key] && typeof data[key] === "string") {
+        const numericId = await dao.getIdByUuid(data[key]);
+        if (!numericId) {
+          res.status(400).json({ success: false, message: `Invalid ${label}` });
+          return false;
+        }
+        data[key] = numericId;
+      }
+    }
+    return true;
+  }
 
   /**
    * SuperAdmin: filters by companyId from query params.
@@ -88,7 +119,11 @@ export class ProductController implements IBaseController {
   ): Promise<void> {
     try {
       const data = req.body;
-      const user = (req as any).user;
+      const user = req.user;
+      if (!user) {
+        res.status(401).json({ success: false, message: "Authentication required." });
+        return;
+      }
 
       let companyIdNumeric: number;
 
@@ -136,46 +171,7 @@ export class ProductController implements IBaseController {
 
       data.companyId = companyIdNumeric;
 
-      if (data.customerId && typeof data.customerId === "string") {
-        const customerDAO = new CustomerDAO();
-        const customerNumericId = await customerDAO.getIdByUuid(
-          data.customerId,
-        );
-        if (!customerNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid customer",
-          });
-          return;
-        }
-        data.customerId = customerNumericId;
-      }
-
-      if (data.productTypeId && typeof data.productTypeId === "string") {
-        const productTypeDAO = new ProductTypeDAO();
-        const numericId = await productTypeDAO.getIdByUuid(data.productTypeId);
-        if (!numericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid product type",
-          });
-          return;
-        }
-        data.productTypeId = numericId;
-      }
-
-      if (data.boxTypeId && typeof data.boxTypeId === "string") {
-        const boxTypeDAO = new BoxTypeDAO();
-        const numericId = await boxTypeDAO.getIdByUuid(data.boxTypeId);
-        if (!numericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid box type",
-          });
-          return;
-        }
-        data.boxTypeId = numericId;
-      }
+      if (!(await this.resolveProductRefs(data, res))) return;
 
       const inputDTO = new ProductCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -228,7 +224,7 @@ export class ProductController implements IBaseController {
               partBody,
               companyIdNumeric,
               productId,
-              (req as any).user?.email ?? null,
+              req.user?.email ?? null,
             );
           } catch (err) {
             partError = err;
@@ -240,9 +236,6 @@ export class ProductController implements IBaseController {
           if (productId) {
             await this._productDAO.delete(productId);
           } else {
-            const KnexManager = (
-              await import("../../database/KnexConnection")
-            ).default;
             await KnexManager.getConnection()("products")
               .where("uuid", result.uuid)
               .delete();
@@ -292,46 +285,7 @@ export class ProductController implements IBaseController {
         return;
       }
 
-      if (data.customerId && typeof data.customerId === "string") {
-        const customerDAO = new CustomerDAO();
-        const customerNumericId = await customerDAO.getIdByUuid(
-          data.customerId,
-        );
-        if (!customerNumericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid customer",
-          });
-          return;
-        }
-        data.customerId = customerNumericId;
-      }
-
-      if (data.productTypeId && typeof data.productTypeId === "string") {
-        const productTypeDAO = new ProductTypeDAO();
-        const numericId = await productTypeDAO.getIdByUuid(data.productTypeId);
-        if (!numericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid product type",
-          });
-          return;
-        }
-        data.productTypeId = numericId;
-      }
-
-      if (data.boxTypeId && typeof data.boxTypeId === "string") {
-        const boxTypeDAO = new BoxTypeDAO();
-        const numericId = await boxTypeDAO.getIdByUuid(data.boxTypeId);
-        if (!numericId) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid box type",
-          });
-          return;
-        }
-        data.boxTypeId = numericId;
-      }
+      if (!(await this.resolveProductRefs(data, res))) return;
 
       const inputDTO = new ProductUpdateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -464,10 +418,8 @@ export class ProductController implements IBaseController {
         return;
       }
 
-      const username = (req as any).user?.email ?? "unknown";
-      const knex = (
-        await import("../../database/KnexConnection")
-      ).default.getConnection();
+      const username = req.user?.email ?? "unknown";
+      const knex = KnexManager.getConnection();
 
       // Cascade to parts (04-state-and-lifecycle): approving/cancelling the
       // product propagates to its parts' FINAL machine when the client
@@ -478,20 +430,20 @@ export class ProductController implements IBaseController {
         // AUTHZ: the cascade writes the parts' final approval machine — the
         // same write /parts gates behind parts.approve.part. Require it here
         // too (superAdmin bypasses; legacy roleless admins fall back).
-        const user = (req as any).user;
-        if (user?.role !== "superAdmin") {
-          const { RbacService } = await import("../../services/rbac.service");
-          const authz = await RbacService.authzForUserUuid(user.userId);
-          const allowed = authz.hasRole
-            ? authz.codes.includes("parts.approve.part")
-            : user.role === "admin";
-          if (!allowed) {
-            res.status(403).json({
-              success: false,
-              message: "Insufficient permissions. Required: parts.approve.part",
-            });
-            return;
-          }
+        const user = req.user;
+        if (
+          !user ||
+          !(await RbacService.userHasPermission(
+            user.userId,
+            user.role,
+            "parts.approve.part",
+          ))
+        ) {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions. Required: parts.approve.part",
+          });
+          return;
         }
 
         const partCount = await knex("parts")
@@ -507,7 +459,6 @@ export class ProductController implements IBaseController {
           return;
         }
 
-        const { PartDAO } = await import("../../dao/part/part.dao");
         const partDAO = new PartDAO();
         // One transaction, spec order (06 §04): parts first, product LAST —
         // a failed part approval must not leave an approved product behind.

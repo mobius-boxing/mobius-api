@@ -1,7 +1,6 @@
-const num = (v: any): number | undefined =>
-  v === undefined ? undefined : typeof v === "string" ? parseFloat(v) : v;
-const int = (v: any): number | undefined =>
-  v === undefined ? undefined : typeof v === "string" ? parseInt(v, 10) : v;
+import { toNumberInput, toIntInput } from "../../../utils/numbers";
+
+const PALLET_TYPE_NUMERIC = ["length", "width", "weight", "height"] as const;
 
 export class PalletTypeCreateInputDTO {
   code?: string;
@@ -14,29 +13,50 @@ export class PalletTypeCreateInputDTO {
   constructor(data: any) {
     if (data.code !== undefined) this.code = data.code;
     if (data.description !== undefined) this.description = data.description;
-    if (num(data.length) !== undefined) this.length = num(data.length);
-    if (num(data.width) !== undefined) this.width = num(data.width);
-    if (num(data.weight) !== undefined) this.weight = num(data.weight);
-    if (num(data.height) !== undefined) this.height = num(data.height);
+    const self = this as Record<string, unknown>;
+    for (const key of PALLET_TYPE_NUMERIC) {
+      const v = toNumberInput(data[key]);
+      if (v !== undefined) self[key] = v;
+    }
+  }
+
+  protected validateNumerics(): void {
+    const self = this as Partial<Record<(typeof PALLET_TYPE_NUMERIC)[number], number>>;
+    for (const key of PALLET_TYPE_NUMERIC) {
+      const v = self[key];
+      if (v !== undefined && v < 0) throw new Error(`${key} must be non-negative`);
+    }
   }
 
   public build(): this {
+    this.validateNumerics();
     return this;
   }
 }
 
 export class PalletTypeUpdateInputDTO extends PalletTypeCreateInputDTO {
   public build(): this {
-    Object.keys(this).forEach((key) => {
-      if (this[key as keyof this] === undefined) delete this[key as keyof this];
+    this.validateNumerics();
+    const self = this as Record<string, unknown>;
+    Object.keys(self).forEach((key) => {
+      if (self[key] === undefined) delete self[key];
     });
     return this;
   }
 }
 
+const PALLETIZATION_INT = [
+  "boxesPerPackage",
+  "packagesPerLevel",
+  "levelsPerPallet",
+  "additionalPackages",
+  "sheetsPerPallet",
+] as const;
+const PALLETIZATION_NUMERIC = ["maxPalletHeight", "surface"] as const;
+
 export class PalletizationCreateInputDTO {
   code?: string;
-  name: string;
+  name!: string;
   description?: string;
   boxesPerPackage?: number;
   packagesPerLevel?: number;
@@ -53,37 +73,55 @@ export class PalletizationCreateInputDTO {
   palletTypeUuid?: string;
 
   constructor(data: any) {
-    this.name = data.name;
+    if (data.name !== undefined) this.name = data.name;
     if (data.code !== undefined) this.code = data.code;
     if (data.description !== undefined) this.description = data.description;
-    if (int(data.boxesPerPackage) !== undefined) this.boxesPerPackage = int(data.boxesPerPackage);
-    if (int(data.packagesPerLevel) !== undefined) this.packagesPerLevel = int(data.packagesPerLevel);
-    if (int(data.levelsPerPallet) !== undefined) this.levelsPerPallet = int(data.levelsPerPallet);
-    if (int(data.additionalPackages) !== undefined) this.additionalPackages = int(data.additionalPackages);
-    if (int(data.sheetsPerPallet) !== undefined) this.sheetsPerPallet = int(data.sheetsPerPallet);
-    if (num(data.maxPalletHeight) !== undefined) this.maxPalletHeight = num(data.maxPalletHeight);
-    if (num(data.surface) !== undefined) this.surface = num(data.surface);
     if (data.stackingType !== undefined) this.stackingType = data.stackingType;
     if (data.observations !== undefined) this.observations = data.observations;
     if (data.technicalFileUuid !== undefined) this.technicalFileUuid = data.technicalFileUuid;
     if (data.imageFileUuid !== undefined) this.imageFileUuid = data.imageFileUuid;
     if (data.palletTypeUuid !== undefined) this.palletTypeUuid = data.palletTypeUuid;
+    const self = this as Record<string, unknown>;
+    for (const key of PALLETIZATION_INT) {
+      const v = toIntInput(data[key]);
+      if (v !== undefined) self[key] = v;
+    }
+    for (const key of PALLETIZATION_NUMERIC) {
+      const v = toNumberInput(data[key]);
+      if (v !== undefined) self[key] = v;
+    }
+  }
+
+  protected validateNumerics(): void {
+    const self = this as Partial<
+      Record<
+        (typeof PALLETIZATION_INT)[number] | (typeof PALLETIZATION_NUMERIC)[number],
+        number
+      >
+    >;
+    for (const key of [...PALLETIZATION_INT, ...PALLETIZATION_NUMERIC]) {
+      const v = self[key];
+      if (v !== undefined && v < 0) throw new Error(`${key} must be non-negative`);
+    }
   }
 
   public build(): this {
+    // palletizations.name is NOT NULL — inputValidator checks nothing.
+    if (!this.name || !String(this.name).trim())
+      throw new Error("Palletization name is required");
+    this.validateNumerics();
     return this;
   }
 }
 
 export class PalletizationUpdateInputDTO extends PalletizationCreateInputDTO {
-  constructor(data: any) {
-    super(data);
-    if (data.name === undefined) delete (this as any).name;
-  }
-
   public build(): this {
-    Object.keys(this).forEach((key) => {
-      if (this[key as keyof this] === undefined) delete this[key as keyof this];
+    if (this.name !== undefined && !String(this.name).trim())
+      throw new Error("Palletization name cannot be empty");
+    this.validateNumerics();
+    const self = this as Record<string, unknown>;
+    Object.keys(self).forEach((key) => {
+      if (self[key] === undefined) delete self[key];
     });
     return this;
   }

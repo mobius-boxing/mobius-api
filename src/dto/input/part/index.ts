@@ -1,11 +1,5 @@
 import { SCORE_LINES_PATTERN } from "../../../services/score-lines/score-lines.helper";
-
-const num = (v: any): number | undefined =>
-  v === undefined || v === null || v === ""
-    ? undefined
-    : typeof v === "string"
-      ? parseFloat(v)
-      : v;
+import { toNumberInput, toIntInput } from "../../../utils/numbers";
 
 const NUMERIC_KEYS = [
   "boxLength",
@@ -92,18 +86,73 @@ const REF_KEYS = [
   "complementUuid",
 ] as const;
 
-class PartBaseInputDTO {
-  [key: string]: any;
+type NumericKey = (typeof NUMERIC_KEYS)[number];
+type IntKey = (typeof INT_KEYS)[number];
+type BoolKey = (typeof BOOL_KEYS)[number];
+type TextKey = (typeof TEXT_KEYS)[number];
+type FileKey = (typeof FILE_KEYS)[number];
+type RefKey = (typeof REF_KEYS)[number];
+
+/**
+ * Closed allow-list DTO (no index signature — a dynamic assignment must go
+ * through an explicit cast, and consumer typos fail to compile).
+ */
+class PartBaseInputDTO
+  implements
+    Partial<
+      Record<NumericKey | IntKey, number> &
+        Record<BoolKey, boolean> &
+        Record<TextKey | FileKey | RefKey, string | null>
+    >
+{
+  // Numeric (double precision)
+  boxLength?: number; boxWidth?: number; boxHeight?: number;
+  externalLength?: number; externalWidth?: number; externalHeight?: number;
+  sheetLength?: number; sheetWidth?: number; additionalSheetLength?: number;
+  preferredWidth?: number; flap?: number; lowerFlap?: number; upperFlap?: number;
+  flapOverlap?: number; printSides?: number; compressionTest?: number;
+  burstTest?: number; cobbTest?: number; ect?: number; grammage?: number;
+  lengthUpperTolerance?: number; lengthLowerTolerance?: number;
+  widthUpperTolerance?: number; widthLowerTolerance?: number;
+  overrunPercentage?: number; underrunPercentage?: number;
+  corrugationOverproduction?: number; boxSurface?: number; boxWeight?: number;
+  averageWeight?: number; associatedQuantity?: number;
+  // Integer
+  revision?: number; colorCount?: number; labelsPerPallet?: number;
+  // Boolean
+  symmetricScoreLines?: boolean; printCode?: boolean; printDate?: boolean;
+  printRecyclable?: boolean; printWarranty?: boolean; printLogo?: boolean;
+  printNationalIndustry?: boolean; printExport?: boolean;
+  allowsRotation?: boolean; allowsPartialRotation?: boolean;
+  mandatoryRotation?: boolean; allowsGluing?: boolean;
+  // Text
+  clientCode?: string; description?: string; corrugationScoreLines?: string;
+  printScoreLines?: string; inks?: string; labelText?: string;
+  claspClosure?: string; foodSafetyNumber?: string; blueprintRef?: string;
+  notes?: string; quotingNotes?: string;
+  // File refs
+  dataSheetFileUuid?: string | null; sketchFileUuid?: string | null;
+  blueprintFileUuid?: string | null; imageFileUuid?: string | null;
+  // FK refs (UUIDs)
+  productUuid?: string; corrugationUuid?: string; productionRouteUuid?: string;
+  palletizationUuid?: string; flapTypeUuid?: string; glueTypeUuid?: string;
+  strappingTypeUuid?: string; traceTypeUuid?: string; complementUuid?: string;
+  registeredAt?: string | null;
 
   constructor(data: any) {
-    for (const key of NUMERIC_KEYS) if (num(data[key]) !== undefined) this[key] = num(data[key]);
-    for (const key of INT_KEYS)
-      if (data[key] !== undefined && data[key] !== null && data[key] !== "")
-        this[key] = parseInt(String(data[key]), 10);
-    for (const key of BOOL_KEYS) if (data[key] !== undefined) this[key] = data[key] === true;
-    for (const key of TEXT_KEYS) if (data[key] !== undefined) this[key] = data[key];
-    for (const key of FILE_KEYS) if (data[key] !== undefined) this[key] = data[key] || null;
-    for (const key of REF_KEYS) if (data[key] !== undefined) this[key] = data[key];
+    const self = this as Record<string, unknown>;
+    for (const key of NUMERIC_KEYS) {
+      const v = toNumberInput(data[key]);
+      if (v !== undefined) self[key] = v;
+    }
+    for (const key of INT_KEYS) {
+      const v = toIntInput(data[key]);
+      if (v !== undefined) self[key] = v;
+    }
+    for (const key of BOOL_KEYS) if (data[key] !== undefined) self[key] = data[key] === true;
+    for (const key of TEXT_KEYS) if (data[key] !== undefined) self[key] = data[key];
+    for (const key of FILE_KEYS) if (data[key] !== undefined) self[key] = data[key] || null;
+    for (const key of REF_KEYS) if (data[key] !== undefined) self[key] = data[key];
     if (data.registeredAt !== undefined) this.registeredAt = data.registeredAt || null;
   }
 
@@ -116,7 +165,8 @@ class PartBaseInputDTO {
     if (this.additionalSheetLength !== undefined && this.additionalSheetLength < 0)
       throw new Error("Additional sheet length must be non-negative"); // V6
     for (const key of ["corrugationScoreLines", "printScoreLines"] as const) {
-      if (this[key] != null && this[key] !== "" && !SCORE_LINES_PATTERN.test(this[key]))
+      const value = this[key];
+      if (value != null && value !== "" && !SCORE_LINES_PATTERN.test(value))
         throw new Error("Score lines may only contain digits, separators and spaces");
     }
   }
@@ -128,8 +178,10 @@ export class PartCreateInputDTO extends PartBaseInputDTO {
     // auto-creation covers V3); product required (Partes.Producto_Id NOT NULL).
     if (!this.productUuid) throw new Error("productUuid is required");
     if (!this.corrugationUuid) throw new Error("Corrugation is required");
-    if (!(this.sheetLength > 0)) throw new Error("Sheet length must be positive");
-    if (!(this.sheetWidth > 0)) throw new Error("Sheet width must be positive");
+    if (!(this.sheetLength !== undefined && this.sheetLength > 0))
+      throw new Error("Sheet length must be positive");
+    if (!(this.sheetWidth !== undefined && this.sheetWidth > 0))
+      throw new Error("Sheet width must be positive");
     this.validateShared();
     return this;
   }
@@ -138,8 +190,9 @@ export class PartCreateInputDTO extends PartBaseInputDTO {
 export class PartUpdateInputDTO extends PartBaseInputDTO {
   public build(): this {
     this.validateShared();
-    Object.keys(this).forEach((key) => {
-      if (this[key] === undefined) delete this[key];
+    const self = this as Record<string, unknown>;
+    Object.keys(self).forEach((key) => {
+      if (self[key] === undefined) delete self[key];
     });
     return this;
   }
@@ -151,7 +204,10 @@ export class PartCascadeInputDTO {
 
   constructor(data: any) {
     this.field = data.field;
-    this.value = data.value === null || data.value === "" ? null : num(data.value) ?? null;
+    this.value =
+      data.value === null || data.value === ""
+        ? null
+        : (toNumberInput(data.value) ?? null);
   }
 
   public build(): this {

@@ -17,15 +17,20 @@
 
 export const SCORE_LINES_PATTERN = /^[0-9.,; ]*$/;
 
-/** Parse the verbatim text into numbers (comma decimals normalized). */
+/**
+ * Parse the verbatim text into numbers (comma decimals normalized — ALL
+ * commas, not just the first). Tokens that don't parse to a finite
+ * NON-NEGATIVE number are dropped, matching the input mask (which admits no
+ * '-'): parser and validator agree that negatives are invalid.
+ */
 export function parseScoreLines(s: string | null | undefined): number[] {
   if (!s?.trim()) return [];
   return s
     .split(";")
-    .map((t) => t.trim().replace(",", "."))
+    .map((t) => t.trim().replace(/,/g, "."))
     .filter(Boolean)
     .map(Number)
-    .filter((n) => !Number.isNaN(n));
+    .filter((n) => Number.isFinite(n) && n >= 0);
 }
 
 /** Serialize numbers back to the Procusto storage format ("; "-joined). */

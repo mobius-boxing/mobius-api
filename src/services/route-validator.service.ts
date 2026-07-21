@@ -1,4 +1,5 @@
 import {
+  BOCAS_UNIT_TYPES,
   IRouteStage,
   IRouteProblem,
   IRouteValidation,
@@ -28,7 +29,7 @@ const supplyKey = (s: IStageSupply) => `${s.supplyType}:${s.supplyId}`;
  * enter the product (a consumable with reps ≠ 1 skews Bocas — faithful quirk).
  */
 export function stageBocas(stage: IRouteStage): number {
-  const unitTypes = new Set(["sheet", "finishedGood"]);
+  const unitTypes = new Set<string>(BOCAS_UNIT_TYPES);
   const inputs = stage.supplies.filter((s) => s.direction === "input");
   const outputs = stage.supplies.filter((s) => s.direction === "output");
 

@@ -8,17 +8,22 @@ export interface IBaseController {
   delete(req: Request, res: Response, next: NextFunction): Promise<void>;
 }
 
-// Extend Express Request with user property for JWT authentication
+// Extend Express Request with user property for JWT authentication.
+// Shapes match what auth.middleware ACTUALLY assigns: userId and companyId are
+// UUID strings from the JWT (the old number typing was wrong and drove the
+// `(req as any).user` cast epidemic — do not reintroduce it).
 declare global {
   namespace Express {
     interface Request {
       user?: {
-        userId: number;
-        uuid: string;
+        userId: string;
         email: string;
         role: "member" | "admin" | "superAdmin";
-        companyId?: number;
+        companyId?: string;
       };
+      /** Per-request cache filled by requirePermission. */
+      permissionCodes?: string[];
+      permissionHasRole?: boolean;
       // Set by authenticateStore (store customer JWT). Distinct from `user`:
       // an internal request never has `storeUser`, a store request never has `user`.
       // All ids here are UUIDs (the store JWT carries the company UUID, mirroring

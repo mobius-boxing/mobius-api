@@ -1,4 +1,5 @@
 import { Request } from "express";
+import { toNumberOut } from "../../utils/numbers";
 import KnexManager from "../../database/KnexConnection";
 import { IDataPaginator } from "../../database/d.types";
 import { IPalletType } from "../../interfaces/palletization/palletization.interfaces";
@@ -133,7 +134,7 @@ export class PalletTypeDAO {
   }
 
   private mapToInterface(record: any): IPalletType {
-    const num = (v: any) => (v != null ? parseFloat(v) : null);
+    const num = toNumberOut;
     return {
       uuid: record.uuid,
       companyId: record.companyId,

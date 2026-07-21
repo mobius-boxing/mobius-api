@@ -1,10 +1,24 @@
-export type StageSupplyDirection = "input" | "output";
-export type StageSupplyType =
-  | "paper"
-  | "sheet"
-  | "consumable"
-  | "tooling"
-  | "finishedGood";
+/**
+ * Supply-type vocabulary — SINGLE SOURCE. The type union, the DTO's
+ * validation list, the DAO's table lookup, and the validator's unit subset
+ * all derive from this map; adding a type here propagates (or fails to
+ * compile) everywhere.
+ */
+export const SUPPLY_TABLES = {
+  paper: "paper_supplies",
+  sheet: "paper_sheets",
+  consumable: "consumable_supplies",
+  tooling: "toolings",
+  finishedGood: "finished_goods",
+} as const;
+export type StageSupplyType = keyof typeof SUPPLY_TABLES;
+export const SUPPLY_TYPES = Object.keys(SUPPLY_TABLES) as StageSupplyType[];
+
+export const STAGE_DIRECTIONS = ["input", "output"] as const;
+export type StageSupplyDirection = (typeof STAGE_DIRECTIONS)[number];
+
+/** Unit-bearing types for Bocas (CalculosBocas: only these sum as units). */
+export const BOCAS_UNIT_TYPES: StageSupplyType[] = ["sheet", "finishedGood"];
 
 export interface IStageSupply {
   id?: number;

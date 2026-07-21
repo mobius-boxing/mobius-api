@@ -137,6 +137,39 @@ export class RbacService {
     return { hasRole: true, codes: rows.map((r: any) => r.code) };
   }
 
+  /**
+   * THE permission decision — single source for the superAdmin bypass, the
+   * legacy roleless-admin fallback, and the `.readonly` variant. Both the
+   * requirePermission middleware and any controller-level check MUST route
+   * through here; never inline these semantics elsewhere.
+   */
+  static isAllowed(
+    role: string | undefined,
+    hasRole: boolean,
+    codes: string[],
+    code: string,
+    options?: { allowReadOnly?: boolean },
+  ): boolean {
+    if (role === "superAdmin") return true;
+    if (!hasRole) return role === "admin"; // transition fallback (02/08-migration)
+    return (
+      codes.includes(code) ||
+      (options?.allowReadOnly === true && codes.includes(`${code}.readonly`))
+    );
+  }
+
+  /** Uncached convenience: fetch authz then decide (controller-level checks). */
+  static async userHasPermission(
+    userUuid: string,
+    role: string | undefined,
+    code: string,
+    options?: { allowReadOnly?: boolean },
+  ): Promise<boolean> {
+    if (role === "superAdmin") return true;
+    const authz = await this.authzForUserUuid(userUuid);
+    return this.isAllowed(role, authz.hasRole, authz.codes, code, options);
+  }
+
   /** Permission codes for a user (by users.id). Empty when the user has no role. */
   static async permissionCodesForUser(userId: number): Promise<string[]> {
     const knex = KnexManager.getConnection();

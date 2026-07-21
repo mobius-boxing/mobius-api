@@ -1,4 +1,23 @@
-export type ApprovalMachine = "dimensions" | "technical" | "sketch" | "part";
+/**
+ * The four approval state machines (08-approvals.md). Single source — the
+ * controller's dispatch, the router's permission-code mapping, and the DAO's
+ * column map all derive from these constants; adding a fifth machine here
+ * makes every consumer pick it up (or fail to compile).
+ */
+export const APPROVAL_MACHINES = [
+  "dimensions",
+  "technical",
+  "sketch",
+  "part",
+] as const;
+export type ApprovalMachine = (typeof APPROVAL_MACHINES)[number];
+
+/** Bulk ops touch these three — NEVER sketch (Procusto quirk, 08 §bulk). */
+export const BULK_APPROVAL_MACHINES: ApprovalMachine[] = [
+  "dimensions",
+  "technical",
+  "part",
+];
 
 /** One approval state machine's snapshot (08-approvals.md pair semantics). */
 export interface IApprovalState {

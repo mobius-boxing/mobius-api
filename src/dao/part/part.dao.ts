@@ -4,8 +4,10 @@ import KnexManager from "../../database/KnexConnection";
 import { IDataPaginator } from "../../database/d.types";
 import {
   ApprovalMachine,
+  BULK_APPROVAL_MACHINES,
   IPart,
 } from "../../interfaces/part/part.interfaces";
+import { toNumberOut } from "../../utils/numbers";
 import {
   parseQueryParams,
   buildQuery,
@@ -88,8 +90,11 @@ const MACHINE_COLUMNS: Record<
   },
 };
 
-/** Bulk ops touch these three machines — NEVER sketch (Procusto quirk kept). */
-const BULK_MACHINES: ApprovalMachine[] = ["dimensions", "technical", "part"];
+// Bulk machines come from the shared single source (part.interfaces).
+const BULK_MACHINES = BULK_APPROVAL_MACHINES;
+
+/** Rows per part_approval_events INSERT (bind-param cap safety margin). */
+const EVENT_INSERT_CHUNK = 500;
 
 const SCALAR_COLUMNS = [
   "code",
@@ -409,7 +414,10 @@ export class PartDAO {
         updateData[cols.approvedBy] = username;
       }
       const count = await trx(this.tableName).whereIn("id", ids).update(updateData);
-      await trx("part_approval_events").insert(
+      // Chunked like every other event fan-out — a large bulk selection must
+      // not blow the bind-parameter cap in one insert.
+      await this.insertEventsChunked(
+        trx,
         ids.flatMap((partId) =>
           BULK_MACHINES.map((machine) => ({
             partId,
@@ -455,9 +463,8 @@ export class PartDAO {
 
   /** part_approval_events inserts chunked to stay far below the bind-param cap. */
   private async insertEventsChunked(trx: any, rows: any[]): Promise<void> {
-    const CHUNK = 500;
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      await trx("part_approval_events").insert(rows.slice(i, i + CHUNK));
+    for (let i = 0; i < rows.length; i += EVENT_INSERT_CHUNK) {
+      await trx("part_approval_events").insert(rows.slice(i, i + EVENT_INSERT_CHUNK));
     }
   }
 
@@ -657,7 +664,7 @@ export class PartDAO {
   // ── Mapping ──────────────────────────────────────────────────────────────
   // SECURITY: uuid-only surface; numeric ids stripped from nested objects.
   private mapToInterface(record: any): IPart {
-    const num = (v: any) => (v == null ? null : parseFloat(v));
+    const num = toNumberOut;
     const pick = (obj: any, fields: string[]) => {
       if (!obj) return null;
       const out: any = { uuid: obj.uuid };

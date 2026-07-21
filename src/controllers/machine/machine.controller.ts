@@ -30,15 +30,19 @@ export class MachineController extends BaseCrudController<IMachine> {
     res: Response,
     next: NextFunction,
   ): Promise<any | null> {
-    const inputDTO = new MachineCreateInputDTO(req.body).build();
+    let inputDTO: any;
+    try {
+      inputDTO = new MachineCreateInputDTO(req.body).build();
+    } catch (e: any) {
+      // DTO build() throws are validation failures (CLAUDE.md validation rule).
+      req.statusCode = 400;
+      next(new Error(e.message));
+      return null;
+    }
     const validation: IInputValidator = await inputValidator(inputDTO);
     if (!validation.success) {
       req.statusCode = 400;
       next(new Error(validation.message));
-      return null;
-    }
-    if (!inputDTO.machineTypeUuid) {
-      res.status(400).json({ success: false, message: "machineTypeUuid is required" });
       return null;
     }
     return inputDTO;
@@ -49,7 +53,15 @@ export class MachineController extends BaseCrudController<IMachine> {
     _res: Response,
     next: NextFunction,
   ): Promise<any | null> {
-    const inputDTO = new MachineUpdateInputDTO(req.body).build();
+    let inputDTO: any;
+    try {
+      inputDTO = new MachineUpdateInputDTO(req.body).build();
+    } catch (e: any) {
+      // DTO build() throws are validation failures (CLAUDE.md validation rule).
+      req.statusCode = 400;
+      next(new Error(e.message));
+      return null;
+    }
     const validation: IInputValidator = await inputValidator(inputDTO);
     if (!validation.success) {
       req.statusCode = 400;

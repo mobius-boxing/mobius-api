@@ -33,7 +33,15 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
     _res: Response,
     next: NextFunction,
   ): Promise<any | null> {
-    const inputDTO = new PalletizationCreateInputDTO(req.body).build();
+    let inputDTO: any;
+    try {
+      inputDTO = new PalletizationCreateInputDTO(req.body).build();
+    } catch (e: any) {
+      // DTO build() throws are validation failures (CLAUDE.md validation rule).
+      req.statusCode = 400;
+      next(new Error(e.message));
+      return null;
+    }
     const validation: IInputValidator = await inputValidator(inputDTO);
     if (!validation.success) {
       req.statusCode = 400;
@@ -48,7 +56,15 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
     _res: Response,
     next: NextFunction,
   ): Promise<any | null> {
-    const inputDTO = new PalletizationUpdateInputDTO(req.body).build();
+    let inputDTO: any;
+    try {
+      inputDTO = new PalletizationUpdateInputDTO(req.body).build();
+    } catch (e: any) {
+      // DTO build() throws are validation failures (CLAUDE.md validation rule).
+      req.statusCode = 400;
+      next(new Error(e.message));
+      return null;
+    }
     const validation: IInputValidator = await inputValidator(inputDTO);
     if (!validation.success) {
       req.statusCode = 400;

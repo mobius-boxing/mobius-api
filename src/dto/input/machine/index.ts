@@ -1,10 +1,4 @@
-// null and '' are "not provided" — parseFloat('') is NaN and null would land
-// in double precision columns otherwise (matches the part DTO's num()).
-const num = (v: any): number | undefined => {
-  if (v === undefined || v === null || v === "") return undefined;
-  const parsed = typeof v === "string" ? parseFloat(v) : v;
-  return Number.isNaN(parsed) ? undefined : parsed;
-};
+import { toNumberInput, toIntInput } from "../../../utils/numbers";
 
 const NUMERIC_KEYS = [
   "sheetWidthMin",
@@ -23,8 +17,10 @@ const NUMERIC_KEYS = [
   "boxHeightMax",
 ] as const;
 
+type MachineNumericKey = (typeof NUMERIC_KEYS)[number];
+
 export class MachineTypeCreateInputDTO {
-  name: string;
+  name!: string;
   location?: number;
   requiresDie?: boolean;
   requiresPlate?: boolean;
@@ -33,8 +29,9 @@ export class MachineTypeCreateInputDTO {
   generatesSheets?: boolean;
 
   constructor(data: any) {
-    this.name = data.name;
-    if (num(data.location) !== undefined) this.location = num(data.location);
+    if (data.name !== undefined) this.name = data.name;
+    const location = toIntInput(data.location);
+    if (location !== undefined) this.location = location;
     if (data.requiresDie !== undefined) this.requiresDie = data.requiresDie === true;
     if (data.requiresPlate !== undefined) this.requiresPlate = data.requiresPlate === true;
     if (data.attribute !== undefined) this.attribute = data.attribute;
@@ -44,60 +41,88 @@ export class MachineTypeCreateInputDTO {
   }
 
   public build(): this {
+    // machine_types.name is NOT NULL — enforce here; inputValidator checks nothing.
+    if (!this.name || !String(this.name).trim())
+      throw new Error("Machine type name is required");
     return this;
   }
 }
 
 export class MachineTypeUpdateInputDTO extends MachineTypeCreateInputDTO {
-  constructor(data: any) {
-    super(data);
-    if (data.name === undefined) delete (this as any).name;
-  }
-
   public build(): this {
-    Object.keys(this).forEach((key) => {
-      if (this[key as keyof this] === undefined) delete this[key as keyof this];
+    if (this.name !== undefined && !String(this.name).trim())
+      throw new Error("Machine type name cannot be empty");
+    const self = this as Record<string, unknown>;
+    Object.keys(self).forEach((key) => {
+      if (self[key] === undefined) delete self[key];
     });
     return this;
   }
 }
 
+/** Closed allow-list (no index signature — see CLAUDE.md validation rule). */
 export class MachineCreateInputDTO {
   code?: string;
   description?: string;
   // SECURITY: UUIDs from the client, resolved to ids in the controller.
-  machineTypeUuid: string;
+  machineTypeUuid!: string;
   sourceWarehouseUuid?: string;
   destinationWarehouseUuid?: string;
-  [key: string]: any;
+  sheetWidthMin?: number;
+  sheetLengthMin?: number;
+  sheetWidthMax?: number;
+  sheetLengthMax?: number;
+  width?: number;
+  setupTime?: number;
+  maxScoreLines?: number;
+  linearMeters?: number;
+  boxWidthMin?: number;
+  boxWidthMax?: number;
+  boxLengthMin?: number;
+  boxLengthMax?: number;
+  boxHeightMin?: number;
+  boxHeightMax?: number;
 
   constructor(data: any) {
-    this.machineTypeUuid = data.machineTypeUuid;
+    if (data.machineTypeUuid !== undefined) this.machineTypeUuid = data.machineTypeUuid;
     if (data.code !== undefined) this.code = data.code;
     if (data.description !== undefined) this.description = data.description;
     if (data.sourceWarehouseUuid !== undefined)
       this.sourceWarehouseUuid = data.sourceWarehouseUuid;
     if (data.destinationWarehouseUuid !== undefined)
       this.destinationWarehouseUuid = data.destinationWarehouseUuid;
+    const self = this as Record<string, unknown>;
     for (const key of NUMERIC_KEYS) {
-      if (num(data[key]) !== undefined) this[key] = num(data[key]);
+      const v = toNumberInput(data[key]);
+      if (v !== undefined) self[key] = v;
+    }
+  }
+
+  /** Dimensions/times are physically non-negative. */
+  protected validateNumerics(): void {
+    const self = this as Partial<Record<MachineNumericKey, number>>;
+    for (const key of NUMERIC_KEYS) {
+      const v = self[key];
+      if (v !== undefined && v < 0)
+        throw new Error(`${key} must be non-negative`);
     }
   }
 
   public build(): this {
+    if (!this.machineTypeUuid) throw new Error("machineTypeUuid is required");
+    this.validateNumerics();
     return this;
   }
 }
 
 export class MachineUpdateInputDTO extends MachineCreateInputDTO {
-  constructor(data: any) {
-    super(data);
-    if (data.machineTypeUuid === undefined) delete (this as any).machineTypeUuid;
-  }
-
   public build(): this {
-    Object.keys(this).forEach((key) => {
-      if (this[key as keyof this] === undefined) delete this[key as keyof this];
+    if (this.machineTypeUuid !== undefined && !this.machineTypeUuid)
+      throw new Error("machineTypeUuid cannot be empty");
+    this.validateNumerics();
+    const self = this as Record<string, unknown>;
+    Object.keys(self).forEach((key) => {
+      if (self[key] === undefined) delete self[key];
     });
     return this;
   }

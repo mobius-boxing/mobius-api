@@ -408,3 +408,17 @@ Example response structure:
 - Always generate UUID in the controller for new resources (not in DTO or client-side)
 - All API responses must follow the standard format: `{success: boolean, data?: any, message?: string}`
 - Use status 200 for successful DELETE operations (not 204) to include success message
+
+## Controller & validation conventions (added 2026-07-21 after the Sprint 2 review)
+
+- **Controller shape rule**: entities with plain CRUD extend `BaseCrudController` (it owns C2
+  company scoping, fk-catch, audit). Hand-roll a controller ONLY when you need atomic
+  multi-entity writes or non-CRUD verbs — and it must still `implements IBaseController` and
+  reuse the base's helpers where possible. Don't invent a third shape.
+- **Validation rule**: `inputValidator` from @sundaysf/utils only rejects empty objects /
+  undefined properties — it validates NOTHING else. Every DTO must enforce its own required
+  fields and numeric sanity by THROWING inside `build()` (see the part DTOs). A DTO whose
+  build() just `return this` is validation theater.
+- **Authorization rule**: new routers gate writes with `requirePermission(<catalogue code>)`,
+  not bare `requireAdmin()`. All permission logic flows through the single helper in
+  rbac.service — never inline superAdmin/legacy-fallback checks in controllers.

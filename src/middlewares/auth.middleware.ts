@@ -150,7 +150,7 @@ export const requirePermission = (
     res: Response,
     next: NextFunction,
   ): Promise<void> => {
-    const user = (req as any).user;
+    const user = req.user;
     if (!user) {
       res.status(401).json({
         success: false,
@@ -166,37 +166,23 @@ export const requirePermission = (
 
     try {
       // Cache per request — several gates may run on one request.
-      let codes: string[] | undefined = (req as any).permissionCodes;
-      let hasRole: boolean | undefined = (req as any).permissionHasRole;
-      if (codes === undefined) {
+      let codes: string[] | undefined = req.permissionCodes;
+      let hasRole: boolean | undefined = req.permissionHasRole;
+      if (codes === undefined || hasRole === undefined) {
         const { RbacService } = await import("../services/rbac.service");
         // NOTE: UserDAO.getByUuid must not be used here — its mapToInterface
         // drops roleId, which would silently disable the whole grid.
         const authz = await RbacService.authzForUserUuid(user.userId);
         hasRole = authz.hasRole;
         codes = authz.codes;
-        (req as any).permissionCodes = codes;
-        (req as any).permissionHasRole = hasRole;
+        req.permissionCodes = codes;
+        req.permissionHasRole = hasRole;
       }
 
-      if (!hasRole) {
-        // Legacy fallback: no role assigned yet — honor the old enum.
-        if (user.role === "admin") {
-          next();
-          return;
-        }
-        res.status(403).json({
-          success: false,
-          message: `Insufficient permissions. Required: ${code}`,
-        });
-        return;
-      }
-
-      const allowed =
-        codes.includes(code) ||
-        (options?.allowReadOnly === true && codes.includes(`${code}.readonly`));
-
-      if (!allowed) {
+      // Decision semantics live in ONE place (RbacService.isAllowed) — the
+      // superAdmin bypass above is only a fetch-skipping fast path.
+      const { RbacService } = await import("../services/rbac.service");
+      if (!RbacService.isAllowed(user.role, hasRole, codes, code, options)) {
         res.status(403).json({
           success: false,
           message: `Insufficient permissions. Required: ${code}`,

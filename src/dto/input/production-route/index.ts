@@ -1,16 +1,14 @@
-const num = (v: any): number | undefined =>
-  v === undefined || v === null || v === ""
-    ? undefined
-    : typeof v === "string"
-      ? parseFloat(v)
-      : v;
-
-const DIRECTIONS = ["input", "output"];
-const SUPPLY_TYPES = ["paper", "sheet", "consumable", "tooling", "finishedGood"];
+import {
+  STAGE_DIRECTIONS,
+  SUPPLY_TYPES,
+  StageSupplyDirection,
+  StageSupplyType,
+} from "../../../interfaces/production-route/production-route.interfaces";
+import { toNumberInput } from "../../../utils/numbers";
 
 export interface IStageSupplyInput {
-  direction: string;
-  supplyType: string;
+  direction: StageSupplyDirection;
+  supplyType: StageSupplyType;
   supplyUuid: string;
   quantity?: number;
   quantityType?: string;
@@ -33,10 +31,10 @@ export interface IStageInput {
 const sanitizeStages = (stages: any): IStageInput[] | undefined => {
   if (!Array.isArray(stages)) return undefined;
   return stages.map((stage: any) => ({
-    number: num(stage?.number),
+    number: toNumberInput(stage?.number),
     description: stage?.description,
     isCorrugation: stage?.isCorrugation === true,
-    setupTimeMinutes: num(stage?.setupTimeMinutes) ?? 0,
+    setupTimeMinutes: toNumberInput(stage?.setupTimeMinutes) ?? 0,
     machineTypeUuid: stage?.machineTypeUuid,
     machines: Array.isArray(stage?.machines)
       ? stage.machines.map((m: any) => ({
@@ -48,17 +46,17 @@ const sanitizeStages = (stages: any): IStageInput[] | undefined => {
       ? stage.supplies
           .filter(
             (s: any) =>
-              DIRECTIONS.includes(s?.direction) &&
-              SUPPLY_TYPES.includes(s?.supplyType),
+              (STAGE_DIRECTIONS as readonly string[]).includes(s?.direction) &&
+              (SUPPLY_TYPES as readonly string[]).includes(s?.supplyType),
           )
           .map((s: any) => ({
             direction: s.direction,
             supplyType: s.supplyType,
             supplyUuid: s.supplyUuid,
-            quantity: num(s.quantity),
+            quantity: toNumberInput(s.quantity),
             quantityType: s.quantityType,
-            repetitionsWidth: num(s.repetitionsWidth) ?? 1.0,
-            repetitionsLength: num(s.repetitionsLength) ?? 1.0,
+            repetitionsWidth: toNumberInput(s.repetitionsWidth) ?? 1.0,
+            repetitionsLength: toNumberInput(s.repetitionsLength) ?? 1.0,
             allowsSimilar: s.allowsSimilar === true,
             notes: s.notes,
           }))
@@ -66,15 +64,34 @@ const sanitizeStages = (stages: any): IStageInput[] | undefined => {
   }));
 };
 
+/** Physically-nonsensical numerics rejected here; V-rules run at save. */
+const validateStages = (stages: IStageInput[] | undefined): void => {
+  if (!stages) return;
+  for (const stage of stages) {
+    if (stage.setupTimeMinutes !== undefined && stage.setupTimeMinutes < 0)
+      throw new Error("Stage setup time must be non-negative");
+    for (const supply of stage.supplies ?? []) {
+      if (supply.quantity !== undefined && supply.quantity < 0)
+        throw new Error("Stage supply quantity must be non-negative");
+      if (
+        (supply.repetitionsWidth !== undefined && supply.repetitionsWidth < 0) ||
+        (supply.repetitionsLength !== undefined && supply.repetitionsLength < 0)
+      )
+        throw new Error("Stage supply repetitions must be non-negative");
+      if (!supply.supplyUuid) throw new Error("Stage supply must reference a supply");
+    }
+  }
+};
+
 export class ProductionRouteCreateInputDTO {
-  name: string;
+  name!: string;
   isGlobal?: boolean;
   active?: boolean;
   isDefault?: boolean;
   stages?: IStageInput[];
 
   constructor(data: any) {
-    this.name = data.name;
+    if (data.name !== undefined) this.name = data.name;
     if (data.isGlobal !== undefined) this.isGlobal = data.isGlobal === true;
     if (data.active !== undefined) this.active = data.active === true;
     if (data.isDefault !== undefined) this.isDefault = data.isDefault === true;
@@ -83,6 +100,11 @@ export class ProductionRouteCreateInputDTO {
   }
 
   public build(): this {
+    // V1 (name required) is also a save-time Critico, but reject the obvious
+    // case up front — inputValidator itself checks nothing.
+    if (!this.name || !String(this.name).trim())
+      throw new Error("Route name is required");
+    validateStages(this.stages);
     return this;
   }
 }
@@ -94,8 +116,12 @@ export class ProductionRouteUpdateInputDTO extends ProductionRouteCreateInputDTO
   }
 
   public build(): this {
-    Object.keys(this).forEach((key) => {
-      if (this[key as keyof this] === undefined) delete this[key as keyof this];
+    if (this.name !== undefined && !String(this.name).trim())
+      throw new Error("Route name cannot be empty");
+    validateStages(this.stages);
+    const self = this as Record<string, unknown>;
+    Object.keys(self).forEach((key) => {
+      if (self[key] === undefined) delete self[key];
     });
     return this;
   }

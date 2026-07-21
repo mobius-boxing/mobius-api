@@ -1,4 +1,5 @@
 import { Request } from "express";
+import { toNumberOut } from "../../utils/numbers";
 import KnexManager from "../../database/KnexConnection";
 import { IDataPaginator } from "../../database/d.types";
 import { IMachine } from "../../interfaces/machine/machine.interfaces";
@@ -175,7 +176,7 @@ export class MachineDAO {
 
   // SECURITY: uuid-only surface; nested objects stripped of numeric ids.
   private mapToInterface(record: any): IMachine {
-    const num = (v: any) => (v == null ? null : parseFloat(v));
+    const num = toNumberOut;
     const stripType = (obj: any) =>
       obj ? { uuid: obj.uuid, name: obj.name, corrugated: obj.corrugated } : null;
     const stripWh = (obj: any) => (obj ? { uuid: obj.uuid, name: obj.name } : null);

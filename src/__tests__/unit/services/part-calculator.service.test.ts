@@ -43,10 +43,33 @@ describe("PartCalculator", () => {
     expect(part.externalHeight).toBe(300);
   });
 
-  it("null value clears the field without cascading", () => {
+  // PROVISIONAL: the spec does not mandate leaving the paired external stale
+  // when the internal dim is cleared — this characterizes what applyEdit
+  // currently does (skips the external write on null), not verified Procusto
+  // behavior. If the cascade is later fixed to null the pair, update this.
+  it("PROVISIONAL: null value clears the field without cascading (stale external kept)", () => {
     const part = calc.applyEdit({ boxLength: 500, externalLength: 506 }, "boxLength", null, flute, null);
     expect(part.boxLength).toBeNull();
-    expect(part.externalLength).toBe(506); // untouched — no cascade on null
+    expect(part.externalLength).toBe(506); // untouched — current behavior, unverified
+  });
+
+  // ── Edge cases ────────────────────────────────────────────────────────────
+  it("sheetSurface: zero dims give 0, null gives null", () => {
+    expect(calc.sheetSurface(0, 800)).toBe(0);
+    expect(calc.sheetSurface(0, null)).toBeNull();
+  });
+
+  it("grammage 0 override WINS over the corrugation fallback (?? semantics) → weight null", () => {
+    // effectiveGrammage(0, 500) === 0 because 0 ?? 500 is 0 — then boxWeight
+    // guards grammage <= 0 to null. Pins the 0-override branch.
+    expect(calc.effectiveGrammage(0, 500)).toBe(0);
+    expect(calc.boxWeight(2, calc.effectiveGrammage(0, 500))).toBeNull();
+  });
+
+  it("PROVISIONAL: negative dimensions propagate unguarded (current behavior)", () => {
+    const part = calc.applyEdit({}, "boxLength", -100, flute, null);
+    expect(part.boxLength).toBe(-100);
+    expect(part.externalLength).toBe(-100 + (flute.length ?? 0));
   });
 
   it("boxSurface edit recomputes weight from effective grammage", () => {

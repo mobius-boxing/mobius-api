@@ -1,4 +1,5 @@
 import { Request } from "express";
+import { toNumberOut } from "../../utils/numbers";
 import KnexManager from "../../database/KnexConnection";
 import { IDataPaginator } from "../../database/d.types";
 import { IPalletization } from "../../interfaces/palletization/palletization.interfaces";
@@ -161,7 +162,7 @@ export class PalletizationDAO {
 
   // SECURITY: uuid-only surface; numeric ids stripped from nested objects.
   private mapToInterface(record: any): IPalletization {
-    const num = (v: any) => (v != null ? parseFloat(v) : null);
+    const num = toNumberOut;
     const int = (v: any) => (v != null ? parseInt(v, 10) : 0);
     const boxesPerPackage = int(record.boxesPerPackage);
     const packagesPerLevel = int(record.packagesPerLevel);
