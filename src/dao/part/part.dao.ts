@@ -188,13 +188,18 @@ export class PartDAO {
       .where("productId", productId)
       .select("code");
     let max = 0;
-    const prefix = `${product.code}/`;
+    // Anchored strict match per 09-code-generation.md — foreign-shaped codes
+    // ("BOX/3-old", "BOX/3/2") must NOT advance the counter; parseInt would
+    // accept them and miscompute MAX, recreating the duplicate-code bug.
+    const escaped = product.code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`^${escaped}/(\\d+)$`);
     for (const row of rows as Array<{ code: string | null }>) {
-      if (!row.code?.startsWith(prefix)) continue;
-      const n = parseInt(row.code.slice(prefix.length), 10);
-      if (!Number.isNaN(n) && n > max) max = n;
+      const match = row.code ? pattern.exec(row.code) : null;
+      if (!match) continue;
+      const n = parseInt(match[1], 10);
+      if (n > max) max = n;
     }
-    return `${prefix}${max + 1}`;
+    return `${product.code}/${max + 1}`;
   }
 
   // ── Create (transactional; RUTA PROPIA auto-create) ──────────────────────
@@ -208,17 +213,34 @@ export class PartDAO {
     const created = await knex.transaction(async (trx) => {
       let routeId = item.productionRouteId;
       if (!routeId) {
-        const [route] = await trx("production_routes")
-          .insert({
-            uuid: uuidv4(),
+        // 13-production-routes.md edge case 2: prefer the company's default
+        // global active route; only fall back to a private RUTA PROPIA when
+        // none is configured.
+        const defaultRoute = await trx("production_routes")
+          .where({
             companyId: item.companyId,
-            name: `${item.description ?? item.code ?? "Parte"} (RUTA PROPIA)`,
-            isGlobal: false,
+            isDefault: true,
+            isGlobal: true,
             active: true,
-            isDefault: false,
           })
-          .returning("id");
-        routeId = (route as any).id ?? route;
+          .select("id")
+          .first();
+        if (defaultRoute) {
+          routeId = defaultRoute.id;
+        } else {
+          const [route] = await trx("production_routes")
+            .insert({
+              uuid: uuidv4(),
+              companyId: item.companyId,
+              // Empty-prefix parity: Procusto names it from Descripcion only.
+              name: `${item.description ?? ""} (RUTA PROPIA)`,
+              isGlobal: false,
+              active: true,
+              isDefault: false,
+            })
+            .returning("id");
+          routeId = (route as any).id ?? route;
+        }
       }
 
       const code = item.code ?? (await this.generateCode(item.productId!, trx));
@@ -314,9 +336,13 @@ export class PartDAO {
       if (!part) return false;
       const deleted = await trx(this.tableName).where("id", id).delete();
       if (deleted > 0 && part.productionRouteId) {
+        // forUpdate: concurrent deletes of parts sharing a private route
+        // serialize here, so the second deleter sees the first's committed
+        // part removal and the stillUsed check can't race to a leaked route.
         const route = await trx("production_routes")
           .where("id", part.productionRouteId)
           .select("id", "isGlobal")
+          .forUpdate()
           .first();
         if (route && route.isGlobal === false) {
           const stillUsed = await trx(this.tableName)
@@ -409,18 +435,80 @@ export class PartDAO {
         updateData[cols.approvedBy] = "";
       }
       const count = await trx(this.tableName).whereIn("id", ids).update(updateData);
-      await trx("part_approval_events").insert(
+      // 'unapprove', not 'cancel': the resulting state is PENDING (approvals
+      // nulled, cancellations untouched) — logging 'cancel' would over-count
+      // cancellations in history reconstruction.
+      await this.insertEventsChunked(
+        trx,
         ids.flatMap((partId) =>
           BULK_MACHINES.map((machine) => ({
             partId,
             stateMachine: machine,
-            action: "cancel",
+            action: "unapprove",
             performedBy: username,
           })),
         ),
       );
       return count;
     });
+  }
+
+  /** part_approval_events inserts chunked to stay far below the bind-param cap. */
+  private async insertEventsChunked(trx: any, rows: any[]): Promise<void> {
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await trx("part_approval_events").insert(rows.slice(i, i + CHUNK));
+    }
+  }
+
+  /**
+   * Product-approval cascade core (module 06 §04) — runs inside the CALLER's
+   * transaction. Approve targets currently-UNAPPROVED parts; cancel targets
+   * currently-APPROVED parts (a PENDING part must never be driven to
+   * CANCELLED). Full pair semantics per part + chunked event rows.
+   * Returns the affected part ids.
+   */
+  async cascadeApprovalTrx(
+    trx: any,
+    productId: number,
+    action: "approve" | "cancel",
+    username: string,
+  ): Promise<number[]> {
+    const cols = MACHINE_COLUMNS.part;
+    const targets = await trx(this.tableName)
+      .where("productId", productId)
+      .modify((q: any) =>
+        action === "approve"
+          ? q.whereNull(cols.approvedAt)
+          : q.whereNotNull(cols.approvedAt),
+      )
+      .select("id");
+    const ids = targets.map((t: any) => t.id);
+    if (!ids.length) return ids;
+
+    const updateData: any = { updatedAt: trx.fn.now() };
+    if (action === "approve") {
+      updateData[cols.approvedAt] = trx.fn.now();
+      updateData[cols.approvedBy] = username;
+      updateData[cols.cancelledAt] = null;
+      updateData[cols.cancelledBy] = null;
+    } else {
+      updateData[cols.cancelledAt] = trx.fn.now();
+      updateData[cols.cancelledBy] = username;
+      updateData[cols.approvedAt] = null;
+      updateData[cols.approvedBy] = null;
+    }
+    await trx(this.tableName).whereIn("id", ids).update(updateData);
+    await this.insertEventsChunked(
+      trx,
+      ids.map((partId: number) => ({
+        partId,
+        stateMachine: "part",
+        action,
+        performedBy: username,
+      })),
+    );
+    return ids;
   }
 
   // ── Cascade (06-cascade-and-dimensions.md, Modelo-less paths) ────────────
@@ -430,58 +518,66 @@ export class PartDAO {
     value: number | null,
   ): Promise<IPart | null> {
     const knex = KnexManager.getConnection();
-    const row = await knex(this.tableName).where("id", id).first();
-    if (!row) return null;
+    // Transaction + row lock: two concurrent cascades on the same part must
+    // serialize, or each computes from the pre-other-write state and the
+    // second silently clobbers the first's cascaded values.
+    const updated = await knex.transaction(async (trx) => {
+      const row = await trx(this.tableName).where("id", id).forUpdate().first();
+      if (!row) return null;
 
-    // The corrugation's FIRST flute (lowest-position layer with a flute type).
-    const flute = await knex("corrugation_layers as cl")
-      .join("flute_types as ft", "cl.fluteTypeId", "ft.id")
-      .where("cl.corrugationId", row.corrugationId)
-      .whereNotNull("cl.fluteTypeId")
-      .orderBy("cl.position", "asc")
-      .select("ft.length", "ft.width", "ft.height")
-      .first();
-    const corrugation = await knex("corrugations")
-      .where("id", row.corrugationId)
-      .select("theoreticalGrammage")
-      .first();
+      // The corrugation's FIRST flute (lowest-position layer with a flute type).
+      // QA-VERIFY: Procusto reads TiposDeOnda().First() — collection order
+      // assumed to be layer position; see review finding on multi-wall boards.
+      const flute = await trx("corrugation_layers as cl")
+        .join("flute_types as ft", "cl.fluteTypeId", "ft.id")
+        .where("cl.corrugationId", row.corrugationId)
+        .whereNotNull("cl.fluteTypeId")
+        .orderBy("cl.position", "asc")
+        .select("ft.length", "ft.width", "ft.height")
+        .first();
+      const corrugation = await trx("corrugations")
+        .where("id", row.corrugationId)
+        .select("theoreticalGrammage")
+        .first();
 
-    const adjustments: IFluteAdjustments | null = flute
-      ? {
-          length: flute.length != null ? parseFloat(flute.length) : null,
-          width: flute.width != null ? parseFloat(flute.width) : null,
-          height: flute.height != null ? parseFloat(flute.height) : null,
-        }
-      : null;
+      const adjustments: IFluteAdjustments | null = flute
+        ? {
+            length: flute.length != null ? parseFloat(flute.length) : null,
+            width: flute.width != null ? parseFloat(flute.width) : null,
+            height: flute.height != null ? parseFloat(flute.height) : null,
+          }
+        : null;
 
-    const part = this.calculator.applyEdit(
-      { ...row },
-      field,
-      value,
-      adjustments,
-      corrugation?.theoreticalGrammage != null
-        ? parseFloat(corrugation.theoreticalGrammage)
-        : null,
-    );
+      const part = this.calculator.applyEdit(
+        { ...row },
+        field,
+        value,
+        adjustments,
+        corrugation?.theoreticalGrammage != null
+          ? parseFloat(corrugation.theoreticalGrammage)
+          : null,
+      );
 
-    const changed: any = { updatedAt: knex.fn.now() };
-    for (const key of [
-      "boxLength",
-      "boxWidth",
-      "boxHeight",
-      "externalLength",
-      "externalWidth",
-      "externalHeight",
-      "boxSurface",
-      "boxWeight",
-      "grammage",
-    ] as const) {
-      if ((part as any)[key] !== row[key]) changed[key] = (part as any)[key];
-    }
-    const [updated] = await knex(this.tableName)
-      .where("id", id)
-      .update(changed)
-      .returning("*");
+      const changed: any = { updatedAt: trx.fn.now() };
+      for (const key of [
+        "boxLength",
+        "boxWidth",
+        "boxHeight",
+        "externalLength",
+        "externalWidth",
+        "externalHeight",
+        "boxSurface",
+        "boxWeight",
+        "grammage",
+      ] as const) {
+        if ((part as any)[key] !== row[key]) changed[key] = (part as any)[key];
+      }
+      const [result] = await trx(this.tableName)
+        .where("id", id)
+        .update(changed)
+        .returning("*");
+      return result ?? null;
+    });
     return updated ? await this.getByUuid(updated.uuid) : null;
   }
 
@@ -575,7 +671,21 @@ export class PartDAO {
     }
 
     const part: IPart = { uuid: record.uuid, companyId: record.companyId };
+    // FK id columns stay internal — the response surface is uuid-only via the
+    // nested objects below (matches every other Sprint-2 DAO).
+    const FK_ID_COLUMNS = new Set([
+      "corrugationId",
+      "productionRouteId",
+      "palletizationId",
+      "modelId",
+      "flapTypeId",
+      "glueTypeId",
+      "strappingTypeId",
+      "traceTypeId",
+      "complementId",
+    ]);
     for (const key of SCALAR_COLUMNS) {
+      if (FK_ID_COLUMNS.has(key)) continue;
       (part as any)[key] = record[key];
     }
     // Transients (01-entity.md computed properties)

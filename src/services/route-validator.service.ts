@@ -173,13 +173,14 @@ export function validateRoute(route: {
         message: `La etapa ${n} tiene insumos de salida repetidos.`,
       });
     }
-    // V10/V11 Critico — no negative quantities (null allowed pre-module-11)
+    // V10/V11 Critico — Procusto's !Cantidad.NoNegativa() rejects null too,
+    // and 13-production-routes.md pins "no null/zero quantities".
     for (const supply of stage.supplies) {
-      if (supply.quantity != null && supply.quantity < 0) {
+      if (supply.quantity == null || supply.quantity <= 0) {
         critical.push({
           code: supply.direction === "input" ? "V10" : "V11",
           stageNumber: n,
-          message: `La etapa ${n} tiene un insumo con cantidad negativa.`,
+          message: `La etapa ${n} tiene un insumo sin cantidad (o con cantidad no positiva).`,
         });
       }
     }

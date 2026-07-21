@@ -347,8 +347,9 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     id: number,
     action: "approve" | "cancel",
     username: string,
+    trx?: any,
   ): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = trx ?? KnexManager.getConnection();
     const updateData =
       action === "approve"
         ? {

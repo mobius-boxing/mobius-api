@@ -1,5 +1,10 @@
-const num = (v: any): number | undefined =>
-  v === undefined ? undefined : typeof v === "string" ? parseFloat(v) : v;
+// null and '' are "not provided" — parseFloat('') is NaN and null would land
+// in double precision columns otherwise (matches the part DTO's num()).
+const num = (v: any): number | undefined => {
+  if (v === undefined || v === null || v === "") return undefined;
+  const parsed = typeof v === "string" ? parseFloat(v) : v;
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
 
 const NUMERIC_KEYS = [
   "sheetWidthMin",

@@ -233,7 +233,9 @@ export async function up(knex: Knex): Promise<void> {
     table
       .enu("stateMachine", ["dimensions", "technical", "sketch", "part"])
       .notNullable();
-    table.enu("action", ["approve", "cancel"]).notNullable();
+    // 'unapprove' = bulk-unapprove's PENDING-restoring nulling (distinct from
+    // 'cancel', which stamps the cancellation pair).
+    table.enu("action", ["approve", "cancel", "unapprove"]).notNullable();
     table.text("performedBy");
     table
       .timestamp("performedAt", { useTz: true })

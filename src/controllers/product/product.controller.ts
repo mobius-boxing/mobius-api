@@ -212,29 +212,45 @@ export class ProductController implements IBaseController {
       let initialPart: any = null;
       if (data.initialPart !== undefined && data.initialPart !== null) {
         const productId = await getIdByUuid(result.uuid!, "products");
-        const partController = new PartController();
-        const partBody = {
-          ...data.initialPart,
-          productUuid: result.uuid,
-          description: data.initialPart.description ?? inputDTO.description,
-        };
         let outcome:
           | Awaited<ReturnType<PartController["createPartFromInput"]>>
           | null = null;
         let partError: any = null;
-        try {
-          outcome = await partController.createPartFromInput(
-            partBody,
-            companyIdNumeric,
-            productId!,
-            (req as any).user?.email ?? null,
-          );
-        } catch (err) {
-          partError = err;
+        if (productId) {
+          const partController = new PartController();
+          const partBody = {
+            ...data.initialPart,
+            productUuid: result.uuid,
+            description: data.initialPart.description ?? inputDTO.description,
+          };
+          try {
+            outcome = await partController.createPartFromInput(
+              partBody,
+              companyIdNumeric,
+              productId,
+              (req as any).user?.email ?? null,
+            );
+          } catch (err) {
+            partError = err;
+          }
         }
         if (!outcome || !outcome.ok) {
-          if (productId) await this._productDAO.delete(productId);
+          // The compensating delete must ALWAYS run — including when the id
+          // lookup itself failed (a partless "simple" product must not survive).
+          if (productId) {
+            await this._productDAO.delete(productId);
+          } else {
+            const KnexManager = (
+              await import("../../database/KnexConnection")
+            ).default;
+            await KnexManager.getConnection()("products")
+              .where("uuid", result.uuid)
+              .delete();
+          }
           if (partError) throw partError;
+          if (!productId) {
+            throw new Error("Product id resolution failed during simple-product create");
+          }
           res.status((outcome as any)?.status ?? 400).json({
             success: false,
             message: `Initial part: ${(outcome as any)?.message ?? "creation failed"}`,
@@ -449,29 +465,66 @@ export class ProductController implements IBaseController {
       }
 
       const username = (req as any).user?.email ?? "unknown";
-      const result = await this._productDAO.setApproval(
-        existingId,
-        action,
-        username,
-      );
+      const knex = (
+        await import("../../database/KnexConnection")
+      ).default.getConnection();
 
       // Cascade to parts (04-state-and-lifecycle): approving/cancelling the
       // product propagates to its parts' FINAL machine when the client
       // confirms (cascade: true).
       let cascaded = 0;
+      let result: any;
       if (req.body?.cascade === true) {
+        // AUTHZ: the cascade writes the parts' final approval machine — the
+        // same write /parts gates behind parts.approve.part. Require it here
+        // too (superAdmin bypasses; legacy roleless admins fall back).
+        const user = (req as any).user;
+        if (user?.role !== "superAdmin") {
+          const { RbacService } = await import("../../services/rbac.service");
+          const authz = await RbacService.authzForUserUuid(user.userId);
+          const allowed = authz.hasRole
+            ? authz.codes.includes("parts.approve.part")
+            : user.role === "admin";
+          if (!allowed) {
+            res.status(403).json({
+              success: false,
+              message: "Insufficient permissions. Required: parts.approve.part",
+            });
+            return;
+          }
+        }
+
+        const partCount = await knex("parts")
+          .where("productId", existingId)
+          .count("* as count")
+          .first();
+        if (parseInt(partCount?.count as string, 10) > 500) {
+          res.status(400).json({
+            success: false,
+            message:
+              "Cascade limited to 500 parts per operation. Approve parts in bulk from the parts list instead.",
+          });
+          return;
+        }
+
         const { PartDAO } = await import("../../dao/part/part.dao");
         const partDAO = new PartDAO();
-        const knex = (
-          await import("../../database/KnexConnection")
-        ).default.getConnection();
-        const parts = await knex("parts")
-          .where("productId", existingId)
-          .select("id");
-        for (const part of parts) {
-          await partDAO.setApproval(part.id, "part", action, username);
-          cascaded++;
-        }
+        // One transaction, spec order (06 §04): parts first, product LAST —
+        // a failed part approval must not leave an approved product behind.
+        // Approve targets un-approved parts; cancel targets approved parts
+        // only (PENDING parts stay pending).
+        result = await knex.transaction(async (trx: any) => {
+          const ids = await partDAO.cascadeApprovalTrx(
+            trx,
+            existingId,
+            action,
+            username,
+          );
+          cascaded = ids.length;
+          return this._productDAO.setApproval(existingId, action, username, trx);
+        });
+      } else {
+        result = await this._productDAO.setApproval(existingId, action, username);
       }
 
       this.recordAudit(req, "Modificacion", { ...(result as any), cascaded });
