@@ -77,6 +77,13 @@ jest.mock('@sundaysf/utils', () => ({
 // Export mock functions for access in the mock
 export { mockFunctions };
 
+// Company injection (base-crud) resolves the caller's company via the
+// shared foreignKeyResolver — stub it so create paths get companyId 1.
+jest.mock('../../../utils/foreignKeyResolver', () => ({
+  ...jest.requireActual('../../../utils/foreignKeyResolver'),
+  getIdByUuid: jest.fn().mockResolvedValue(1),
+}));
+
 // Import controller after mocking
 import { CorrugationClassController } from '../../../controllers/corrugation-class/corrugation-class.controller';
 
@@ -203,7 +210,7 @@ describe('CorrugationClassController', () => {
       });
       mockFunctions.create.mockResolvedValue(createdData);
 
-      const mockReq = createBodyRequest(inputData) as Request;
+      const mockReq = createBodyRequest(inputData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -225,7 +232,7 @@ describe('CorrugationClassController', () => {
       const inputData = { code: 'NEW001', description: 'New Class' };
       mockFunctions.create.mockResolvedValue(createTestCorrugationClassResponse());
 
-      const mockReq = createBodyRequest(inputData) as Request;
+      const mockReq = createBodyRequest(inputData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -239,7 +246,7 @@ describe('CorrugationClassController', () => {
     it('should call next with error on validation failure', async () => {
       // Empty code should fail validation
       const invalidData = { code: '', description: 'Test' };
-      const mockReq = createBodyRequest(invalidData) as Request;
+      const mockReq = createBodyRequest(invalidData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -253,7 +260,10 @@ describe('CorrugationClassController', () => {
       const error = new Error('Database error');
       mockFunctions.create.mockRejectedValue(error);
 
-      const mockReq = createBodyRequest({ code: 'NEW001' }) as Request;
+      const mockReq = createBodyRequest(
+        { code: 'NEW001' },
+        { user: { role: 'admin', companyId: 'company-uuid' } } as any,
+      ) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 

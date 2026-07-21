@@ -89,6 +89,13 @@ jest.mock('@sundaysf/utils', () => ({
 // Export mock functions for access in the mock
 export { mockCorrugationDAO, mockCorrugationClassDAO };
 
+// Company injection (base-crud) resolves the caller's company via the
+// shared foreignKeyResolver — stub it so create paths get companyId 1.
+jest.mock('../../../utils/foreignKeyResolver', () => ({
+  ...jest.requireActual('../../../utils/foreignKeyResolver'),
+  getIdByUuid: jest.fn().mockResolvedValue(1),
+}));
+
 // Import controller after mocking
 import { CorrugationController } from '../../../controllers/corrugation/corrugation.controller';
 
@@ -202,7 +209,7 @@ describe('CorrugationController', () => {
       mockCorrugationClassDAO.getIdByUuid.mockResolvedValue(5); // class internal ID
       mockCorrugationDAO.create.mockResolvedValue(createdData);
 
-      const mockReq = createBodyRequest(inputData) as Request;
+      const mockReq = createBodyRequest(inputData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -229,7 +236,7 @@ describe('CorrugationController', () => {
 
       mockCorrugationDAO.create.mockResolvedValue(createdData);
 
-      const mockReq = createBodyRequest(inputData) as Request;
+      const mockReq = createBodyRequest(inputData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -246,7 +253,7 @@ describe('CorrugationController', () => {
 
       mockCorrugationClassDAO.getIdByUuid.mockResolvedValue(null);
 
-      const mockReq = createBodyRequest(inputData) as Request;
+      const mockReq = createBodyRequest(inputData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -259,7 +266,7 @@ describe('CorrugationController', () => {
 
     it('should call next with error on validation failure', async () => {
       const invalidData = { code: '', description: 'Test' };
-      const mockReq = createBodyRequest(invalidData) as Request;
+      const mockReq = createBodyRequest(invalidData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -414,10 +421,10 @@ describe('CorrugationController', () => {
       mockCorrugationClassDAO.getIdByUuid.mockResolvedValue(classId);
       mockCorrugationDAO.create.mockResolvedValue(createTestCorrugationResponse());
 
-      const mockReq = createBodyRequest({
-        code: 'NEW001',
-        corrugationClassUuid: classUuid,
-      }) as Request;
+      const mockReq = createBodyRequest(
+        { code: 'NEW001', corrugationClassUuid: classUuid },
+        { user: { role: 'admin', companyId: 'company-uuid' } } as any,
+      ) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
