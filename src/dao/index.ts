@@ -72,3 +72,6 @@ export * from "./palletization/palletization.dao";
 
 // Production Route DAO
 export * from "./production-route/production-route.dao";
+
+// Part DAO
+export * from "./part/part.dao";

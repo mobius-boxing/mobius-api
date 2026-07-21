@@ -380,8 +380,8 @@ export class ProductController implements IBaseController {
    * PATCH /product/:uuid/approval — { action: 'approve' | 'cancel' }.
    * Pair semantics per module 06 §04: approve clears cancellation and vice
    * versa; the acting user's email is stored as a denormalized snapshot.
-   * TODO(slice 2.5): cascade approve/cancel to the product's parts once the
-   * parts entity exists (confirm-dialog driven, per 04-state-and-lifecycle).
+   * With { cascade: true }, the action propagates to the product's parts
+   * (the confirm dialog drives the flag — 04-state-and-lifecycle cascade).
    */
   public async setApproval(
     req: Request,
@@ -413,9 +413,28 @@ export class ProductController implements IBaseController {
         username,
       );
 
-      this.recordAudit(req, "Modificacion", result);
+      // Cascade to parts (04-state-and-lifecycle): approving/cancelling the
+      // product propagates to its parts' FINAL machine when the client
+      // confirms (cascade: true).
+      let cascaded = 0;
+      if (req.body?.cascade === true) {
+        const { PartDAO } = await import("../../dao/part/part.dao");
+        const partDAO = new PartDAO();
+        const knex = (
+          await import("../../database/KnexConnection")
+        ).default.getConnection();
+        const parts = await knex("parts")
+          .where("productId", existingId)
+          .select("id");
+        for (const part of parts) {
+          await partDAO.setApproval(part.id, "part", action, username);
+          cascaded++;
+        }
+      }
 
-      res.status(200).json({ success: true, data: result });
+      this.recordAudit(req, "Modificacion", { ...(result as any), cascaded });
+
+      res.status(200).json({ success: true, data: result, cascaded });
     } catch (err: any) {
       next(err);
     }
