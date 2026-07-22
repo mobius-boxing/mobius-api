@@ -33,11 +33,20 @@ export class RoleController {
   private audit = new AuditService();
 
   private async callerCompanyId(req: Request, res: Response): Promise<number | null> {
-    const companyUuid = (req as any).user?.companyId;
+    // superAdmin operating-as: company comes from the body (getCompanyForCreate
+    // semantics); regular users' company always comes from their JWT.
+    const user = (req as any).user;
+    const companyUuid =
+      user?.role === "superAdmin"
+        ? (req.body?.companyId as string | undefined) ?? user?.companyId
+        : user?.companyId;
     if (!companyUuid) {
       res.status(400).json({
         success: false,
-        message: "No company associated with the current user.",
+        message:
+          user?.role === "superAdmin"
+            ? "SuperAdmin must specify a company"
+            : "No company associated with the current user.",
       });
       return null;
     }
