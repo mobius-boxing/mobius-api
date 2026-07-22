@@ -37,12 +37,10 @@ export class PaperSupplyController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
       const companyId = getCompanyFilterUuid(req);
 
       const result: IDataPaginator<IPaperSupply> =
-        await this._paperSupplyDAO.getAll(page, limit, companyId);
+        await this._paperSupplyDAO.getAllWithFilters(req, companyId);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);
@@ -240,8 +238,12 @@ export class PaperSupplyController implements IBaseController {
       const companyId = getCompanyFilterUuid(req);
 
       // companyId filter doubles as ownership check (404 if not in user's company).
+      // mapToInterface strips the numeric id, so resolve it separately.
       const existing = await this._paperSupplyDAO.getByUuid(uuid, companyId);
-      if (!existing || !existing.id) {
+      const existingId = existing
+        ? await this._paperSupplyDAO.getIdByUuid(uuid)
+        : null;
+      if (!existing || !existingId) {
         res.status(404).json({
           success: false,
           message: "Paper supply not found",
@@ -313,7 +315,7 @@ export class PaperSupplyController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      const result = await this._paperSupplyDAO.update(existing.id, inputDTO);
+      const result = await this._paperSupplyDAO.update(existingId, inputDTO);
 
       this.recordAudit(req, "Modificacion", result);
 
@@ -337,8 +339,12 @@ export class PaperSupplyController implements IBaseController {
       const companyId = getCompanyFilterUuid(req);
 
       // companyId filter doubles as ownership check (404 if not in user's company).
+      // mapToInterface strips the numeric id, so resolve it separately.
       const existing = await this._paperSupplyDAO.getByUuid(uuid, companyId);
-      if (!existing || !existing.id) {
+      const existingId = existing
+        ? await this._paperSupplyDAO.getIdByUuid(uuid)
+        : null;
+      if (!existing || !existingId) {
         res.status(404).json({
           success: false,
           message: "Paper supply not found",
@@ -346,7 +352,7 @@ export class PaperSupplyController implements IBaseController {
         return;
       }
 
-      const result = await this._paperSupplyDAO.delete(existing.id);
+      const result = await this._paperSupplyDAO.delete(existingId);
 
       if (result) this.recordAudit(req, "Baja", existing ?? { uuid: req.params.uuid });
 
