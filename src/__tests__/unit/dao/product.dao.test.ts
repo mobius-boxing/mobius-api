@@ -38,6 +38,10 @@ describe('ProductDAO', () => {
     mockKnex = jest.fn().mockReturnValue(mockQueryBuilder);
     (mockKnex as any).fn = { now: jest.fn().mockReturnValue(new Date().toISOString()) };
     (mockKnex as any).raw = jest.fn().mockReturnValue('');
+    (mockKnex as any).transaction = jest.fn(async (cb: any) => cb(mockKnex));
+    (mockQueryBuilder as any).pluck = jest.fn().mockResolvedValue([]);
+    (mockQueryBuilder as any).whereNotExists = jest.fn(() => mockQueryBuilder);
+    (mockQueryBuilder as any).whereRaw = jest.fn(() => mockQueryBuilder);
 
     dao = new ProductDAO();
   });

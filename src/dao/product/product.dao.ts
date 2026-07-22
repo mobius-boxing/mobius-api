@@ -143,9 +143,31 @@ export class ProductDAO implements IBaseDAO<IProduct> {
 
   async delete(id: number): Promise<boolean> {
     const knex = KnexManager.getConnection();
-    const deleted = await knex(this.tableName).where("id", id).delete();
+    return knex.transaction(async (trx) => {
+      // parts.productId is ON DELETE CASCADE, so PartDAO.delete's private-route
+      // cleanup never runs on product deletion — collect the parts' route ids
+      // first and drop any now-unreferenced RUTA PROPIA afterwards.
+      const routeIds = (await trx("parts")
+        .where("productId", id)
+        .whereNotNull("productionRouteId")
+        .pluck("productionRouteId")) as number[];
 
-    return deleted > 0;
+      const deleted = await trx(this.tableName).where("id", id).delete();
+
+      if (deleted > 0 && routeIds.length) {
+        await trx("production_routes")
+          .whereIn("id", routeIds)
+          .where("isGlobal", false)
+          .whereNotExists(
+            trx("parts").whereRaw(
+              'parts."productionRouteId" = production_routes.id',
+            ),
+          )
+          .delete();
+      }
+
+      return deleted > 0;
+    });
   }
 
   async getAll(
