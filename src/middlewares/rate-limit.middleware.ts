@@ -43,6 +43,13 @@ const jsonHandler = (message: string) => {
  * Factory mirroring the previous signature so existing call sites keep working:
  * createRateLimiter(max, windowMinutes, message?, routeKey?).
  */
+/** Env-overridable limit: RATE_LIMIT_<KEY>_MAX, falling back to the default. */
+const envMax = (key: string, fallback: number): number => {
+  const raw = process.env[`RATE_LIMIT_${key}_MAX`];
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 export const createRateLimiter = (
   max: number,
   windowMinutes: number,
@@ -75,20 +82,20 @@ export const authRateLimiter = createRateLimiter(
 );
 
 export const apiRateLimiter = createRateLimiter(
-  100,
+  envMax("API", 600),
   15,
   "API rate limit exceeded. Please try again later.",
 );
 
 export const publicRateLimiter = createRateLimiter(
-  200,
+  envMax("PUBLIC", 400),
   15,
   "Rate limit exceeded. Please try again later.",
 );
 
 // Global default limiter mounted in app.ts.
 export const globalRateLimiter = createRateLimiter(
-  300,
+  envMax("GLOBAL", 2000),
   15,
   "Rate limit exceeded. Please try again later.",
   "global",
