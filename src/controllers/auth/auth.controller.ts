@@ -19,7 +19,6 @@ import {
 import { EmailService } from "../../services/email.service";
 import { generateToken } from "../../middlewares/auth.middleware";
 import { validatePassword, BCRYPT_COST } from "../../utils/passwordPolicy";
-import { hashToken } from "../../utils/tokenHash";
 
 export class AuthController {
   private _userDAO: UserDAO = new UserDAO();

@@ -12,7 +12,7 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { InvitationCreateInputDTO } from "../../dto/input/invitation";
 import { CompanyDAO } from "../../dao/company/company.dao";
-import { getCompanyFilterUuid, getCompanyScope } from "../../utils/companyScope";
+import { getCompanyFilterUuid } from "../../utils/companyScope";
 
 // SECURITY (C4): role hierarchy used to forbid escalation via invitations.
 const ROLE_RANK: Record<string, number> = {
@@ -33,7 +33,8 @@ export class InvitationsController implements IBaseController {
     try {
       const { companyId } = req.query;
 
-      const knex = require("../../database/KnexConnection").default.getConnection();
+      const knex =
+        require("../../database/KnexConnection").default.getConnection();
 
       let query = knex("invitations");
 
@@ -44,25 +45,23 @@ export class InvitationsController implements IBaseController {
         }
       }
 
-      const [
-        totalResult,
-        pendingResult,
-        acceptedResult,
-        expiredResult,
-      ] = await Promise.all([
-        query.clone().count("* as count").first(),
-        query.clone()
-          .where("isUsed", false)
-          .where("expiresAt", ">", knex.fn.now())
-          .count("* as count").first(),
-        query.clone()
-          .where("isUsed", true)
-          .count("* as count").first(),
-        query.clone()
-          .where("isUsed", false)
-          .where("expiresAt", "<=", knex.fn.now())
-          .count("* as count").first(),
-      ]);
+      const [totalResult, pendingResult, acceptedResult, expiredResult] =
+        await Promise.all([
+          query.clone().count("* as count").first(),
+          query
+            .clone()
+            .where("isUsed", false)
+            .where("expiresAt", ">", knex.fn.now())
+            .count("* as count")
+            .first(),
+          query.clone().where("isUsed", true).count("* as count").first(),
+          query
+            .clone()
+            .where("isUsed", false)
+            .where("expiresAt", "<=", knex.fn.now())
+            .count("* as count")
+            .first(),
+        ]);
 
       const stats = {
         totalInvitations: parseInt(totalResult?.count as string) || 0,
@@ -251,8 +250,7 @@ export class InvitationsController implements IBaseController {
         if (targetRank > actorRank) {
           res.status(403).json({
             success: false,
-            message:
-              "You cannot set an invitation role higher than your own.",
+            message: "You cannot set an invitation role higher than your own.",
           });
           return;
         }

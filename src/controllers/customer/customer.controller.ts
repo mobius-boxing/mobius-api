@@ -1,11 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { AuditService } from "../../services/audit.service";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { CustomerDAO } from "../../dao/customer/customer.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { UserDAO } from "../../dao/user/user.dao";
@@ -17,13 +13,20 @@ import {
   CustomerCreateInputDTO,
   CustomerUpdateInputDTO,
 } from "../../dto/input/customer";
-import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
+import {
+  enforceCompanyFilter,
+  getCompanyFilterUuid,
+} from "../../utils/companyScope";
 
 export class CustomerController implements IBaseController {
   private _audit = new AuditService();
 
   /** Best-effort audit hook (audit_logs) — fire-and-forget. */
-  private recordAudit(req: any, op: "Alta" | "Baja" | "Modificacion", entity: any): void {
+  private recordAudit(
+    req: any,
+    op: "Alta" | "Baja" | "Modificacion",
+    entity: any,
+  ): void {
     void this._audit.record(req, "Customer", op, entity ?? null);
   }
 

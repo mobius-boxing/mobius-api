@@ -6,7 +6,6 @@ import { ModuleDAO } from "../../dao/module/module.dao";
 import { CompanyModuleDAO } from "../../dao/company-module/company-module.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { ICompany } from "../../interfaces/company/company.interfaces";
-import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
 import {
   CompanyCreateInputDTO,
@@ -111,16 +110,18 @@ export class CompaniesController implements IBaseController {
       try {
         if (result.id) {
           const { RbacService } = await import("../../services/rbac.service");
-          const KnexManager = (
-            await import("../../database/KnexConnection")
-          ).default;
+          const KnexManager = (await import("../../database/KnexConnection"))
+            .default;
           await RbacService.seedCompanyRbac(
             KnexManager.getConnection(),
             result.id,
           );
         }
       } catch (rbacErr) {
-        console.error("Failed to seed RBAC catalogue on company create:", rbacErr);
+        console.error(
+          "Failed to seed RBAC catalogue on company create:",
+          rbacErr,
+        );
       }
 
       res.status(201).json({
@@ -212,7 +213,8 @@ export class CompaniesController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const knex = require("../../database/KnexConnection").default.getConnection();
+      const knex =
+        require("../../database/KnexConnection").default.getConnection();
 
       const [totalResult, activeResult] = await Promise.all([
         knex("companies").count("* as count").first(),
@@ -220,7 +222,7 @@ export class CompaniesController implements IBaseController {
       ]);
 
       const companiesWithUsersResult = await knex("companies")
-        .whereExists(function(this: any) {
+        .whereExists(function (this: any) {
           this.select(knex.raw(1))
             .from("users")
             .whereRaw('"users"."companyId" = "companies"."id"');
@@ -231,14 +233,16 @@ export class CompaniesController implements IBaseController {
       const totalCompanies = parseInt(totalResult?.count as string) || 0;
       const totalUsersResult = await knex("users").count("* as count").first();
       const totalUsers = parseInt(totalUsersResult?.count as string) || 0;
-      const averageUsersPerCompany = totalCompanies > 0
-        ? Math.round((totalUsers / totalCompanies) * 100) / 100
-        : 0;
+      const averageUsersPerCompany =
+        totalCompanies > 0
+          ? Math.round((totalUsers / totalCompanies) * 100) / 100
+          : 0;
 
       const stats = {
         totalCompanies,
         activeCompanies: parseInt(activeResult?.count as string) || 0,
-        companiesWithUsers: parseInt(companiesWithUsersResult?.count as string) || 0,
+        companiesWithUsers:
+          parseInt(companiesWithUsersResult?.count as string) || 0,
         averageUsersPerCompany,
       };
 

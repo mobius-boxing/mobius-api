@@ -3,12 +3,10 @@ import { CompaniesController } from "../../controllers/companies/companies.contr
 import { CompanyModulesController } from "../../controllers/companies/company-modules.controller";
 import {
   authenticate,
-  requireAdmin,
   requireSuperAdmin,
   validateUUID,
   validatePagination,
   apiRateLimiter,
-  sensitiveRateLimiter,
 } from "../../middlewares";
 
 export class CompaniesRouter {

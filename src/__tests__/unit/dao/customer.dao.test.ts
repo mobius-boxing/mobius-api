@@ -4,21 +4,28 @@
  * Tests for the Customer data access layer with JSON fields and company filtering
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import {
+  jest,
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+} from "@jest/globals";
 import {
   createTestCustomer,
   createTestCompany,
   createTestCustomerCategory,
   createTestUser,
   resetIdCounter,
-} from '../../mocks/factories';
-import { createMockQueryBuilder, MockQueryBuilder } from '../../mocks/knex.mock';
+} from "../../mocks/factories";
+import { createMockQueryBuilder } from "../../mocks/knex.mock";
 
 // We need to create fresh mocks that persist across beforeEach
 let mockQueryBuilder: any;
 let mockKnex: jest.Mock<any>;
 
-jest.mock('../../../database/KnexConnection', () => ({
+jest.mock("../../../database/KnexConnection", () => ({
   __esModule: true,
   default: {
     getConnection: () => mockKnex,
@@ -26,9 +33,9 @@ jest.mock('../../../database/KnexConnection', () => ({
 }));
 
 // Import DAO after mocking
-import { CustomerDAO } from '../../../dao/customer/customer.dao';
+import { CustomerDAO } from "../../../dao/customer/customer.dao";
 
-describe('CustomerDAO', () => {
+describe("CustomerDAO", () => {
   let dao: CustomerDAO;
 
   beforeEach(() => {
@@ -37,8 +44,10 @@ describe('CustomerDAO', () => {
     // Create fresh mocks for each test
     mockQueryBuilder = createMockQueryBuilder();
     mockKnex = jest.fn().mockReturnValue(mockQueryBuilder);
-    (mockKnex as any).fn = { now: jest.fn().mockReturnValue(new Date().toISOString()) };
-    (mockKnex as any).raw = jest.fn().mockReturnValue('');
+    (mockKnex as any).fn = {
+      now: jest.fn().mockReturnValue(new Date().toISOString()),
+    };
+    (mockKnex as any).raw = jest.fn().mockReturnValue("");
 
     dao = new CustomerDAO();
   });
@@ -47,8 +56,8 @@ describe('CustomerDAO', () => {
     jest.resetAllMocks();
   });
 
-  describe('create', () => {
-    it('should create a new customer and return it', async () => {
+  describe("create", () => {
+    it("should create a new customer and return it", async () => {
       const testData = createTestCustomer();
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
@@ -67,22 +76,22 @@ describe('CustomerDAO', () => {
         deliveryDays: testData.deliveryDays,
       } as any);
 
-      expect(mockKnex).toHaveBeenCalledWith('customers');
+      expect(mockKnex).toHaveBeenCalledWith("customers");
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           uuid: testData.uuid,
           name: testData.name,
           companyId: testData.companyId,
-        })
+        }),
       );
       expect(result.name).toBe(testData.name);
       expect(result.uuid).toBe(testData.uuid);
     });
 
-    it('should stringify JSON fields on insert', async () => {
+    it("should stringify JSON fields on insert", async () => {
       // deliveryLocations/deliveryDays moved to real tables (20260720000008);
       // contacts is the only remaining JSON column.
-      const contacts = [{ name: 'John', email: 'john@test.com' }];
+      const contacts = [{ name: "John", email: "john@test.com" }];
 
       const testData = createTestCustomer({ contacts });
       mockQueryBuilder.returning.mockResolvedValue([testData]);
@@ -97,18 +106,20 @@ describe('CustomerDAO', () => {
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           contacts: JSON.stringify(contacts),
-        })
+        }),
       );
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.not.objectContaining({
           deliveryLocations: expect.anything(),
-        })
+        }),
       );
     });
 
-    it('should set default value for active to true', async () => {
+    it("should set default value for active to true", async () => {
       const testData = createTestCustomer({ active: undefined });
-      mockQueryBuilder.returning.mockResolvedValue([{ ...testData, active: true }]);
+      mockQueryBuilder.returning.mockResolvedValue([
+        { ...testData, active: true },
+      ]);
 
       await dao.create({
         uuid: testData.uuid,
@@ -119,24 +130,24 @@ describe('CustomerDAO', () => {
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           active: true,
-        })
+        }),
       );
     });
   });
 
-  describe('getById', () => {
-    it('should return customer by numeric ID', async () => {
+  describe("getById", () => {
+    it("should return customer by numeric ID", async () => {
       const testData = createTestCustomer();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getById(testData.id);
 
-      expect(mockKnex).toHaveBeenCalledWith('customers');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', testData.id);
+      expect(mockKnex).toHaveBeenCalledWith("customers");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", testData.id);
       expect(result?.name).toBe(testData.name);
     });
 
-    it('should return null when customer not found', async () => {
+    it("should return null when customer not found", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
       const result = await dao.getById(999);
@@ -145,18 +156,21 @@ describe('CustomerDAO', () => {
     });
   });
 
-  describe('getByUuid', () => {
-    it('should return customer by UUID', async () => {
+  describe("getByUuid", () => {
+    it("should return customer by UUID", async () => {
       const testData = createTestCustomer();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getByUuid(testData.uuid);
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('customers.uuid', testData.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "customers.uuid",
+        testData.uuid,
+      );
       expect(result?.name).toBe(testData.name);
     });
 
-    it('should filter by company UUID when provided', async () => {
+    it("should filter by company UUID when provided", async () => {
       const company = createTestCompany();
       const testData = createTestCustomer({ companyId: company.id });
       mockQueryBuilder.first.mockResolvedValue(testData);
@@ -164,116 +178,129 @@ describe('CustomerDAO', () => {
       await dao.getByUuid(testData.uuid, company.uuid);
 
       expect(mockQueryBuilder.join).toHaveBeenCalledWith(
-        'companies',
-        'customers.companyId',
-        'companies.id'
+        "companies",
+        "customers.companyId",
+        "companies.id",
       );
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('companies.uuid', company.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "companies.uuid",
+        company.uuid,
+      );
     });
 
-    it('should return null when customer not found by UUID', async () => {
+    it("should return null when customer not found by UUID", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
-      const result = await dao.getByUuid('non-existent-uuid');
+      const result = await dao.getByUuid("non-existent-uuid");
 
       expect(result).toBeNull();
     });
   });
 
-  describe('getIdByUuid', () => {
-    it('should return internal numeric ID for a given UUID', async () => {
+  describe("getIdByUuid", () => {
+    it("should return internal numeric ID for a given UUID", async () => {
       const testData = createTestCustomer();
       mockQueryBuilder.first.mockResolvedValue({ id: testData.id });
 
       const result = await dao.getIdByUuid(testData.uuid);
 
-      expect(mockQueryBuilder.select).toHaveBeenCalledWith('id');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith("id");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "uuid",
+        testData.uuid,
+      );
       expect(result).toBe(testData.id);
     });
 
-    it('should return null when UUID not found', async () => {
+    it("should return null when UUID not found", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
-      const result = await dao.getIdByUuid('non-existent-uuid');
+      const result = await dao.getIdByUuid("non-existent-uuid");
 
       expect(result).toBeNull();
     });
   });
 
-  describe('update', () => {
-    it('should update customer by numeric ID', async () => {
+  describe("update", () => {
+    it("should update customer by numeric ID", async () => {
       const testData = createTestCustomer();
-      const updatedData = { ...testData, name: 'Updated Customer' };
+      const updatedData = { ...testData, name: "Updated Customer" };
       mockQueryBuilder.returning.mockResolvedValue([updatedData]);
 
-      const result = await dao.update(testData.id, { name: 'Updated Customer' });
+      const result = await dao.update(testData.id, {
+        name: "Updated Customer",
+      });
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', testData.id);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", testData.id);
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Updated Customer' })
+        expect.objectContaining({ name: "Updated Customer" }),
       );
-      expect(result?.name).toBe('Updated Customer');
+      expect(result?.name).toBe("Updated Customer");
     });
 
-    it('should stringify JSON fields on update', async () => {
+    it("should stringify JSON fields on update", async () => {
       const testData = createTestCustomer();
-      const newContacts = [{ name: 'Jane', phone: '555-1234' }];
-      mockQueryBuilder.returning.mockResolvedValue([{ ...testData, contacts: newContacts }]);
+      const newContacts = [{ name: "Jane", phone: "555-1234" }];
+      mockQueryBuilder.returning.mockResolvedValue([
+        { ...testData, contacts: newContacts },
+      ]);
 
       await dao.update(testData.id, { contacts: newContacts });
 
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
         expect.objectContaining({
           contacts: JSON.stringify(newContacts),
-        })
+        }),
       );
     });
 
-    it('should only update provided fields', async () => {
+    it("should only update provided fields", async () => {
       const testData = createTestCustomer();
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
-      await dao.update(testData.id, { name: 'New Name' });
+      await dao.update(testData.id, { name: "New Name" });
 
-      const updateCall = (mockQueryBuilder.update as jest.Mock).mock.calls[0][0];
-      expect(updateCall).toHaveProperty('name', 'New Name');
-      expect(updateCall).not.toHaveProperty('address');
-      expect(updateCall).not.toHaveProperty('supplierCode');
+      const updateCall = (mockQueryBuilder.update as jest.Mock).mock
+        .calls[0][0];
+      expect(updateCall).toHaveProperty("name", "New Name");
+      expect(updateCall).not.toHaveProperty("address");
+      expect(updateCall).not.toHaveProperty("supplierCode");
     });
 
-    it('should return null when updating non-existent customer', async () => {
+    it("should return null when updating non-existent customer", async () => {
       mockQueryBuilder.returning.mockResolvedValue([]);
 
-      const result = await dao.update(999, { name: 'Updated' });
+      const result = await dao.update(999, { name: "Updated" });
 
       expect(result).toBeNull();
     });
 
-    it('should update active status', async () => {
+    it("should update active status", async () => {
       const testData = createTestCustomer();
-      mockQueryBuilder.returning.mockResolvedValue([{ ...testData, active: false }]);
+      mockQueryBuilder.returning.mockResolvedValue([
+        { ...testData, active: false },
+      ]);
 
       await dao.update(testData.id, { active: false });
 
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
-        expect.objectContaining({ active: false })
+        expect.objectContaining({ active: false }),
       );
     });
   });
 
-  describe('delete', () => {
-    it('should delete customer by numeric ID and return true', async () => {
+  describe("delete", () => {
+    it("should delete customer by numeric ID and return true", async () => {
       mockQueryBuilder.delete.mockResolvedValue(1);
 
       const result = await dao.delete(1);
 
-      expect(mockKnex).toHaveBeenCalledWith('customers');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 1);
+      expect(mockKnex).toHaveBeenCalledWith("customers");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", 1);
       expect(result).toBe(true);
     });
 
-    it('should return false when customer not found', async () => {
+    it("should return false when customer not found", async () => {
       mockQueryBuilder.delete.mockResolvedValue(0);
 
       const result = await dao.delete(999);
@@ -282,15 +309,15 @@ describe('CustomerDAO', () => {
     });
   });
 
-  describe('getAll', () => {
-    it('should return paginated customers', async () => {
+  describe("getAll", () => {
+    it("should return paginated customers", async () => {
       const testData = [
-        createTestCustomer({ id: 1, name: 'Customer A' }),
-        createTestCustomer({ id: 2, name: 'Customer B' }),
+        createTestCustomer({ id: 1, name: "Customer A" }),
+        createTestCustomer({ id: 2, name: "Customer B" }),
       ];
 
       mockQueryBuilder.offset.mockResolvedValue(testData);
-      mockQueryBuilder.first.mockResolvedValue({ count: '2' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "2" });
 
       const result = await dao.getAll(1, 10);
 
@@ -300,33 +327,39 @@ describe('CustomerDAO', () => {
       expect(result.limit).toBe(10);
     });
 
-    it('should filter by company UUID when provided', async () => {
+    it("should filter by company UUID when provided", async () => {
       const company = createTestCompany();
       mockQueryBuilder.offset.mockResolvedValue([]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '0' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10, company.uuid);
 
       expect(mockQueryBuilder.join).toHaveBeenCalledWith(
-        'companies',
-        'customers.companyId',
-        'companies.id'
+        "companies",
+        "customers.companyId",
+        "companies.id",
       );
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('companies.uuid', company.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "companies.uuid",
+        company.uuid,
+      );
     });
 
-    it('should order by createdAt descending', async () => {
+    it("should order by createdAt descending", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '0' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('customers.createdAt', 'desc');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        "customers.createdAt",
+        "desc",
+      );
     });
 
-    it('should calculate correct pagination', async () => {
+    it("should calculate correct pagination", async () => {
       mockQueryBuilder.offset.mockResolvedValue([createTestCustomer()]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '50' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "50" });
 
       const result = await dao.getAll(3, 15);
 
@@ -337,8 +370,8 @@ describe('CustomerDAO', () => {
     });
   });
 
-  describe('getCustomerWithDetails', () => {
-    it('should return customer with related company, category, and sales person', async () => {
+  describe("getCustomerWithDetails", () => {
+    it("should return customer with related company, category, and sales person", async () => {
       const company = createTestCompany();
       const category = createTestCustomerCategory();
       const salesPerson = createTestUser();
@@ -359,28 +392,31 @@ describe('CustomerDAO', () => {
       expect(result?.uuid).toBe(testData.uuid);
     });
 
-    it('should filter by company UUID when provided', async () => {
+    it("should filter by company UUID when provided", async () => {
       const company = createTestCompany();
       const testData = createTestCustomer();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       await dao.getCustomerWithDetails(testData.uuid, company.uuid);
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('companies.uuid', company.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "companies.uuid",
+        company.uuid,
+      );
     });
 
-    it('should return null when customer not found', async () => {
+    it("should return null when customer not found", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
-      const result = await dao.getCustomerWithDetails('non-existent-uuid');
+      const result = await dao.getCustomerWithDetails("non-existent-uuid");
 
       expect(result).toBeNull();
     });
   });
 
-  describe('JSON field parsing', () => {
-    it('should parse JSON string fields from database', async () => {
-      const contacts = [{ name: 'Contact 1' }];
+  describe("JSON field parsing", () => {
+    it("should parse JSON string fields from database", async () => {
+      const contacts = [{ name: "Contact 1" }];
 
       const testData = createTestCustomer({
         contacts: JSON.stringify(contacts),
@@ -393,8 +429,8 @@ describe('CustomerDAO', () => {
       expect(Array.isArray(result?.contacts)).toBe(true);
     });
 
-    it('should handle already parsed JSON fields', async () => {
-      const contacts = [{ name: 'Contact 1' }];
+    it("should handle already parsed JSON fields", async () => {
+      const contacts = [{ name: "Contact 1" }];
       const testData = createTestCustomer({ contacts });
 
       mockQueryBuilder.first.mockResolvedValue(testData);
@@ -404,7 +440,7 @@ describe('CustomerDAO', () => {
       expect(Array.isArray(result?.contacts)).toBe(true);
     });
 
-    it('should handle null JSON fields', async () => {
+    it("should handle null JSON fields", async () => {
       const testData = createTestCustomer({
         contacts: null,
       });
@@ -417,8 +453,8 @@ describe('CustomerDAO', () => {
     });
   });
 
-  describe('Edge cases', () => {
-    it('should handle customer with no optional fields', async () => {
+  describe("Edge cases", () => {
+    it("should handle customer with no optional fields", async () => {
       const testData = createTestCustomer({
         salesPersonId: null,
         categoryId: null,
@@ -436,17 +472,17 @@ describe('CustomerDAO', () => {
       expect(result?.categoryId).toBeNull();
     });
 
-    it('should handle supplier code mapping (snake_case to camelCase)', async () => {
+    it("should handle supplier code mapping (snake_case to camelCase)", async () => {
       const testData = {
         ...createTestCustomer(),
-        supplier_code: 'SUP001',
+        supplier_code: "SUP001",
       };
 
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getById(testData.id);
 
-      expect(result?.supplierCode).toBe('SUP001');
+      expect(result?.supplierCode).toBe("SUP001");
     });
   });
 });

@@ -1,11 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { AuditService } from "../../services/audit.service";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { PaperSupplyDAO } from "../../dao/paper-supply/paper-supply.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { ManufacturerDAO } from "../../dao/manufacturer/manufacturer.dao";
@@ -25,7 +21,11 @@ export class PaperSupplyController implements IBaseController {
   private _audit = new AuditService();
 
   /** Best-effort audit hook (audit_logs) — fire-and-forget. */
-  private recordAudit(req: any, op: "Alta" | "Baja" | "Modificacion", entity: any): void {
+  private recordAudit(
+    req: any,
+    op: "Alta" | "Baja" | "Modificacion",
+    entity: any,
+  ): void {
     void this._audit.record(req, "Paper supply", op, entity ?? null);
   }
 
@@ -354,7 +354,8 @@ export class PaperSupplyController implements IBaseController {
 
       const result = await this._paperSupplyDAO.delete(existingId);
 
-      if (result) this.recordAudit(req, "Baja", existing ?? { uuid: req.params.uuid });
+      if (result)
+        this.recordAudit(req, "Baja", existing ?? { uuid: req.params.uuid });
 
       if (result) {
         res.status(200).json({
@@ -394,10 +395,7 @@ export class PaperSupplyController implements IBaseController {
 
       const companyId = getCompanyFilterUuid(req);
 
-      const result = await this._paperSupplyDAO.getWithDetails(
-        uuid,
-        companyId,
-      );
+      const result = await this._paperSupplyDAO.getWithDetails(uuid, companyId);
 
       if (!result) {
         res.status(404).json({

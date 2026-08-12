@@ -4,8 +4,15 @@
  * Tests for the Corrugation Class API controller
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { Request, Response, NextFunction } from 'express';
+import {
+  jest,
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+} from "@jest/globals";
+import { Request, Response, NextFunction } from "express";
 import {
   createMockRequest,
   createMockResponse,
@@ -13,13 +20,12 @@ import {
   createPaginatedRequest,
   createUuidParamRequest,
   createBodyRequest,
-} from '../../mocks/express.mock';
+} from "../../mocks/express.mock";
 import {
-  createTestCorrugationClass,
   createTestCorrugationClassResponse,
   createPaginatedResponse,
   resetIdCounter,
-} from '../../mocks/factories';
+} from "../../mocks/factories";
 
 // Store reference to mock functions in a container
 const mockFunctions = {
@@ -33,15 +39,15 @@ const mockFunctions = {
 };
 
 // Mock uuid module
-jest.mock('uuid', () => ({
-  v4: () => 'generated-uuid',
+jest.mock("uuid", () => ({
+  v4: () => "generated-uuid",
 }));
 
 // Mock the DAO module
-jest.mock('../../../dao/corrugation-class/corrugation-class.dao', () => {
-  const { mockFunctions: mf } = require('./corrugation-class.controller.test');
+jest.mock("../../../dao/corrugation-class/corrugation-class.dao", () => {
+  const { mockFunctions: mf } = require("./corrugation-class.controller.test");
   return {
-    CorrugationClassDAO: function() {
+    CorrugationClassDAO: function () {
       return {
         getAll: (...args) => mf.getAll(...args),
         getAllWithFilters: (...args) => mf.getAllWithFilters(...args),
@@ -55,22 +61,21 @@ jest.mock('../../../dao/corrugation-class/corrugation-class.dao', () => {
   };
 });
 
-// Track validation mock behavior
-let validationMockBehavior = { success: true, message: '' };
-
 // Mock the @sundaysf/utils module
-jest.mock('@sundaysf/utils', () => ({
+jest.mock("@sundaysf/utils", () => ({
   paginationHelper: (req: any) => ({
     page: req.query?.page ? parseInt(req.query.page) : 1,
     limit: req.query?.limit ? parseInt(req.query.limit) : 10,
   }),
   inputValidator: async (dto: any) => {
     // Use the closure variable to control behavior
-    const { mockFunctions: mf } = require('./corrugation-class.controller.test');
-    if (!dto.code || dto.code.trim() === '') {
-      return { success: false, message: 'Code is required' };
+    const {
+      mockFunctions: _mf,
+    } = require("./corrugation-class.controller.test");
+    if (!dto.code || dto.code.trim() === "") {
+      return { success: false, message: "Code is required" };
     }
-    return { success: true, message: '' };
+    return { success: true, message: "" };
   },
 }));
 
@@ -79,15 +84,15 @@ export { mockFunctions };
 
 // Company injection (base-crud) resolves the caller's company via the
 // shared foreignKeyResolver — stub it so create paths get companyId 1.
-jest.mock('../../../utils/foreignKeyResolver', () => ({
-  ...jest.requireActual('../../../utils/foreignKeyResolver'),
+jest.mock("../../../utils/foreignKeyResolver", () => ({
+  ...jest.requireActual("../../../utils/foreignKeyResolver"),
   getIdByUuid: jest.fn().mockResolvedValue(1),
 }));
 
 // Import controller after mocking
-import { CorrugationClassController } from '../../../controllers/corrugation-class/corrugation-class.controller';
+import { CorrugationClassController } from "../../../controllers/corrugation-class/corrugation-class.controller";
 
-describe('CorrugationClassController', () => {
+describe("CorrugationClassController", () => {
   let controller: CorrugationClassController;
   let mockRes: Partial<Response>;
   let mockNext: NextFunction;
@@ -114,11 +119,11 @@ describe('CorrugationClassController', () => {
     jest.clearAllMocks();
   });
 
-  describe('getAll', () => {
-    it('should return paginated corrugation classes', async () => {
+  describe("getAll", () => {
+    it("should return paginated corrugation classes", async () => {
       const testData = [
-        createTestCorrugationClassResponse({ code: 'CC001' }),
-        createTestCorrugationClassResponse({ code: 'CC002' }),
+        createTestCorrugationClassResponse({ code: "CC001" }),
+        createTestCorrugationClassResponse({ code: "CC002" }),
       ];
       const paginatedResult = createPaginatedResponse(testData, 1, 10, 2);
 
@@ -133,7 +138,7 @@ describe('CorrugationClassController', () => {
       expect(mockRes.json).toHaveBeenCalledWith(paginatedResult);
     });
 
-    it('should use default pagination when not provided', async () => {
+    it("should use default pagination when not provided", async () => {
       const paginatedResult = createPaginatedResponse([], 1, 10, 0);
       mockFunctions.getAllWithFilters.mockResolvedValue(paginatedResult);
 
@@ -145,8 +150,8 @@ describe('CorrugationClassController', () => {
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 
-    it('should call next with error on DAO failure', async () => {
-      const error = new Error('Database error');
+    it("should call next with error on DAO failure", async () => {
+      const error = new Error("Database error");
       mockFunctions.getAllWithFilters.mockRejectedValue(error);
 
       const mockReq = createPaginatedRequest() as Request;
@@ -157,8 +162,8 @@ describe('CorrugationClassController', () => {
     });
   });
 
-  describe('getByUuid', () => {
-    it('should return corrugation class when found', async () => {
+  describe("getByUuid", () => {
+    it("should return corrugation class when found", async () => {
       const testData = createTestCorrugationClassResponse();
       mockFunctions.getByUuid.mockResolvedValue(testData);
 
@@ -166,7 +171,10 @@ describe('CorrugationClassController', () => {
 
       await controller.getByUuid(mockReq, mockRes as Response, mockNext);
 
-      expect(mockFunctions.getByUuid).toHaveBeenCalledWith(testData.uuid, undefined);
+      expect(mockFunctions.getByUuid).toHaveBeenCalledWith(
+        testData.uuid,
+        undefined,
+      );
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
@@ -174,25 +182,25 @@ describe('CorrugationClassController', () => {
       });
     });
 
-    it('should return 404 when corrugation class not found', async () => {
+    it("should return 404 when corrugation class not found", async () => {
       mockFunctions.getByUuid.mockResolvedValue(null);
 
-      const mockReq = createUuidParamRequest('non-existent-uuid') as Request;
+      const mockReq = createUuidParamRequest("non-existent-uuid") as Request;
 
       await controller.getByUuid(mockReq, mockRes as Response, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(404);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Corrugation class not found',
+        message: "Corrugation class not found",
       });
     });
 
-    it('should call next with error on DAO failure', async () => {
-      const error = new Error('Database error');
+    it("should call next with error on DAO failure", async () => {
+      const error = new Error("Database error");
       mockFunctions.getByUuid.mockRejectedValue(error);
 
-      const mockReq = createUuidParamRequest('test-uuid') as Request;
+      const mockReq = createUuidParamRequest("test-uuid") as Request;
 
       await controller.getByUuid(mockReq, mockRes as Response, mockNext);
 
@@ -200,26 +208,28 @@ describe('CorrugationClassController', () => {
     });
   });
 
-  describe('create', () => {
-    it('should create corrugation class with valid input', async () => {
-      const inputData = { code: 'NEW001', description: 'New Class' };
+  describe("create", () => {
+    it("should create corrugation class with valid input", async () => {
+      const inputData = { code: "NEW001", description: "New Class" };
       const createdData = createTestCorrugationClassResponse({
-        uuid: 'generated-uuid',
-        code: 'NEW001',
-        description: 'New Class',
+        uuid: "generated-uuid",
+        code: "NEW001",
+        description: "New Class",
       });
       mockFunctions.create.mockResolvedValue(createdData);
 
-      const mockReq = createBodyRequest(inputData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
+      const mockReq = createBodyRequest(inputData, {
+        user: { role: "admin", companyId: "company-uuid" },
+      } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
       expect(mockFunctions.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          uuid: 'generated-uuid',
-          code: 'NEW001',
-          description: 'New Class',
-        })
+          uuid: "generated-uuid",
+          code: "NEW001",
+          description: "New Class",
+        }),
       );
       expect(mockRes.status).toHaveBeenCalledWith(201);
       expect(mockRes.json).toHaveBeenCalledWith({
@@ -228,25 +238,31 @@ describe('CorrugationClassController', () => {
       });
     });
 
-    it('should generate UUID server-side', async () => {
-      const inputData = { code: 'NEW001', description: 'New Class' };
-      mockFunctions.create.mockResolvedValue(createTestCorrugationClassResponse());
+    it("should generate UUID server-side", async () => {
+      const inputData = { code: "NEW001", description: "New Class" };
+      mockFunctions.create.mockResolvedValue(
+        createTestCorrugationClassResponse(),
+      );
 
-      const mockReq = createBodyRequest(inputData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
+      const mockReq = createBodyRequest(inputData, {
+        user: { role: "admin", companyId: "company-uuid" },
+      } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
       expect(mockFunctions.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          uuid: 'generated-uuid',
-        })
+          uuid: "generated-uuid",
+        }),
       );
     });
 
-    it('should call next with error on validation failure', async () => {
+    it("should call next with error on validation failure", async () => {
       // Empty code should fail validation
-      const invalidData = { code: '', description: 'Test' };
-      const mockReq = createBodyRequest(invalidData, { user: { role: 'admin', companyId: 'company-uuid' } } as any) as Request;
+      const invalidData = { code: "", description: "Test" };
+      const mockReq = createBodyRequest(invalidData, {
+        user: { role: "admin", companyId: "company-uuid" },
+      } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -256,14 +272,13 @@ describe('CorrugationClassController', () => {
       expect(calledWith).toBeInstanceOf(Error);
     });
 
-    it('should call next with error on DAO failure', async () => {
-      const error = new Error('Database error');
+    it("should call next with error on DAO failure", async () => {
+      const error = new Error("Database error");
       mockFunctions.create.mockRejectedValue(error);
 
-      const mockReq = createBodyRequest(
-        { code: 'NEW001' },
-        { user: { role: 'admin', companyId: 'company-uuid' } } as any,
-      ) as Request;
+      const mockReq = createBodyRequest({ code: "NEW001" }, {
+        user: { role: "admin", companyId: "company-uuid" },
+      } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
@@ -271,15 +286,18 @@ describe('CorrugationClassController', () => {
     });
   });
 
-  describe('update', () => {
-    it('should update corrugation class when found', async () => {
+  describe("update", () => {
+    it("should update corrugation class when found", async () => {
       const existingId = 1;
-      const testUuid = 'existing-uuid';
-      const updateData = { code: 'UPDATED', description: 'Updated description' };
+      const testUuid = "existing-uuid";
+      const updateData = {
+        code: "UPDATED",
+        description: "Updated description",
+      };
       const updatedData = createTestCorrugationClassResponse({
         uuid: testUuid,
-        code: 'UPDATED',
-        description: 'Updated description',
+        code: "UPDATED",
+        description: "Updated description",
       });
 
       mockFunctions.getIdByUuid.mockResolvedValue(existingId);
@@ -292,8 +310,14 @@ describe('CorrugationClassController', () => {
 
       await controller.update(mockReq, mockRes as Response, mockNext);
 
-      expect(mockFunctions.getIdByUuid).toHaveBeenCalledWith(testUuid, undefined);
-      expect(mockFunctions.update).toHaveBeenCalledWith(existingId, expect.any(Object));
+      expect(mockFunctions.getIdByUuid).toHaveBeenCalledWith(
+        testUuid,
+        undefined,
+      );
+      expect(mockFunctions.update).toHaveBeenCalledWith(
+        existingId,
+        expect.any(Object),
+      );
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
@@ -301,12 +325,12 @@ describe('CorrugationClassController', () => {
       });
     });
 
-    it('should return 404 when corrugation class not found for update', async () => {
+    it("should return 404 when corrugation class not found for update", async () => {
       mockFunctions.getIdByUuid.mockResolvedValue(null);
 
       const mockReq = {
-        ...createUuidParamRequest('non-existent-uuid'),
-        body: { code: 'UPDATED' },
+        ...createUuidParamRequest("non-existent-uuid"),
+        body: { code: "UPDATED" },
       } as Request;
 
       await controller.update(mockReq, mockRes as Response, mockNext);
@@ -314,19 +338,19 @@ describe('CorrugationClassController', () => {
       expect(mockRes.status).toHaveBeenCalledWith(404);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Corrugation class not found',
+        message: "Corrugation class not found",
       });
       expect(mockFunctions.update).not.toHaveBeenCalled();
     });
 
-    it('should call next with error on DAO failure', async () => {
-      const error = new Error('Database error');
+    it("should call next with error on DAO failure", async () => {
+      const error = new Error("Database error");
       mockFunctions.getIdByUuid.mockResolvedValue(1);
       mockFunctions.update.mockRejectedValue(error);
 
       const mockReq = {
-        ...createUuidParamRequest('test-uuid'),
-        body: { code: 'UPDATED' },
+        ...createUuidParamRequest("test-uuid"),
+        body: { code: "UPDATED" },
       } as Request;
 
       await controller.update(mockReq, mockRes as Response, mockNext);
@@ -335,10 +359,10 @@ describe('CorrugationClassController', () => {
     });
   });
 
-  describe('delete', () => {
-    it('should delete corrugation class when found', async () => {
+  describe("delete", () => {
+    it("should delete corrugation class when found", async () => {
       const existingId = 1;
-      const testUuid = 'existing-uuid';
+      const testUuid = "existing-uuid";
 
       mockFunctions.getIdByUuid.mockResolvedValue(existingId);
       mockFunctions.delete.mockResolvedValue(true);
@@ -347,51 +371,54 @@ describe('CorrugationClassController', () => {
 
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
-      expect(mockFunctions.getIdByUuid).toHaveBeenCalledWith(testUuid, undefined);
+      expect(mockFunctions.getIdByUuid).toHaveBeenCalledWith(
+        testUuid,
+        undefined,
+      );
       expect(mockFunctions.delete).toHaveBeenCalledWith(existingId);
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
-        message: 'Corrugation class deleted successfully',
+        message: "Corrugation class deleted successfully",
       });
     });
 
-    it('should return 404 when corrugation class not found for delete', async () => {
+    it("should return 404 when corrugation class not found for delete", async () => {
       mockFunctions.getIdByUuid.mockResolvedValue(null);
 
-      const mockReq = createUuidParamRequest('non-existent-uuid') as Request;
+      const mockReq = createUuidParamRequest("non-existent-uuid") as Request;
 
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(404);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Corrugation class not found',
+        message: "Corrugation class not found",
       });
       expect(mockFunctions.delete).not.toHaveBeenCalled();
     });
 
-    it('should return 404 when delete operation fails', async () => {
+    it("should return 404 when delete operation fails", async () => {
       mockFunctions.getIdByUuid.mockResolvedValue(1);
       mockFunctions.delete.mockResolvedValue(false);
 
-      const mockReq = createUuidParamRequest('test-uuid') as Request;
+      const mockReq = createUuidParamRequest("test-uuid") as Request;
 
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(404);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Failed to delete corrugation class',
+        message: "Failed to delete corrugation class",
       });
     });
 
-    it('should call next with error on DAO failure', async () => {
-      const error = new Error('Database error');
+    it("should call next with error on DAO failure", async () => {
+      const error = new Error("Database error");
       mockFunctions.getIdByUuid.mockResolvedValue(1);
       mockFunctions.delete.mockRejectedValue(error);
 
-      const mockReq = createUuidParamRequest('test-uuid') as Request;
+      const mockReq = createUuidParamRequest("test-uuid") as Request;
 
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
@@ -399,8 +426,8 @@ describe('CorrugationClassController', () => {
     });
   });
 
-  describe('Security: UUID-only operations', () => {
-    it('should only use UUID for external identification', async () => {
+  describe("Security: UUID-only operations", () => {
+    it("should only use UUID for external identification", async () => {
       const testData = createTestCorrugationClassResponse();
       mockFunctions.getByUuid.mockResolvedValue(testData);
 
@@ -415,26 +442,34 @@ describe('CorrugationClassController', () => {
       });
     });
 
-    it('should convert UUID to internal ID for update operations', async () => {
-      const testUuid = 'test-uuid';
+    it("should convert UUID to internal ID for update operations", async () => {
+      const testUuid = "test-uuid";
       const internalId = 42;
 
       mockFunctions.getIdByUuid.mockResolvedValue(internalId);
-      mockFunctions.update.mockResolvedValue(createTestCorrugationClassResponse());
+      mockFunctions.update.mockResolvedValue(
+        createTestCorrugationClassResponse(),
+      );
 
       const mockReq = {
         ...createUuidParamRequest(testUuid),
-        body: { code: 'UPDATED' },
+        body: { code: "UPDATED" },
       } as Request;
 
       await controller.update(mockReq, mockRes as Response, mockNext);
 
-      expect(mockFunctions.getIdByUuid).toHaveBeenCalledWith(testUuid, undefined);
-      expect(mockFunctions.update).toHaveBeenCalledWith(internalId, expect.any(Object));
+      expect(mockFunctions.getIdByUuid).toHaveBeenCalledWith(
+        testUuid,
+        undefined,
+      );
+      expect(mockFunctions.update).toHaveBeenCalledWith(
+        internalId,
+        expect.any(Object),
+      );
     });
 
-    it('should convert UUID to internal ID for delete operations', async () => {
-      const testUuid = 'test-uuid';
+    it("should convert UUID to internal ID for delete operations", async () => {
+      const testUuid = "test-uuid";
       const internalId = 42;
 
       mockFunctions.getIdByUuid.mockResolvedValue(internalId);
@@ -444,7 +479,10 @@ describe('CorrugationClassController', () => {
 
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
-      expect(mockFunctions.getIdByUuid).toHaveBeenCalledWith(testUuid, undefined);
+      expect(mockFunctions.getIdByUuid).toHaveBeenCalledWith(
+        testUuid,
+        undefined,
+      );
       expect(mockFunctions.delete).toHaveBeenCalledWith(internalId);
     });
   });

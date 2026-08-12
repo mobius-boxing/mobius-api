@@ -26,7 +26,7 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
   protected async buildCreateDTO(
     req: Request,
     _res: Response,
-    next: NextFunction,
+    _next: NextFunction,
   ): Promise<any | null> {
     // Validation runs in beforeCreate so it sees the injected companyId.
     return req.body;

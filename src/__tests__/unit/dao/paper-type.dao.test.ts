@@ -4,18 +4,22 @@
  * Tests for the Paper Type data access layer
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import {
-  createTestPaperType,
-  resetIdCounter,
-} from '../../mocks/factories';
-import { createMockQueryBuilder, MockQueryBuilder } from '../../mocks/knex.mock';
+  jest,
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+} from "@jest/globals";
+import { createTestPaperType, resetIdCounter } from "../../mocks/factories";
+import { createMockQueryBuilder } from "../../mocks/knex.mock";
 
 // We need to create fresh mocks that persist across beforeEach
 let mockQueryBuilder: any;
 let mockKnex: jest.Mock<any>;
 
-jest.mock('../../../database/KnexConnection', () => ({
+jest.mock("../../../database/KnexConnection", () => ({
   __esModule: true,
   default: {
     getConnection: () => mockKnex,
@@ -23,9 +27,9 @@ jest.mock('../../../database/KnexConnection', () => ({
 }));
 
 // Import DAO after mocking
-import { PaperTypeDAO } from '../../../dao/paper-type/paper-type.dao';
+import { PaperTypeDAO } from "../../../dao/paper-type/paper-type.dao";
 
-describe('PaperTypeDAO', () => {
+describe("PaperTypeDAO", () => {
   let dao: PaperTypeDAO;
 
   beforeEach(() => {
@@ -34,7 +38,9 @@ describe('PaperTypeDAO', () => {
     // Create fresh mocks for each test
     mockQueryBuilder = createMockQueryBuilder();
     mockKnex = jest.fn().mockReturnValue(mockQueryBuilder);
-    (mockKnex as any).fn = { now: jest.fn().mockReturnValue(new Date().toISOString()) };
+    (mockKnex as any).fn = {
+      now: jest.fn().mockReturnValue(new Date().toISOString()),
+    };
 
     dao = new PaperTypeDAO();
   });
@@ -43,8 +49,8 @@ describe('PaperTypeDAO', () => {
     jest.resetAllMocks();
   });
 
-  describe('create', () => {
-    it('should create a new paper type and return it', async () => {
+  describe("create", () => {
+    it("should create a new paper type and return it", async () => {
       const testData = createTestPaperType();
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
@@ -54,7 +60,7 @@ describe('PaperTypeDAO', () => {
         description: testData.description,
       } as any);
 
-      expect(mockKnex).toHaveBeenCalledWith('paper_types');
+      expect(mockKnex).toHaveBeenCalledWith("paper_types");
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith({
         uuid: testData.uuid,
         code: testData.code,
@@ -65,19 +71,19 @@ describe('PaperTypeDAO', () => {
     });
   });
 
-  describe('getById', () => {
-    it('should return paper type by numeric ID', async () => {
+  describe("getById", () => {
+    it("should return paper type by numeric ID", async () => {
       const testData = createTestPaperType();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getById(testData.id);
 
-      expect(mockKnex).toHaveBeenCalledWith('paper_types');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', testData.id);
+      expect(mockKnex).toHaveBeenCalledWith("paper_types");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", testData.id);
       expect(result?.code).toBe(testData.code);
     });
 
-    it('should return null when paper type not found', async () => {
+    it("should return null when paper type not found", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
       const result = await dao.getById(999);
@@ -86,79 +92,87 @@ describe('PaperTypeDAO', () => {
     });
   });
 
-  describe('getByUuid', () => {
-    it('should return paper type by UUID', async () => {
+  describe("getByUuid", () => {
+    it("should return paper type by UUID", async () => {
       const testData = createTestPaperType();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getByUuid(testData.uuid);
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('paper_types.uuid', testData.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "paper_types.uuid",
+        testData.uuid,
+      );
       expect(result?.code).toBe(testData.code);
     });
 
-    it('should return null when paper type not found by UUID', async () => {
+    it("should return null when paper type not found by UUID", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
-      const result = await dao.getByUuid('non-existent-uuid');
+      const result = await dao.getByUuid("non-existent-uuid");
 
       expect(result).toBeNull();
     });
   });
 
-  describe('update', () => {
-    it('should update paper type by numeric ID', async () => {
+  describe("update", () => {
+    it("should update paper type by numeric ID", async () => {
       const testData = createTestPaperType();
-      const updatedData = { ...testData, code: 'UPDATED', description: 'Updated description' };
+      const updatedData = {
+        ...testData,
+        code: "UPDATED",
+        description: "Updated description",
+      };
       mockQueryBuilder.returning.mockResolvedValue([updatedData]);
 
       const result = await dao.update(testData.id, {
-        code: 'UPDATED',
-        description: 'Updated description',
+        code: "UPDATED",
+        description: "Updated description",
       });
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', testData.id);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", testData.id);
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          code: 'UPDATED',
-          description: 'Updated description',
-        })
+          code: "UPDATED",
+          description: "Updated description",
+        }),
       );
-      expect(result?.code).toBe('UPDATED');
+      expect(result?.code).toBe("UPDATED");
     });
 
-    it('should only update provided fields', async () => {
+    it("should only update provided fields", async () => {
       const testData = createTestPaperType();
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
-      await dao.update(testData.id, { code: 'NEW_CODE' });
+      await dao.update(testData.id, { code: "NEW_CODE" });
 
-      const updateCall = (mockQueryBuilder.update as jest.Mock).mock.calls[0][0];
-      expect(updateCall).toHaveProperty('code', 'NEW_CODE');
-      expect(updateCall).not.toHaveProperty('description');
+      const updateCall = (mockQueryBuilder.update as jest.Mock).mock
+        .calls[0][0];
+      expect(updateCall).toHaveProperty("code", "NEW_CODE");
+      expect(updateCall).not.toHaveProperty("description");
     });
 
-    it('should return null when updating non-existent paper type', async () => {
+    it("should return null when updating non-existent paper type", async () => {
       mockQueryBuilder.returning.mockResolvedValue([]);
 
-      const result = await dao.update(999, { code: 'UPDATED' });
+      const result = await dao.update(999, { code: "UPDATED" });
 
       expect(result).toBeNull();
     });
   });
 
-  describe('delete', () => {
-    it('should delete paper type by numeric ID and return true', async () => {
+  describe("delete", () => {
+    it("should delete paper type by numeric ID and return true", async () => {
       mockQueryBuilder.delete.mockResolvedValue(1);
 
       const result = await dao.delete(1);
 
-      expect(mockKnex).toHaveBeenCalledWith('paper_types');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 1);
+      expect(mockKnex).toHaveBeenCalledWith("paper_types");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", 1);
       expect(result).toBe(true);
     });
 
-    it('should return false when paper type not found', async () => {
+    it("should return false when paper type not found", async () => {
       mockQueryBuilder.delete.mockResolvedValue(0);
 
       const result = await dao.delete(999);
@@ -167,15 +181,15 @@ describe('PaperTypeDAO', () => {
     });
   });
 
-  describe('getAll', () => {
-    it('should return paginated paper types', async () => {
+  describe("getAll", () => {
+    it("should return paginated paper types", async () => {
       const testData = [
-        createTestPaperType({ id: 1, code: 'PT001' }),
-        createTestPaperType({ id: 2, code: 'PT002' }),
+        createTestPaperType({ id: 1, code: "PT001" }),
+        createTestPaperType({ id: 2, code: "PT002" }),
       ];
 
       mockQueryBuilder.offset.mockResolvedValue(testData);
-      mockQueryBuilder.first.mockResolvedValue({ count: '2' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "2" });
 
       const result = await dao.getAll(1, 10);
 
@@ -185,18 +199,18 @@ describe('PaperTypeDAO', () => {
       expect(result.limit).toBe(10);
     });
 
-    it('should order by code ascending', async () => {
+    it("should order by code ascending", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '0' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('code', 'asc');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith("code", "asc");
     });
 
-    it('should calculate correct pagination', async () => {
+    it("should calculate correct pagination", async () => {
       mockQueryBuilder.offset.mockResolvedValue([createTestPaperType()]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '25' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "25" });
 
       const result = await dao.getAll(2, 10);
 

@@ -1,11 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { AuditService } from "../../services/audit.service";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { ProductDAO } from "../../dao/product/product.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { CustomerDAO } from "../../dao/customer/customer.dao";
@@ -18,7 +14,10 @@ import {
   ProductCreateInputDTO,
   ProductUpdateInputDTO,
 } from "../../dto/input/product";
-import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
+import {
+  enforceCompanyFilter,
+  getCompanyFilterUuid,
+} from "../../utils/companyScope";
 import KnexManager from "../../database/KnexConnection";
 import { PartDAO } from "../../dao/part/part.dao";
 import { RbacService } from "../../services/rbac.service";
@@ -29,7 +28,11 @@ export class ProductController implements IBaseController {
   private _audit = new AuditService();
 
   /** Best-effort audit hook (audit_logs) — fire-and-forget. */
-  private recordAudit(req: any, op: "Alta" | "Baja" | "Modificacion", entity: any): void {
+  private recordAudit(
+    req: any,
+    op: "Alta" | "Baja" | "Modificacion",
+    entity: any,
+  ): void {
     void this._audit.record(req, "Product", op, entity ?? null);
   }
 
@@ -47,7 +50,11 @@ export class ProductController implements IBaseController {
       label: string;
     }> = [
       { key: "customerId", dao: new CustomerDAO(), label: "customer" },
-      { key: "productTypeId", dao: new ProductTypeDAO(), label: "product type" },
+      {
+        key: "productTypeId",
+        dao: new ProductTypeDAO(),
+        label: "product type",
+      },
       { key: "boxTypeId", dao: new BoxTypeDAO(), label: "box type" },
     ];
     for (const { key, dao, label } of resolvers) {
@@ -127,7 +134,9 @@ export class ProductController implements IBaseController {
       const data = req.body;
       const user = req.user;
       if (!user) {
-        res.status(401).json({ success: false, message: "Authentication required." });
+        res
+          .status(401)
+          .json({ success: false, message: "Authentication required." });
         return;
       }
 
@@ -214,9 +223,9 @@ export class ProductController implements IBaseController {
       let initialPart: any = null;
       if (data.initialPart !== undefined && data.initialPart !== null) {
         const productId = await getIdByUuid(result.uuid!, "products");
-        let outcome:
-          | Awaited<ReturnType<PartController["createPartFromInput"]>>
-          | null = null;
+        let outcome: Awaited<
+          ReturnType<PartController["createPartFromInput"]>
+        > | null = null;
         let partError: any = null;
         if (productId) {
           const partController = new PartController();
@@ -248,7 +257,9 @@ export class ProductController implements IBaseController {
           }
           if (partError) throw partError;
           if (!productId) {
-            throw new Error("Product id resolution failed during simple-product create");
+            throw new Error(
+              "Product id resolution failed during simple-product create",
+            );
           }
           res.status((outcome as any)?.status ?? 400).json({
             success: false,
@@ -478,10 +489,19 @@ export class ProductController implements IBaseController {
             username,
           );
           cascaded = ids.length;
-          return this._productDAO.setApproval(existingId, action, username, trx);
+          return this._productDAO.setApproval(
+            existingId,
+            action,
+            username,
+            trx,
+          );
         });
       } else {
-        result = await this._productDAO.setApproval(existingId, action, username);
+        result = await this._productDAO.setApproval(
+          existingId,
+          action,
+          username,
+        );
       }
 
       this.recordAudit(req, "Modificacion", { ...(result as any), cascaded });

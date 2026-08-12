@@ -6,7 +6,7 @@
   "scripts": {
     "test": "jest",
     "start": "node dist/server.js",
-    "build": "tsc --skipLibCheck || exit 0",
+    "build": "tsc --skipLibCheck",
     "start:dev": "nodemon src/server.ts",
     "format": "prettier --write .",
     "create:controller": "sundaysf --create-controller",

@@ -9,8 +9,8 @@ export class HealthController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const version: string = await getServiceVersion();
-      const environment: string = await getServiceEnvironment();
+      const version: string = getServiceVersion();
+      const environment: string = getServiceEnvironment();
       res.status(200).json({
         success: true,
         health: "Up!",

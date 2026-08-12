@@ -1,6 +1,5 @@
 import { Request } from "express";
 import { getIdByUuid } from "../utils/foreignKeyResolver";
-import KnexManager from "../database/KnexConnection";
 import { AuditLogDAO } from "../dao/audit-log/audit-log.dao";
 import {
   AuditOperation,
@@ -53,7 +52,10 @@ export class AuditService {
       };
       await this.dao.insert(row);
     } catch (err) {
-      console.error(`[audit] failed to record ${operation} on ${entityName}:`, err);
+      console.error(
+        `[audit] failed to record ${operation} on ${entityName}:`,
+        err,
+      );
     }
   }
 

@@ -5,7 +5,6 @@ import {
   SUPPLY_TABLES,
   IProductionRoute,
   IRouteStage,
-  StageSupplyType,
 } from "../../interfaces/production-route/production-route.interfaces";
 import {
   parseQueryParams,
@@ -183,7 +182,10 @@ export class ProductionRouteDAO {
     return { ...this.mapRoute(route), id: route.id, stages };
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
     const knex = KnexManager.getConnection();
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
@@ -196,7 +198,9 @@ export class ProductionRouteDAO {
     const stages = await knex("production_route_stages as st")
       .select(
         "st.*",
-        knex.raw(`CASE WHEN mt.id IS NOT NULL THEN to_jsonb(mt) END as "machineType"`),
+        knex.raw(
+          `CASE WHEN mt.id IS NOT NULL THEN to_jsonb(mt) END as "machineType"`,
+        ),
       )
       .leftJoin("machine_types as mt", "st.machineTypeId", "mt.id")
       .where("st.routeId", routeId)
@@ -213,7 +217,10 @@ export class ProductionRouteDAO {
       .orderBy("id", "asc");
 
     // Batch-resolve supply display objects per type.
-    const supplyRefs = new Map<string, { uuid: string; code?: string; name?: string }>();
+    const supplyRefs = new Map<
+      string,
+      { uuid: string; code?: string; name?: string }
+    >();
     for (const [type, table] of Object.entries(SUPPLY_TABLES)) {
       const ids = [
         ...new Set(
@@ -223,9 +230,15 @@ export class ProductionRouteDAO {
         ),
       ];
       if (!ids.length) continue;
-      const rows = await knex(table).whereIn("id", ids).select("id", "uuid", "code", "name");
+      const rows = await knex(table)
+        .whereIn("id", ids)
+        .select("id", "uuid", "code", "name");
       rows.forEach((r: any) =>
-        supplyRefs.set(`${type}:${r.id}`, { uuid: r.uuid, code: r.code, name: r.name }),
+        supplyRefs.set(`${type}:${r.id}`, {
+          uuid: r.uuid,
+          code: r.code,
+          name: r.name,
+        }),
       );
     }
 
@@ -282,7 +295,10 @@ export class ProductionRouteDAO {
     const knex = KnexManager.getConnection();
     const hasParts = await knex.schema.hasTable("parts");
     if (!hasParts) return false;
-    const row = await knex("parts").where("productionRouteId", id).select("id").first();
+    const row = await knex("parts")
+      .where("productionRouteId", id)
+      .select("id")
+      .first();
     return !!row;
   }
 
@@ -325,10 +341,16 @@ export class ProductionRouteDAO {
       .orderBy("number", "asc");
     const stageIds = stages.map((s: any) => s.id);
     const machines = stageIds.length
-      ? await knex("production_route_stage_machines").whereIn("stageId", stageIds)
+      ? await knex("production_route_stage_machines").whereIn(
+          "stageId",
+          stageIds,
+        )
       : [];
     const supplies = stageIds.length
-      ? await knex("production_route_stage_supplies").whereIn("stageId", stageIds)
+      ? await knex("production_route_stage_supplies").whereIn(
+          "stageId",
+          stageIds,
+        )
       : [];
     return stages.map((stage: any) => ({
       number: stage.number,
@@ -357,13 +379,18 @@ export class ProductionRouteDAO {
 
   async nameExists(companyId: number, name: string): Promise<boolean> {
     const knex = KnexManager.getConnection();
-    const row = await knex(this.tableName).where({ companyId, name }).select("id").first();
+    const row = await knex(this.tableName)
+      .where({ companyId, name })
+      .select("id")
+      .first();
     return !!row;
   }
 
   // ── List ──────────────────────────────────────────────────────────────────
 
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IProductionRoute>> {
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IProductionRoute>> {
     const knex = KnexManager.getConnection();
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
