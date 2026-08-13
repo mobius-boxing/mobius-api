@@ -8,15 +8,18 @@ import { UserDAO } from "../../dao/user/user.dao";
 import { ICompany } from "../../interfaces/company/company.interfaces";
 import { v4 as uuidv4 } from "uuid";
 import {
+  CompanyBrandingInputDTO,
   CompanyCreateInputDTO,
   CompanyUpdateInputDTO,
 } from "../../dto/input/company";
+import { AuditService } from "../../services/audit.service";
 
 export class CompaniesController implements IBaseController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
   private _moduleDAO: ModuleDAO = new ModuleDAO();
   private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
   private _userDAO: UserDAO = new UserDAO();
+  private _auditService: AuditService = new AuditService();
 
   public async getAll(
     req: Request,
@@ -65,7 +68,15 @@ export class CompaniesController implements IBaseController {
     try {
       const data = req.body;
 
-      const inputDTO = new CompanyCreateInputDTO(data).build();
+      // build() throws on an invalid or reserved slug; that is always a 400,
+      // never the 500 an unguarded throw would produce here.
+      let inputDTO: CompanyCreateInputDTO;
+      try {
+        inputDTO = new CompanyCreateInputDTO(data).build();
+      } catch (dtoErr: any) {
+        req.statusCode = 400;
+        return next(new Error(dtoErr?.message ?? "Datos inválidos"));
+      }
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
         req.statusCode = 400;
@@ -75,6 +86,7 @@ export class CompaniesController implements IBaseController {
       const dataToCreate: ICompany = {
         uuid: uuidv4(),
         name: inputDTO.name,
+        slug: inputDTO.slug,
         description: inputDTO.description,
         isActive: true,
       };
@@ -151,7 +163,14 @@ export class CompaniesController implements IBaseController {
         return;
       }
 
-      const inputDTO = new CompanyUpdateInputDTO(data).build();
+      // build() throws on an invalid or reserved slug — a 400, not a 500.
+      let inputDTO: CompanyUpdateInputDTO;
+      try {
+        inputDTO = new CompanyUpdateInputDTO(data).build();
+      } catch (dtoErr: any) {
+        req.statusCode = 400;
+        return next(new Error(dtoErr?.message ?? "Datos inválidos"));
+      }
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
         req.statusCode = 400;
@@ -164,6 +183,64 @@ export class CompaniesController implements IBaseController {
         success: true,
         data: result,
       });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
+   * PUT /api/companies/:uuid/branding — superAdmin only.
+   *
+   * The company's whitelabel identity, shared by EVERY module it has (D-2).
+   * Replaced WHOLESALE: the body always carries all four fields and an omitted
+   * one is stored as `null`, i.e. cleared. There is no partial update — a merge
+   * would make "clear this field" unexpressible.
+   *
+   * L-005: the uuid→id hop goes through `getIdByUuid`, never through a mapper
+   * that strips numeric ids.
+   */
+  public async updateBranding(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { uuid } = req.params;
+
+      const companyId = await this._companyDAO.getIdByUuid(uuid);
+      if (!companyId) {
+        res.status(404).json({ success: false, message: "Company not found" });
+        return;
+      }
+
+      // build() throws on a bad colour, an over-long name/message or a
+      // logoFileUuid that is not a uuid — always a 400, never a 500.
+      let inputDTO: CompanyBrandingInputDTO;
+      try {
+        inputDTO = new CompanyBrandingInputDTO(req.body).build();
+      } catch (dtoErr: any) {
+        req.statusCode = 400;
+        return next(new Error(dtoErr?.message ?? "Datos inválidos"));
+      }
+
+      const result = await this._companyDAO.updateBranding(
+        companyId,
+        inputDTO.toBranding(),
+      );
+      if (!result) {
+        res.status(404).json({ success: false, message: "Company not found" });
+        return;
+      }
+
+      // Best-effort by contract (AuditService swallows its own failures).
+      await this._auditService.record(req, "Company", "Modificacion", {
+        uuid: result.uuid,
+        name: result.name,
+        companyId,
+        branding: result.branding,
+      });
+
+      res.status(200).json({ success: true, data: result });
     } catch (err: any) {
       next(err);
     }

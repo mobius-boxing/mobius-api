@@ -12,14 +12,33 @@
 export function toNumberInput(v: unknown): number | undefined {
   if (v === undefined || v === null || v === "") return undefined;
   const parsed = typeof v === "string" ? parseFloat(v) : (v as number);
-  return typeof parsed === "number" && !Number.isNaN(parsed) ? parsed : undefined;
+  return typeof parsed === "number" && !Number.isNaN(parsed)
+    ? parsed
+    : undefined;
 }
 
 /** DTO-side integer variant (same guards, parseInt semantics). */
 export function toIntInput(v: unknown): number | undefined {
   if (v === undefined || v === null || v === "") return undefined;
-  const parsed = typeof v === "string" ? parseInt(v, 10) : Math.trunc(v as number);
-  return typeof parsed === "number" && !Number.isNaN(parsed) ? parsed : undefined;
+  const parsed =
+    typeof v === "string" ? parseInt(v, 10) : Math.trunc(v as number);
+  return typeof parsed === "number" && !Number.isNaN(parsed)
+    ? parsed
+    : undefined;
+}
+
+/**
+ * DAO-side counters: pg returns count()/sum() as strings and an empty aggregate
+ * as null. Parse once, here — a count that reaches the API as "0" breaks every
+ * arithmetic comparison a client makes on it.
+ */
+export function toCountOut(v: unknown): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const parsed = Number.parseInt(v, 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
 }
 
 /**

@@ -171,6 +171,17 @@ export const sensitiveTraceTypeDeletionRateLimiter = createRateLimiter(
   "trace-types:delete",
 );
 
+// Countdown deletions get their own bucket like every other entity. Sharing the
+// generic `sensitive` bucket (3 per 5 min for ALL sensitive routes combined) put
+// document/rubro/grupo deletes in competition with the reminder trigger, so an
+// admin tidying up a rubro ran out of budget mid-cleanup.
+export const sensitiveCountdownDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many countdown deletion requests. Please try again later.",
+  "countdown:delete",
+);
+
 /**
  * No-op shims kept for backward compatibility. The library owns its in-memory store, so manual
  * clearing/inspection by identifier is no longer applicable. These are retained so existing

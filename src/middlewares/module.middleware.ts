@@ -63,3 +63,4 @@ export const requireModule = (slug: string) => {
 };
 
 export const requireStoreModule = requireModule("store");
+export const requireCountdownModule = requireModule("countdown");

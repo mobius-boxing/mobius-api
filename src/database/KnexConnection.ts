@@ -1,4 +1,16 @@
 import { knex, Knex } from "knex";
+import pg from "pg";
+
+/**
+ * Keep PG `DATE` (oid 1082) as the 'YYYY-MM-DD' string it already is.
+ *
+ * node-postgres otherwise parses it into a Date at LOCAL midnight, which for any
+ * server west of the value's own calendar prints as the previous day — the exact
+ * bug DATE columns exist to avoid. The countdown module's `dueDate` is the only
+ * DATE column in the schema today, and "vence el 5" must never render as the 4th.
+ * Process-global by nature: pg has one parser registry.
+ */
+pg.types.setTypeParser(1082, (value: string) => value);
 
 class KnexManager {
   private static knexInstance: Knex<any, unknown[]> | null = null;

@@ -33,6 +33,7 @@ export class ModuleDAO {
       name: record.name,
       description: record.description ?? null,
       isCore: record.isCore,
+      publicDomainLabel: record.publicDomainLabel ?? null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

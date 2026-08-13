@@ -16,7 +16,11 @@ export {
 } from "./auth.middleware";
 
 // Module-enabled gate middleware
-export { requireModule, requireStoreModule } from "./module.middleware";
+export {
+  requireModule,
+  requireStoreModule,
+  requireCountdownModule,
+} from "./module.middleware";
 
 // Store-customer authentication middleware (isolated from internal auth)
 export { authenticateStore } from "./store-auth.middleware";
@@ -47,6 +51,7 @@ export {
   sensitiveStrappingTypeDeletionRateLimiter,
   sensitiveComplementDeletionRateLimiter,
   sensitiveTraceTypeDeletionRateLimiter,
+  sensitiveCountdownDeletionRateLimiter,
   clearRateLimit,
   clearAllRateLimits,
   getRateLimitStatus,

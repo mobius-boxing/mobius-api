@@ -49,6 +49,8 @@ export interface ICompanyModuleWithModule {
   name: string;
   description: string | null;
   isCore: boolean;
+  /** See IModule.publicDomainLabel — null for modules with no public app. */
+  publicDomainLabel: string | null;
 
   // Link state (null when no company_modules row exists for this module)
   companyModuleId: number | null;

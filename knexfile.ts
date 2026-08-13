@@ -34,7 +34,16 @@ const config: { [key: string]: Knex.Config } = {
       password: process.env.SQL_PASSWORD,
       host: process.env.SQL_HOST,
       port: !!process.env.SQL_PORT ? +process.env.SQL_PORT : 5432,
-      ssl: isLocalhost ? false : { rejectUnauthorized: false },
+      // Opt-in, not host-derived: the deployed Postgres is a container on a
+      // private Docker network with SSL disabled, so `traffic-postgres` (not
+      // localhost) was being handed an SSL config it rejects — which is why
+      // `migrate:latest` under NODE_ENV=production could never connect. The
+      // app's own pool (src/database/KnexConnection.ts) has always used
+      // ssl:false. Set SQL_SSL=true if the database ever moves to RDS.
+      ssl:
+        process.env.SQL_SSL === "true" && !isLocalhost
+          ? { rejectUnauthorized: false }
+          : false,
     },
     pool: {
       min: 2,
@@ -54,7 +63,16 @@ const config: { [key: string]: Knex.Config } = {
       password: process.env.SQL_PASSWORD,
       host: process.env.SQL_HOST,
       port: !!process.env.SQL_PORT ? +process.env.SQL_PORT : 5432,
-      ssl: isLocalhost ? false : { rejectUnauthorized: false },
+      // Opt-in, not host-derived: the deployed Postgres is a container on a
+      // private Docker network with SSL disabled, so `traffic-postgres` (not
+      // localhost) was being handed an SSL config it rejects — which is why
+      // `migrate:latest` under NODE_ENV=production could never connect. The
+      // app's own pool (src/database/KnexConnection.ts) has always used
+      // ssl:false. Set SQL_SSL=true if the database ever moves to RDS.
+      ssl:
+        process.env.SQL_SSL === "true" && !isLocalhost
+          ? { rejectUnauthorized: false }
+          : false,
     },
     pool: {
       min: 2,

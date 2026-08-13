@@ -5,6 +5,7 @@ import { FileStorageService } from "../../services/file-storage.service";
 import {
   enforceCompanyFilter,
   getCompanyFilterUuid,
+  getCompanyForCreate,
 } from "../../utils/companyScope";
 
 // Procusto had no size/type limits; we add a defensive cap (D-note in file-storage.md).
@@ -14,7 +15,9 @@ export const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
  * File attachment endpoints. Consumers (parts, products, models, palletizations)
  * store files.uuid in their file FK columns.
  *
- * POST   /files              multipart (field "file", optional "description")
+ * POST   /files              multipart (field "file", optional "description";
+ *                            "companyId" is the target company UUID and is
+ *                            honoured ONLY for superAdmin — see below)
  * GET    /files              list (query builder)
  * GET    /files/:uuid        metadata
  * GET    /files/:uuid/download  302 to signed S3 URL, or streamed bytes (local driver)
@@ -25,16 +28,28 @@ export class FileController {
   private dao = new FileDAO();
   private storage = new FileStorageService();
 
-  private async callerCompanyId(req: Request, res: Response): Promise<number | null> {
-    const companyUuid = (req as any).user?.companyId;
-    if (!companyUuid) {
-      res.status(400).json({
-        success: false,
-        message: "No company associated with the current user.",
-      });
+  /**
+   * The company an uploaded file belongs to (L-009).
+   *
+   * SECURITY: the target is decided by `getCompanyForCreate`, never by trusting
+   * the body. A superAdmin has no company of their own, so they MUST name one
+   * (`companyId`, the company UUID — a multipart text field, which multer parses
+   * into `req.body`); every other caller is forced to their JWT company and a
+   * `companyId` they send is ignored, not honoured.
+   *
+   * Responds and returns null on failure: 400 when no company can be determined,
+   * 404 when the named company does not exist.
+   */
+  private async uploadTargetCompanyId(
+    req: Request,
+    res: Response,
+  ): Promise<number | null> {
+    const resolved = getCompanyForCreate(req);
+    if (!resolved.success) {
+      res.status(400).json({ success: false, message: resolved.message });
       return null;
     }
-    const id = await this.dao.resolveCompanyId(companyUuid);
+    const id = await this.dao.resolveCompanyId(resolved.companyUuid);
     if (!id) {
       res.status(404).json({ success: false, message: "Company not found" });
       return null;
@@ -42,20 +57,36 @@ export class FileController {
     return id;
   }
 
-  public async upload(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async upload(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const file = (req as any).file as
-        | { originalname: string; mimetype: string; size: number; buffer: Buffer }
+        | {
+            originalname: string;
+            mimetype: string;
+            size: number;
+            buffer: Buffer;
+          }
         | undefined;
       if (!file) {
-        res.status(400).json({ success: false, message: "No file provided (field 'file')." });
+        res.status(400).json({
+          success: false,
+          message: "No file provided (field 'file').",
+        });
         return;
       }
-      const companyId = await this.callerCompanyId(req, res);
+      const companyId = await this.uploadTargetCompanyId(req, res);
       if (companyId === null) return;
 
       const uuid = uuidv4();
-      const storageKey = this.storage.buildStorageKey(companyId, uuid, file.originalname);
+      const storageKey = this.storage.buildStorageKey(
+        companyId,
+        uuid,
+        file.originalname,
+      );
       await this.storage.putObject(storageKey, file.buffer, file.mimetype);
 
       const uploadedBy = await this.dao.resolveUserId((req as any).user.userId);
@@ -77,7 +108,11 @@ export class FileController {
     }
   }
 
-  public async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async getAll(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       // Sets the top-level companyId query param the DAO's query config reads —
       // filters are flat (?companyId=...), NOT nested under ?filter[...].
@@ -89,7 +124,11 @@ export class FileController {
     }
   }
 
-  public async getByUuid(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async getByUuid(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyUuid = getCompanyFilterUuid(req);
       const file = await this.dao.getByUuid(req.params.uuid, companyUuid);
@@ -103,7 +142,11 @@ export class FileController {
     }
   }
 
-  public async download(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async download(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyUuid = getCompanyFilterUuid(req);
       const file = await this.dao.getByUuid(req.params.uuid, companyUuid);
@@ -112,7 +155,10 @@ export class FileController {
         return;
       }
 
-      const url = await this.storage.getDownloadUrl(file.storageKey, file.originalName);
+      const url = await this.storage.getDownloadUrl(
+        file.storageKey,
+        file.originalName,
+      );
       if (url) {
         res.redirect(302, url);
         return;
@@ -120,7 +166,9 @@ export class FileController {
 
       // Local-disk driver: stream through the API.
       if (!(await this.storage.localObjectExists(file.storageKey))) {
-        res.status(404).json({ success: false, message: "File bytes not found in storage" });
+        res
+          .status(404)
+          .json({ success: false, message: "File bytes not found in storage" });
         return;
       }
       res.setHeader(
@@ -134,7 +182,11 @@ export class FileController {
     }
   }
 
-  public async copy(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async copy(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyUuid = getCompanyFilterUuid(req);
       const source = await this.dao.getByUuid(req.params.uuid, companyUuid);
@@ -166,7 +218,11 @@ export class FileController {
     }
   }
 
-  public async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async delete(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyUuid = getCompanyFilterUuid(req);
       const file = await this.dao.getByUuid(req.params.uuid, companyUuid);
@@ -178,7 +234,9 @@ export class FileController {
       // Row first, bytes second: a storage failure leaves an orphaned object,
       // never a dangling files row pointing at missing bytes.
       await this.storage.deleteObject(file.storageKey);
-      res.status(200).json({ success: true, message: "File deleted successfully" });
+      res
+        .status(200)
+        .json({ success: true, message: "File deleted successfully" });
     } catch (err: any) {
       next(err);
     }

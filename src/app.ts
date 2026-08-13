@@ -6,7 +6,7 @@ import helmet from "helmet";
 import { IndexRouter } from "./routes/index";
 import { errorMiddleware } from "./middlewares/error/error.middleware";
 import {
-  getAllowedOrigins,
+  isOriginAllowed,
   validateAllowedOrigins,
 } from "./common/config/origins/origins.config";
 import { globalRateLimiter } from "./middlewares/rate-limit.middleware";
@@ -35,11 +35,25 @@ app.use(
 
 app.use(
   cors({
-    // Passing the allowlist array means cors() only reflects matching origins; it never echoes
-    // an arbitrary Origin back with credentials:true.
-    origin: getAllowedOrigins(),
+    // The allowlist is consulted per request (never an echo of the caller's Origin), and it is
+    // read from the environment on every call so wildcard entries such as
+    // `https://*.vencimientos.mobiusboxing.com` cover whitelabel customers that did not exist at
+    // boot: onboarding a customer is a DNS + database change, never an API redeploy.
+    // An unmatched origin gets `false` — cors() then simply omits the CORS headers.
+    origin: (origin, callback) =>
+      callback(null, !!origin && isOriginAllowed(origin)),
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
+    // A cross-origin browser can only read headers named here. File downloads
+    // (countdown's Excel export) are fetched with the auth header rather than a
+    // plain <a href>, so the SPA reads the server-chosen filename and the
+    // truncation flag off the response — without this they are silently
+    // invisible and the download lands with a guessed name.
+    exposedHeaders: [
+      "Content-Disposition",
+      "X-Export-Rows",
+      "X-Export-Truncated",
+    ],
   }),
 );
 
