@@ -188,7 +188,7 @@ export class CompaniesController implements IBaseController {
    * PUT /api/companies/:uuid/branding — superAdmin only.
    *
    * The company's whitelabel identity, shared by EVERY module it has (D-2).
-   * Replaced WHOLESALE: the body always carries all four fields and an omitted
+   * Replaced WHOLESALE: the body always carries all five fields and an omitted
    * one is stored as `null`, i.e. cleared. There is no partial update — a merge
    * would make "clear this field" unexpressible.
    *

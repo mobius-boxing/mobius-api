@@ -27,6 +27,7 @@ const UUID_V4_PATTERN =
 const emptyBranding = (): ICompanyBranding => ({
   displayName: null,
   brandColor: null,
+  accentColor: null,
   logoFileUuid: null,
   loginMessage: null,
 });
@@ -45,7 +46,7 @@ const readPattern = (value: unknown, pattern: RegExp): string | null =>
   typeof value === "string" && pattern.test(value) ? value : null;
 
 /**
- * Coerce an arbitrary JSONB value into the four branding fields. Anything that
+ * Coerce an arbitrary JSONB value into the five branding fields. Anything that
  * is not a usable value for its field becomes `null`.
  */
 export function normalizeBranding(raw: unknown): ICompanyBranding {
@@ -55,6 +56,7 @@ export function normalizeBranding(raw: unknown): ICompanyBranding {
     return {
       displayName: readText(branding.displayName),
       brandColor: readPattern(branding.brandColor, HEX_COLOR_PATTERN),
+      accentColor: readPattern(branding.accentColor, HEX_COLOR_PATTERN),
       logoFileUuid: readPattern(branding.logoFileUuid, UUID_V4_PATTERN),
       loginMessage: readText(branding.loginMessage),
     };
@@ -82,6 +84,7 @@ export function isEmptyBranding(branding: ICompanyBranding): boolean {
   return (
     branding.displayName === null &&
     branding.brandColor === null &&
+    branding.accentColor === null &&
     branding.logoFileUuid === null &&
     branding.loginMessage === null
   );

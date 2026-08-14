@@ -37,7 +37,7 @@ interface ResolvedTenant {
  * SECURITY (L-009): unauthenticated does NOT mean unscoped. Everything here is
  * derived from `companies.slug` + `companies.branding` + the module's
  * `company_modules` row, and the response carries branding only: a company uuid,
- * its slug, and the four fields a login screen needs. No user, no counts, no
+ * its slug, and the five fields a login screen needs. No user, no counts, no
  * membership, no numeric ids.
  *
  * Unknown client, unknown module, module not enabled for that client, and a
@@ -130,6 +130,11 @@ export class WhitelabelController {
           // A company that never set a display name is simply called by its name.
           displayName: branding.displayName ?? company.name,
           brandColor: branding.brandColor ?? DEFAULT_BRAND_COLOR,
+          // Unset accent means "same as the brand colour" (D-5), so the accent
+          // ramp collapses onto the brand ramp and nothing changes visually
+          // until a tenant picks a second colour.
+          accentColor:
+            branding.accentColor ?? branding.brandColor ?? DEFAULT_BRAND_COLOR,
           logoUrl: branding.logoFileUuid
             ? this.logoUrl(moduleSlug, clientSlug)
             : null,

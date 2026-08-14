@@ -8,7 +8,7 @@ import { CompanyBrandingInputDTO } from "./CompanyBrandingInputDTO";
  * The stored shape is namespaced by module slug inside `company_modules.config`
  * (same precedent as `services/store/store-order-limits.ts`):
  *
- *   config = { "<moduleSlug>": { "branding": { ...four fields... } } }
+ *   config = { "<moduleSlug>": { "branding": { ...five fields... } } }
  *
  * LEGACY: the `branding` written here is NO LONGER READ by anything. Branding
  * became a property of the COMPANY (`companies.branding`, written by
@@ -18,7 +18,7 @@ import { CompanyBrandingInputDTO } from "./CompanyBrandingInputDTO";
  * real per-module DTO — or retiring it — is a follow-up spec.
  *
  * Validation is NOT duplicated: it delegates to `CompanyBrandingInputDTO`, the
- * one place the four fields' rules live, so the two endpoints can never drift.
+ * one place the five fields' rules live, so the two endpoints can never drift.
  */
 export type IModuleBranding = ICompanyBranding;
 
@@ -31,7 +31,7 @@ export class CompanyModuleConfigInputDTO {
     this.brandingDTO = new CompanyBrandingInputDTO(raw.branding);
   }
 
-  /** The normalized four fields, exactly as the branding endpoint stores them. */
+  /** The normalized five fields, exactly as the branding endpoint stores them. */
   get branding(): IModuleBranding {
     return this.brandingDTO.toBranding();
   }
@@ -44,7 +44,7 @@ export class CompanyModuleConfigInputDTO {
 
   /**
    * The object to merge into `config[<moduleSlug>]`. `branding` is replaced
-   * wholesale (the editor always sends the complete set of four fields), while
+   * wholesale (the editor always sends the complete set of five fields), while
    * any sibling key under the same module namespace — e.g. the store module's
    * `storeOrderLimits` — is left untouched by the DAO merge.
    */

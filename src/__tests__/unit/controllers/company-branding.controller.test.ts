@@ -3,7 +3,7 @@
  * branding.
  *
  * What is pinned here:
- *  - WHOLESALE replacement (AC-4): the DAO always receives all four keys and an
+ *  - WHOLESALE replacement (AC-4): the DAO always receives all five keys and an
  *    omitted key arrives as `null`. Nothing is merged with the previous value,
  *    because a merge makes "clear this field" unexpressible;
  *  - a DTO rejection becomes `req.statusCode = 400` + `next(err)` (AC-7) — the
@@ -83,7 +83,7 @@ describe("CompaniesController.updateBranding", () => {
     controller = new CompaniesController();
   });
 
-  it("stores all four fields and answers with the saved company", async () => {
+  it("stores all five fields and answers with the saved company", async () => {
     mockCompanyDAO.getIdByUuid.mockResolvedValue(7);
     const saved = {
       uuid: COMPANY_UUID,
@@ -92,6 +92,7 @@ describe("CompaniesController.updateBranding", () => {
       branding: {
         displayName: "QA Demo",
         brandColor: "#2563eb",
+        accentColor: "#ffd400",
         logoFileUuid: LOGO_UUID,
         loginMessage: "Hola",
       },
@@ -102,6 +103,7 @@ describe("CompaniesController.updateBranding", () => {
       brandingRequest({
         displayName: "QA Demo",
         brandColor: "#2563EB",
+        accentColor: "#FFD400",
         logoFileUuid: LOGO_UUID,
         loginMessage: "Hola",
       }),
@@ -113,6 +115,7 @@ describe("CompaniesController.updateBranding", () => {
       displayName: "QA Demo",
       // Lower-cased by the DTO.
       brandColor: "#2563eb",
+      accentColor: "#ffd400",
       logoFileUuid: LOGO_UUID,
       loginMessage: "Hola",
     });
@@ -134,6 +137,7 @@ describe("CompaniesController.updateBranding", () => {
     expect(mockCompanyDAO.updateBranding).toHaveBeenCalledWith(7, {
       displayName: null,
       brandColor: "#018445",
+      accentColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -186,6 +190,7 @@ describe("CompaniesController.updateBranding", () => {
       { displayName: "a".repeat(81) },
       { loginMessage: "b".repeat(161) },
       { brandColor: "red" },
+      { accentColor: "#12345" },
       { logoFileUuid: "not-a-uuid" },
     ];
 

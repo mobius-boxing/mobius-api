@@ -34,12 +34,14 @@ describe("normalizeBranding", () => {
       normalizeBranding({
         displayName: "Acme",
         brandColor: "#00ff00",
+        accentColor: "#ffd400",
         logoFileUuid: VALID_UUID_V4,
         loginMessage: "Bienvenido",
       }),
     ).toEqual({
       displayName: "Acme",
       brandColor: "#00ff00",
+      accentColor: "#ffd400",
       logoFileUuid: VALID_UUID_V4,
       loginMessage: "Bienvenido",
     });
@@ -49,6 +51,7 @@ describe("normalizeBranding", () => {
     expect(normalizeBranding({ displayName: "", loginMessage: "" })).toEqual({
       displayName: null,
       brandColor: null,
+      accentColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -57,6 +60,12 @@ describe("normalizeBranding", () => {
   it("nulls a colour that is not #rrggbb", () => {
     for (const brandColor of ["red", "#abc", "#GGGGGG", "018445", 16711680]) {
       expect(normalizeBranding({ brandColor }).brandColor).toBeNull();
+    }
+  });
+
+  it("nulls an accent colour that is not #rrggbb, without throwing", () => {
+    for (const accentColor of ["red", "#12345", "#GGGGGG", "018445", 42]) {
+      expect(normalizeBranding({ accentColor }).accentColor).toBeNull();
     }
   });
 
@@ -86,6 +95,7 @@ describe("normalizeBranding", () => {
     ).toEqual({
       displayName: null,
       brandColor: null,
+      accentColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -96,6 +106,7 @@ describe("normalizeBranding", () => {
       expect(normalizeBranding(raw)).toEqual({
         displayName: null,
         brandColor: null,
+        accentColor: null,
         logoFileUuid: null,
         loginMessage: null,
       });
@@ -110,6 +121,7 @@ describe("readLegacyModuleBranding", () => {
     ).toEqual({
       displayName: "QA Demo",
       brandColor: "#2563eb",
+      accentColor: null,
       logoFileUuid: null,
       loginMessage: "Portal de vencimientos de QA Demo.",
     });
@@ -133,6 +145,7 @@ describe("readLegacyModuleBranding", () => {
     expect(readLegacyModuleBranding(config, "store")).toEqual({
       displayName: "Tienda",
       brandColor: null,
+      accentColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -150,6 +163,12 @@ describe("readLegacyModuleBranding", () => {
 describe("isEmptyBranding", () => {
   it("is false as soon as one field is set", () => {
     expect(isEmptyBranding(normalizeBranding({ brandColor: "#018445" }))).toBe(
+      false,
+    );
+  });
+
+  it("is false for an accent-only branding (D-9)", () => {
+    expect(isEmptyBranding(normalizeBranding({ accentColor: "#2563eb" }))).toBe(
       false,
     );
   });

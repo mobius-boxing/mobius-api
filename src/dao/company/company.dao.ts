@@ -137,7 +137,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
 
   /**
    * Replace this company's whitelabel branding WHOLESALE — the editor always
-   * sends the complete set of four fields, and a partial write would leave the
+   * sends the complete set of five fields, and a partial write would leave the
    * public login screen carrying a mix of old and new identity.
    *
    * No merge, on purpose: clearing a field is expressed as `null`, which a

@@ -3,12 +3,18 @@
  * (spec revision 2: branding is a property of the company, not of the
  * company↔module link). Stored in `companies.branding` jsonb.
  *
- * All four fields are nullable "unset" markers: the public endpoint falls back
+ * All five fields are nullable "unset" markers: the public endpoint falls back
  * to the company name and the default brand colour rather than inventing data.
  */
 export interface ICompanyBranding {
   displayName: string | null;
   brandColor: string | null;
+  /**
+   * Secondary tenant colour driving the `--accent*` ramp. Unset means "same as
+   * the brand colour": consumers fall back to `brandColor`, so an accent is
+   * never invented for a tenant that never picked one.
+   */
+  accentColor: string | null;
   logoFileUuid: string | null;
   loginMessage: string | null;
 }

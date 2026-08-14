@@ -121,9 +121,59 @@ describe("WhitelabelController.getBranding", () => {
         slug: "qa-demo-co",
         displayName: "QA Demo",
         brandColor: "#2563eb",
+        accentColor: "#2563eb",
         logoUrl: null,
         loginMessage: "Portal de vencimientos de QA Demo.",
       },
+    });
+  });
+
+  it("falls the accent back to the brand colour when it is unset (D-5)", async () => {
+    mockCompanyDAO.getBySlug.mockResolvedValue(
+      company({ brandColor: "#7a1fa2" }),
+    );
+    mockCompanyModuleDAO.getEnabledConfig.mockResolvedValue({});
+
+    await controller.getBranding(brandingRequest(), res as Response, next);
+
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: expect.objectContaining({
+        brandColor: "#7a1fa2",
+        accentColor: "#7a1fa2",
+      }),
+    });
+  });
+
+  it("serves the stored accent when it is set (D-5)", async () => {
+    mockCompanyDAO.getBySlug.mockResolvedValue(
+      company({ brandColor: "#7a1fa2", accentColor: "#ffd400" }),
+    );
+    mockCompanyModuleDAO.getEnabledConfig.mockResolvedValue({});
+
+    await controller.getBranding(brandingRequest(), res as Response, next);
+
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: expect.objectContaining({
+        brandColor: "#7a1fa2",
+        accentColor: "#ffd400",
+      }),
+    });
+  });
+
+  it("serves the default colour as both when neither is set (D-5)", async () => {
+    mockCompanyDAO.getBySlug.mockResolvedValue(company({}));
+    mockCompanyModuleDAO.getEnabledConfig.mockResolvedValue({});
+
+    await controller.getBranding(brandingRequest(), res as Response, next);
+
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: expect.objectContaining({
+        brandColor: "#018445",
+        accentColor: "#018445",
+      }),
     });
   });
 

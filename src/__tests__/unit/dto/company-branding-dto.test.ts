@@ -18,17 +18,19 @@ const UUID_V1 = "3f1a7c1e-4b2d-1a6e-9c1f-2b7d8e5a1c40";
 const build = (body: unknown) => new CompanyBrandingInputDTO(body).build();
 
 describe("CompanyBrandingInputDTO — accepted input", () => {
-  it("keeps the four valid fields", () => {
+  it("keeps the five valid fields", () => {
     expect(
       build({
         displayName: "Acme Cartón",
         brandColor: "#2563eb",
+        accentColor: "#ffd400",
         logoFileUuid: VALID_UUID_V4,
         loginMessage: "Bienvenido al portal",
       }).toBranding(),
     ).toEqual({
       displayName: "Acme Cartón",
       brandColor: "#2563eb",
+      accentColor: "#ffd400",
       logoFileUuid: VALID_UUID_V4,
       loginMessage: "Bienvenido al portal",
     });
@@ -39,11 +41,13 @@ describe("CompanyBrandingInputDTO — accepted input", () => {
       build({
         displayName: null,
         brandColor: "",
+        accentColor: "",
         loginMessage: undefined,
       }).toBranding(),
     ).toEqual({
       displayName: null,
       brandColor: null,
+      accentColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -53,6 +57,7 @@ describe("CompanyBrandingInputDTO — accepted input", () => {
     expect(build({}).toBranding()).toEqual({
       displayName: null,
       brandColor: null,
+      accentColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -62,6 +67,18 @@ describe("CompanyBrandingInputDTO — accepted input", () => {
     expect(build({ brandColor: "#2563EB" }).toBranding().brandColor).toBe(
       "#2563eb",
     );
+  });
+
+  it("lower-cases the accent colour exactly as it does the brand colour", () => {
+    expect(build({ accentColor: "#2563EB" }).toBranding().accentColor).toBe(
+      "#2563eb",
+    );
+  });
+
+  it("treats absent, null and empty-string accent as unset (D-3 fallback)", () => {
+    for (const accentColor of [undefined, null, ""]) {
+      expect(build({ accentColor }).toBranding().accentColor).toBeNull();
+    }
   });
 
   it("trims surrounding whitespace", () => {
@@ -108,6 +125,19 @@ describe("CompanyBrandingInputDTO — rejected input (AC-6)", () => {
     }
   });
 
+  it("throws on an accent colour that is not #rrggbb", () => {
+    for (const accentColor of [
+      "#GGGGGG",
+      "red",
+      "#12345",
+      "#abc",
+      "018445",
+      "#2563eb99",
+    ]) {
+      expect(() => build({ accentColor })).toThrow(/color de acento/);
+    }
+  });
+
   it("throws on a logo reference that is not a v4 uuid", () => {
     for (const logoFileUuid of ["not-a-uuid", UUID_V1, "1234"]) {
       expect(() => build({ logoFileUuid })).toThrow(/archivo válido/);
@@ -135,11 +165,12 @@ describe("CompanyBrandingInputDTO — rejected input (AC-6)", () => {
 });
 
 describe("CompanyModuleConfigInputDTO — unchanged after delegating", () => {
-  it("still nests the four fields under `branding`", () => {
+  it("still nests the five fields under `branding`", () => {
     const dto = new CompanyModuleConfigInputDTO({
       branding: {
         displayName: "QA Demo",
         brandColor: "#2563EB",
+        accentColor: "#FFD400",
         loginMessage: "Portal de vencimientos de QA Demo.",
       },
     }).build();
@@ -148,6 +179,7 @@ describe("CompanyModuleConfigInputDTO — unchanged after delegating", () => {
       branding: {
         displayName: "QA Demo",
         brandColor: "#2563eb",
+        accentColor: "#ffd400",
         logoFileUuid: null,
         loginMessage: "Portal de vencimientos de QA Demo.",
       },
@@ -161,6 +193,7 @@ describe("CompanyModuleConfigInputDTO — unchanged after delegating", () => {
       branding: {
         displayName: null,
         brandColor: null,
+        accentColor: null,
         logoFileUuid: null,
         loginMessage: null,
       },

@@ -4,9 +4,10 @@ import { ICompanyBranding } from "../../../interfaces/company/company.interfaces
  * A company's whitelabel identity — the payload of
  * `PUT /api/companies/:uuid/branding`, stored in `companies.branding`.
  *
- * Body is FLAT: `{displayName, brandColor, logoFileUuid, loginMessage}`.
+ * Body is FLAT:
+ * `{displayName, brandColor, accentColor, logoFileUuid, loginMessage}`.
  *
- * This is the ONLY place the four fields are validated. Everything the public,
+ * This is the ONLY place the five fields are validated. Everything the public,
  * unauthenticated branding endpoint serves originates here and the JSONB column
  * carries no constraints: a colour that is not a colour would reach a browser as
  * a style value, and a `logoFileUuid` that is not a uuid would reach a database
@@ -16,7 +17,7 @@ import { ICompanyBranding } from "../../../interfaces/company/company.interfaces
  * Branding is replaced WHOLESALE: absent, `null` and `""` all mean "unset" and
  * become `null`, which is how a field gets cleared. A caller that sends a
  * partial body therefore clears the fields it omitted — the backoffice form
- * always submits all four.
+ * always submits all five.
  */
 
 /** Rendered as the tenant's product name — long enough for a company name. */
@@ -48,6 +49,7 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 export class CompanyBrandingInputDTO {
   displayName: unknown;
   brandColor: unknown;
+  accentColor: unknown;
   logoFileUuid: unknown;
   loginMessage: unknown;
 
@@ -61,6 +63,10 @@ export class CompanyBrandingInputDTO {
       typeof raw.brandColor === "string" && !isUnset(raw.brandColor)
         ? raw.brandColor.trim().toLowerCase()
         : cleanText(raw.brandColor);
+    this.accentColor =
+      typeof raw.accentColor === "string" && !isUnset(raw.accentColor)
+        ? raw.accentColor.trim().toLowerCase()
+        : cleanText(raw.accentColor);
     this.logoFileUuid = cleanText(raw.logoFileUuid);
     this.loginMessage = cleanText(raw.loginMessage);
   }
@@ -70,7 +76,8 @@ export class CompanyBrandingInputDTO {
    * turns that into a 400 (`req.statusCode = 400` + `next(err)`), never a 500.
    */
   public build(): this {
-    const { displayName, brandColor, logoFileUuid, loginMessage } = this;
+    const { displayName, brandColor, accentColor, logoFileUuid, loginMessage } =
+      this;
 
     if (displayName !== null) {
       if (typeof displayName !== "string" || displayName.length === 0) {
@@ -90,6 +97,17 @@ export class CompanyBrandingInputDTO {
       ) {
         throw new Error(
           "El color de marca debe ser un hexadecimal con el formato #rrggbb",
+        );
+      }
+    }
+
+    if (accentColor !== null) {
+      if (
+        typeof accentColor !== "string" ||
+        !HEX_COLOR_PATTERN.test(accentColor)
+      ) {
+        throw new Error(
+          "El color de acento debe ser un hexadecimal con el formato #rrggbb",
         );
       }
     }
@@ -125,6 +143,7 @@ export class CompanyBrandingInputDTO {
     return {
       displayName: this.displayName as string | null,
       brandColor: this.brandColor as string | null,
+      accentColor: this.accentColor as string | null,
       logoFileUuid: this.logoFileUuid as string | null,
       loginMessage: this.loginMessage as string | null,
     };
