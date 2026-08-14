@@ -1,5 +1,5 @@
 import type { Knex } from "knex";
-import KnexManager from "../database/KnexConnection";
+import { db } from "../database/registry";
 import {
   PERMISSION_CONCEPTS,
   MOBIUS_ADDED_PERMISSIONS,
@@ -124,7 +124,7 @@ export class RbacService {
   static async authzForUserUuid(
     userUuid: string,
   ): Promise<{ hasRole: boolean; codes: string[] }> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const user = await knex("users")
       .where("uuid", userUuid)
       .select("roleId")
@@ -172,7 +172,7 @@ export class RbacService {
 
   /** Permission codes for a user (by users.id). Empty when the user has no role. */
   static async permissionCodesForUser(userId: number): Promise<string[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const rows = await knex("users")
       .join("role_permissions", "users.roleId", "role_permissions.roleId")
       .join("permissions", "role_permissions.permissionId", "permissions.id")
@@ -183,7 +183,7 @@ export class RbacService {
 
   /** Same lookup by user uuid (what the JWT carries). */
   static async permissionCodesForUserUuid(userUuid: string): Promise<string[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const rows = await knex("users")
       .join("role_permissions", "users.roleId", "role_permissions.roleId")
       .join("permissions", "role_permissions.permissionId", "permissions.id")

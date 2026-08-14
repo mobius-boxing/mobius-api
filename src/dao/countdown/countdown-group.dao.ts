@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   ICountdownGroup,
   INamedRef,
@@ -36,7 +36,7 @@ function displayName(row: {
 export class CountdownGroupDAO {
   /** Grupos with their members, in two queries rather than one per group. */
   async list(companyId: number): Promise<ICountdownGroup[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
 
     const groups = await knex<ICountdownGroupRow>(GROUPS_TABLE)
       .where({ companyId })
@@ -89,7 +89,7 @@ export class CountdownGroupDAO {
     uuid: string,
     companyId: number,
   ): Promise<number | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const row = await knex<ICountdownGroupRow>(GROUPS_TABLE)
       .select("id")
       .where({ uuid, companyId })
@@ -101,7 +101,7 @@ export class CountdownGroupDAO {
     uuid: string,
     companyId: number,
   ): Promise<ICountdownGroupRow | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     return knex<ICountdownGroupRow>(GROUPS_TABLE)
       .where({ uuid, companyId })
       .first();
@@ -112,7 +112,7 @@ export class CountdownGroupDAO {
     companyId: number,
     name: string,
   ): Promise<ICountdownGroupRow | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     return knex<ICountdownGroupRow>(GROUPS_TABLE)
       .where({ companyId })
       .whereRaw("lower(name) = lower(?)", [name.trim()])
@@ -124,7 +124,7 @@ export class CountdownGroupDAO {
     uuid: string,
     name: string,
   ): Promise<ICountdownGroupRow> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows = await knex<ICountdownGroupRow>(GROUPS_TABLE)
       .insert({ uuid, companyId, name: name.trim() })
       .returning("*");
@@ -134,14 +134,14 @@ export class CountdownGroupDAO {
   }
 
   async rename(companyId: number, id: number, name: string): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     await knex<ICountdownGroupRow>(GROUPS_TABLE)
       .where({ id, companyId })
       .update({ name: name.trim(), updatedAt: knex.fn.now() });
   }
 
   async delete(companyId: number, id: number): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     // Membership and any document assignments pointing at the group cascade
     // away, so a document assigned only to this group falls back to "anyone can
     // resolve". Neither side owns files or other state to clean up (L-006).
@@ -156,7 +156,7 @@ export class CountdownGroupDAO {
    * tenant-resolved by the service.
    */
   async setMembers(groupId: number, userIds: number[]): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     await knex.transaction(async (trx) => {
       await trx(MEMBERS_TABLE).where({ groupId }).delete();
       if (userIds.length > 0) {

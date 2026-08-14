@@ -1,5 +1,50 @@
-import KnexManager from "../database/KnexConnection";
+import type { Knex } from "knex";
+import { db } from "../database/registry";
+import { DbKey } from "../database/keys";
+import { ownerOf } from "../database/ownership";
 import { validate as isUuid } from "uuid";
+
+/**
+ * Which database to ask for a table whose name only exists at runtime
+ * (`FK_CONFIGS` spans both planes, and `getIdByUuid`/`validateUuidExists` take
+ * a bare string).
+ *
+ * `ownerOf` answers for the 73 single-owner tables. It deliberately returns
+ * `undefined` for the fanned-out names (`files`, `audit_logs`) and for anything
+ * it does not know, and those two cases must not share a fallback:
+ *
+ * - Fanned out: the answer exists but has to be *stated*, below.
+ * - Unknown: there is no answer, and quietly picking one is the L-005 failure
+ *   shape. `getIdByUuid` returns `null` on a miss and every caller reads `null`
+ *   as "no value", so a lookup sent to the wrong database post-split would not
+ *   404 or error — the field would simply go missing. It throws instead.
+ *
+ * The throw can only fire on a table name absent from the manifest, i.e. a
+ * coding error, and only on the uuid branch — numeric pass-through and
+ * empty→null are untouched.
+ *
+ * T2b routes the `companies` and `users` branches through `CoreClient`; the
+ * other 11 configs stay module-local.
+ */
+const FANNED_OUT_RESOLUTION: Record<string, DbKey> = {
+  // The only live caller is palletization's `technicalFileUuid` /
+  // `imageFileUuid` — ERP product assets (G-2). A core company asset resolved
+  // through here would need its own deliberate entry; do not widen this into a
+  // general fallback.
+  files: "erp",
+};
+
+const connectionFor = (tableName: string): Knex => {
+  const key = ownerOf(tableName) ?? FANNED_OUT_RESOLUTION[tableName];
+  if (!key) {
+    throw new Error(
+      `[foreignKeyResolver] no database owns table "${tableName}". Add it to ` +
+        `src/database/ownership.ts, or — if it exists in more than one ` +
+        `database — to FANNED_OUT_RESOLUTION with the reason.`,
+    );
+  }
+  return db(key);
+};
 
 export interface ForeignKeyConfig {
   tableName: string;
@@ -38,7 +83,7 @@ export async function resolveUuidToId(
   }
 
   if (typeof value === "string" && isUuid(value)) {
-    const knex = KnexManager.getConnection();
+    const knex = connectionFor(tableName);
 
     const record = await knex(tableName)
       .select(idColumn)
@@ -46,13 +91,19 @@ export async function resolveUuidToId(
       .first();
 
     if (!record) {
-      return { success: false, error: `Invalid ${tableName.replace(/_/g, " ")} reference` };
+      return {
+        success: false,
+        error: `Invalid ${tableName.replace(/_/g, " ")} reference`,
+      };
     }
 
     return { success: true, id: record[idColumn] };
   }
 
-  return { success: false, error: `Invalid ${tableName.replace(/_/g, " ")} format` };
+  return {
+    success: false,
+    error: `Invalid ${tableName.replace(/_/g, " ")} format`,
+  };
 }
 
 /**
@@ -94,7 +145,7 @@ export async function validateUuidExists(
     return false;
   }
 
-  const knex = KnexManager.getConnection();
+  const knex = connectionFor(tableName);
   const record = await knex(tableName).where("uuid", uuid).select("id").first();
 
   return !!record;
@@ -116,7 +167,7 @@ export async function getIdByUuid(
     return isNaN(parsed) ? null : parsed;
   }
 
-  const knex = KnexManager.getConnection();
+  const knex = connectionFor(tableName);
   const record = await knex(tableName).where("uuid", uuid).select("id").first();
 
   return record ? record.id : null;

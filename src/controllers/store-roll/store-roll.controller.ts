@@ -7,7 +7,7 @@ import {
   StoreRollUpdateInputDTO,
 } from "../../dto/input/storeRoll";
 import { getCompanyForCreate } from "../../utils/companyScope";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   BaseCrudController,
   BaseCrudOptions,
@@ -69,7 +69,8 @@ export class StoreRollController extends BaseCrudController<IStoreRoll> {
     // Partial update: validate only the fields actually present (mirror create rules).
     if (
       inputDTO.description !== undefined &&
-      (typeof inputDTO.description !== "string" || inputDTO.description.trim() === "")
+      (typeof inputDTO.description !== "string" ||
+        inputDTO.description.trim() === "")
     ) {
       req.statusCode = 400;
       next(new Error("description must be a non-empty string"));
@@ -101,7 +102,7 @@ export class StoreRollController extends BaseCrudController<IStoreRoll> {
       return null;
     }
 
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const company = await knex("companies")
       .where("uuid", companyResult.companyUuid)
       .first();

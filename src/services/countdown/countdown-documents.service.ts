@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { CountdownAssignmentDAO } from "../../dao/countdown/countdown-assignment.dao";
 import {
@@ -502,7 +502,7 @@ export class CountdownDocumentsService {
       ctx.companyId,
     );
 
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     await knex.transaction(async (trx) => {
       await this._documentDAO.setStatus(
         entry.id,

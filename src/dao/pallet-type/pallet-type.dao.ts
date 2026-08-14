@@ -1,6 +1,6 @@
 import { Request } from "express";
 import { toNumberOut } from "../../utils/numbers";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IPalletType } from "../../interfaces/palletization/palletization.interfaces";
 import {
@@ -41,7 +41,7 @@ export class PalletTypeDAO {
   private queryConfig = PALLET_TYPE_QUERY_CONFIG;
 
   async create(item: IPalletType): Promise<IPalletType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -57,26 +57,42 @@ export class PalletTypeDAO {
     return this.mapToInterface(row);
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IPalletType | null> {
-    const knex = KnexManager.getConnection();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IPalletType | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.*`).first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
 
-  async update(id: number, item: Partial<IPalletType>): Promise<IPalletType | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IPalletType>,
+  ): Promise<IPalletType | null> {
+    const knex = db("erp");
     const updateData: any = {};
-    for (const key of ["code", "description", "length", "width", "weight", "height"] as const) {
+    for (const key of [
+      "code",
+      "description",
+      "length",
+      "width",
+      "weight",
+      "height",
+    ] as const) {
       if (item[key] !== undefined) updateData[key] = item[key];
     }
     updateData.updatedAt = knex.fn.now();
@@ -88,13 +104,13 @@ export class PalletTypeDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPalletType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

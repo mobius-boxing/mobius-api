@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IPaperSupply } from "../../interfaces/paper-supply/paper-supply.interfaces";
 import {
@@ -89,7 +89,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   private queryConfig = PAPER_SUPPLY_QUERY_CONFIG;
 
   async create(item: IPaperSupply): Promise<IPaperSupply> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [paperSupply] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -114,7 +114,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   }
 
   async getById(id: number): Promise<IPaperSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const paperSupply = await knex(this.tableName).where("id", id).first();
 
     return paperSupply ? this.mapToInterface(paperSupply) : null;
@@ -125,7 +125,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IPaperSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
     if (companyUuid) {
@@ -152,7 +152,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const record = await knex(this.tableName)
       .select("id")
       .where("uuid", uuid)
@@ -164,7 +164,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     id: number,
     item: Partial<IPaperSupply>,
   ): Promise<IPaperSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -194,7 +194,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -206,7 +206,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     limit: number,
     companyUuid?: string,
   ): Promise<IDataPaginator<IPaperSupply>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = knex(this.tableName)
@@ -281,7 +281,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     req: Request,
     companyUuid?: string,
   ): Promise<IDataPaginator<IPaperSupply>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const dataQuery = knex(this.tableName)
@@ -356,7 +356,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IPaperSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     const query = knex(this.tableName)
       .select(

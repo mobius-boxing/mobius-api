@@ -6,13 +6,17 @@ import { IUser } from "../../interfaces/user/user.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
 import bcrypt from "bcryptjs";
-import { UserCreateInputDTO, UserSelfUpdateInputDTO } from "../../dto/input/user";
+import {
+  UserCreateInputDTO,
+  UserSelfUpdateInputDTO,
+} from "../../dto/input/user";
 import { validatePassword, BCRYPT_COST } from "../../utils/passwordPolicy";
 import { InvitationDAO } from "../../dao/invitation/invitation.dao";
 import { IInvitation } from "../../interfaces/invitation/invitation.interfaces";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import crypto from "crypto";
 import { EmailService } from "../../services/email.service";
+import { db } from "../../database/registry";
 
 export class UsersController implements IBaseController {
   private _userDAO: UserDAO = new UserDAO();
@@ -267,7 +271,10 @@ export class UsersController implements IBaseController {
         if (data.role !== undefined && data.role === existing.role) {
           data.role = undefined;
         }
-        if (data.isActive !== undefined && data.isActive === existing.isActive) {
+        if (
+          data.isActive !== undefined &&
+          data.isActive === existing.isActive
+        ) {
           data.isActive = undefined;
         }
         if (
@@ -298,7 +305,8 @@ export class UsersController implements IBaseController {
       const profileDTO = new UserSelfUpdateInputDTO(data).build();
       // Validation regression guard: the old path ran inputValidator on the
       // update DTO — keep validating (e.g. email format) on this path too.
-      const profileValidation: IInputValidator = await inputValidator(profileDTO);
+      const profileValidation: IInputValidator =
+        await inputValidator(profileDTO);
       if (!profileValidation.success) {
         req.statusCode = 400;
         return next(new Error(profileValidation.message));
@@ -458,7 +466,7 @@ export class UsersController implements IBaseController {
           ? req.query.companyId
           : currentUser?.companyId;
 
-      const knex = require("../../database/KnexConnection").default.getConnection();
+      const knex = db("core");
 
       let query = knex("users");
 
@@ -468,7 +476,9 @@ export class UsersController implements IBaseController {
           query = query.where("companyId", company.id);
         } else if (currentUser?.role !== "superAdmin") {
           // Unresolvable own-company: fail closed rather than platform-wide.
-          res.status(400).json({ success: false, message: "Company not found" });
+          res
+            .status(400)
+            .json({ success: false, message: "Company not found" });
           return;
         }
       } else if (currentUser?.role !== "superAdmin") {
@@ -481,15 +491,19 @@ export class UsersController implements IBaseController {
         query.clone().where("isActive", true).count("* as count").first(),
       ]);
 
-      const roleResults = await query.clone()
+      const roleResults = await query
+        .clone()
         .select("role")
         .count("* as count")
         .groupBy("role");
 
       // "Recent" = last 30 days.
       // The invitations table uses snake_case timestamps (created_at), unlike most tables.
-      let invitationQuery = knex("invitations")
-        .where("created_at", ">=", knex.raw("NOW() - INTERVAL '30 days'"));
+      let invitationQuery = knex("invitations").where(
+        "created_at",
+        ">=",
+        knex.raw("NOW() - INTERVAL '30 days'"),
+      );
 
       if (companyId) {
         const company = await this._companyDAO.getByUuid(companyId as string);
@@ -498,7 +512,9 @@ export class UsersController implements IBaseController {
         }
       }
 
-      const recentInvitationsResult = await invitationQuery.count("* as count").first();
+      const recentInvitationsResult = await invitationQuery
+        .count("* as count")
+        .first();
 
       const stats = {
         totalUsers: parseInt(totalResult?.count as string) || 0,
@@ -507,7 +523,8 @@ export class UsersController implements IBaseController {
           role: r.role,
           count: parseInt(r.count as string) || 0,
         })),
-        recentInvitations: parseInt(recentInvitationsResult?.count as string) || 0,
+        recentInvitations:
+          parseInt(recentInvitationsResult?.count as string) || 0,
       };
 
       res.status(200).json({

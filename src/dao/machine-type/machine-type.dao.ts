@@ -1,5 +1,5 @@
 import { Request } from "express";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IMachineType } from "../../interfaces/machine/machine.interfaces";
 import {
@@ -44,7 +44,7 @@ export class MachineTypeDAO {
   private queryConfig = MACHINE_TYPE_QUERY_CONFIG;
 
   async create(item: IMachineType): Promise<IMachineType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -61,24 +61,33 @@ export class MachineTypeDAO {
     return this.mapToInterface(row);
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IMachineType | null> {
-    const knex = KnexManager.getConnection();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IMachineType | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.*`).first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
 
-  async update(id: number, item: Partial<IMachineType>): Promise<IMachineType | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IMachineType>,
+  ): Promise<IMachineType | null> {
+    const knex = db("erp");
     const updateData: any = {};
     for (const key of [
       "name",
@@ -100,13 +109,13 @@ export class MachineTypeDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IMachineType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

@@ -13,6 +13,7 @@ import {
   CompanyUpdateInputDTO,
 } from "../../dto/input/company";
 import { AuditService } from "../../services/audit.service";
+import { db } from "../../database/registry";
 
 export class CompaniesController implements IBaseController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
@@ -122,12 +123,7 @@ export class CompaniesController implements IBaseController {
       try {
         if (result.id) {
           const { RbacService } = await import("../../services/rbac.service");
-          const KnexManager = (await import("../../database/KnexConnection"))
-            .default;
-          await RbacService.seedCompanyRbac(
-            KnexManager.getConnection(),
-            result.id,
-          );
+          await RbacService.seedCompanyRbac(db("core"), result.id);
         }
       } catch (rbacErr) {
         console.error(
@@ -290,8 +286,7 @@ export class CompaniesController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const knex =
-        require("../../database/KnexConnection").default.getConnection();
+      const knex = db("core");
 
       const [totalResult, activeResult] = await Promise.all([
         knex("companies").count("* as count").first(),

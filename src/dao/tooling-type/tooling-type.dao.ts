@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IToolingType } from "../../interfaces/tooling-type/tooling-type.interfaces";
 import {
@@ -59,7 +59,7 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
   private queryConfig = TOOLING_TYPE_QUERY_CONFIG;
 
   async create(item: IToolingType): Promise<IToolingType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [toolingType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -75,7 +75,7 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
   }
 
   async getById(id: number): Promise<IToolingType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const toolingType = await knex(this.tableName).where("id", id).first();
     return toolingType ? this.mapToInterface(toolingType) : null;
   }
@@ -84,29 +84,37 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IToolingType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const toolingType = await query.select(`${this.tableName}.*`).first();
     return toolingType ? this.mapToInterface(toolingType) : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
-  async update(id: number, item: Partial<IToolingType>): Promise<IToolingType | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IToolingType>,
+  ): Promise<IToolingType | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.description !== undefined) updateData.description = item.description;
-    if (item.automaticConsumption !== undefined) updateData.automaticConsumption = item.automaticConsumption;
+    if (item.description !== undefined)
+      updateData.description = item.description;
+    if (item.automaticConsumption !== undefined)
+      updateData.automaticConsumption = item.automaticConsumption;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -119,13 +127,16 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IToolingType>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IToolingType>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [toolingTypes, totalResult] = await Promise.all([
@@ -151,7 +162,7 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IToolingType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

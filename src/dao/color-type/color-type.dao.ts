@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IColorType } from "../../interfaces/color-type/color-type.interfaces";
 import {
@@ -44,7 +44,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
   private queryConfig = COLOR_TYPE_QUERY_CONFIG;
 
   async create(item: IColorType): Promise<IColorType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -57,7 +57,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
   }
 
   async getById(id: number): Promise<IColorType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const row = await knex(this.tableName).where("id", id).first();
     return row ? this.mapToInterface(row) : null;
   }
@@ -66,15 +66,18 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IColorType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.*`).first();
     return row ? this.mapToInterface(row) : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -85,10 +88,11 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
     id: number,
     item: Partial<IColorType>,
   ): Promise<IColorType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
     updateData.updatedAt = knex.fn.now();
 
     const [row] = await knex(this.tableName)
@@ -99,17 +103,24 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   /** @deprecated Use getAllWithFilters for advanced querying. */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IColorType>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IColorType>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
     const [rows, totalResult] = await Promise.all([
-      knex(this.tableName).select("*").orderBy("name", "asc").limit(limit).offset(offset),
+      knex(this.tableName)
+        .select("*")
+        .orderBy("name", "asc")
+        .limit(limit)
+        .offset(offset),
       knex(this.tableName).count("* as count").first(),
     ]);
     const totalCount = parseInt(totalResult?.count as string) || 0;
@@ -125,7 +136,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IColorType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

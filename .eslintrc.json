@@ -10,6 +10,12 @@
   "rules": {
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "ignoreRestSiblings": true }],
     "@typescript-eslint/await-thenable": "error",
-    "eqeqeq": ["error", "smart"]
+    "eqeqeq": ["error", "smart"],
+    "no-restricted-imports": ["error", {
+      "patterns": [{
+        "group": ["**/database/KnexConnection"],
+        "message": "KnexManager is gone. Import { db } from src/database/registry and name the database key: db(\"core\" | \"erp\" | \"countdown\" | \"store\")."
+      }]
+    }]
   }
 }

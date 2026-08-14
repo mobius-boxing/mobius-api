@@ -56,6 +56,40 @@ Check these on every review; each has already been found at least once.
 - **`repos/modules/*` has no `.prettierrc`.** Every file in the countdown app
   fails `prettier --check` under the defaults (the code is written at ~100 cols).
   Not a finding against a change; do not report it as formatting drift.
+- **Knex Proxy guards only see the callable.** A `new Proxy(knexInstance)` with an
+  `apply` trap inspecting `args[0]` catches `knex("table")` and nothing else.
+  Empirically bypassed: `.join/.leftJoin(...)`, `.from()`, `.into()`, `.table()`,
+  `.queryBuilder().from()`, `withSchema()`, object-alias `knex({a:"table"})`,
+  space-alias `"table t"`, uppercase names, and `knex.raw`. Never accept a
+  "a missed call site fails loudly" claim on such a guard without running the
+  bypass list yourself.
+  Update after the T1 fix round: the `get`-trap now wraps instance-level
+  `from`/`table`/`into`, and that widening is safe (verified against real knex —
+  `fn.now`, `raw`, `ref`, `schema`, `client`, aliases, live queries, callback
+  transactions all still work). The remaining live bypass nobody documents is
+  **`knex.transaction()` with no callback**: the returned `trx` is handed back
+  unguarded. Check the bypass list against the *current* trap, not the last one.
+- **`knex<IRow>("table")` hides from naive greps.** Any scan for cross-boundary
+  table access must allow an optional generic between the callee and the paren
+  (`/\b(?:knex|trx)\s*(?:<[^>(]*>)?\(\s*"(\w+)"/`). One real cross-database call
+  site was missed by a codemod for exactly this reason.
+- **Guards that throw only outside production hide in this repo's test suite.**
+  Every DAO unit test `jest.mock`s the database module, so a runtime guard is
+  never exercised by `npm test`; a guard-triggered regression is invisible until
+  someone runs the API locally. Probe the DAO method directly against a real DB.
+- **Fire-and-forget schedulers claim the day before doing the work.**
+  `countdown-reminders.service.runDailyOnce()` inserts the `reminder_runs` claim
+  first; anything that throws afterwards burns that day with a single
+  `console.error`. Any new failure mode in `run()` is a silent daily outage.
+- **`knexfile.js` beats `knexfile.ts` in the knex CLI.** `bin/cli.js` calls
+  `findUpConfig(cwd,'knexfile',['js','mjs','coffee','ts',…])` in that order, so a
+  bare `npx knex migrate:latest` (no `--knexfile`) loads the stale committed
+  `knexfile.js` build artefact. Every npm script passes `--knexfile knexfile.ts`;
+  the hazard is ad-hoc CLI use on the box. Verified in node_modules 2026-08-14.
+- **Seven files in mobius-api are CRLF** (`knex.mock.ts`, `foreignKeyResolver.ts`,
+  `box-type/consumable-stock/consumable-type/product-type/tooling-stock.dao.ts`).
+  Prettier rewrites them to LF, so `git diff` shows a whole-file rewrite and hides
+  the real change. Review them with `diff <(git show HEAD:f | tr -d '\r') f`.
 - **Numeric DTO helpers coerce with `Number()`.** `toAmountCents`,
   `toRecurrenceCount`, `toReminderDays` all accept `true` → 1 and `[]` → 0. It is
   the house pattern, so it is a nit, not a new defect — but say so rather than

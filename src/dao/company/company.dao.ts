@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import {
   ICompany,
@@ -60,7 +60,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   private queryConfig = COMPANY_QUERY_CONFIG;
 
   async create(item: ICompany): Promise<ICompany> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const [company] = await knex(this.tableName)
       .insert({
         name: item.name,
@@ -77,14 +77,14 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   async getById(id: number): Promise<ICompany | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const company = await knex(this.tableName).where("id", id).first();
 
     return company ? this.mapToInterface(company) : null;
   }
 
   async getByUuid(uuid: string): Promise<ICompany | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const company = await knex(this.tableName).where("uuid", uuid).first();
 
     return company ? this.mapToInterface(company) : null;
@@ -96,7 +96,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
    * plain equality lookup on the unique column — no pattern matching.
    */
   async getBySlug(slug: string): Promise<ICompany | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const company = await knex(this.tableName).where("slug", slug).first();
 
     return company ? this.mapToInterface(company) : null;
@@ -104,7 +104,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
 
   // Used to convert JWT token's company UUID to database ID.
   async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const company = await knex(this.tableName)
       .where("uuid", uuid)
       .select("id")
@@ -114,7 +114,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   async update(id: number, item: Partial<ICompany>): Promise<ICompany | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const updateData: any = {};
 
     if (item.name !== undefined) updateData.name = item.name;
@@ -147,7 +147,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
     id: number,
     branding: ICompanyBranding,
   ): Promise<ICompany | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const [company] = await knex(this.tableName)
       .where("id", id)
       // Explicit stringify for the jsonb column (same as CompanyModuleDAO.updateConfig) —
@@ -159,7 +159,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -167,7 +167,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
 
   /** @deprecated Use getAllWithFilters for advanced querying */
   async getAll(page: number, limit: number): Promise<IDataPaginator<ICompany>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const offset = (page - 1) * limit;
 
     const [companies, totalResult] = await Promise.all([
@@ -193,7 +193,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ICompany>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
@@ -221,7 +221,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
   }
 
   async getCompanyWithUserCount(uuid: string): Promise<ICompany | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
 
     const company = await knex(this.tableName)
       .select("companies.*", knex.raw("COUNT(users.id)::int as user_count"))

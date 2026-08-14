@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IProductType } from "../../interfaces/product-type/product-type.interfaces";
 import {
@@ -58,7 +58,7 @@ export class ProductTypeDAO implements IBaseDAO<IProductType> {
   private queryConfig = PRODUCT_TYPE_QUERY_CONFIG;
 
   async create(item: IProductType): Promise<IProductType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -72,7 +72,7 @@ export class ProductTypeDAO implements IBaseDAO<IProductType> {
   }
 
   async getById(id: number): Promise<IProductType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
@@ -81,15 +81,18 @@ export class ProductTypeDAO implements IBaseDAO<IProductType> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IProductType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const record = await query.select(`${this.tableName}.id`).first();
@@ -100,7 +103,7 @@ export class ProductTypeDAO implements IBaseDAO<IProductType> {
     id: number,
     item: Partial<IProductType>,
   ): Promise<IProductType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -117,13 +120,16 @@ export class ProductTypeDAO implements IBaseDAO<IProductType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IProductType>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IProductType>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [records, totalResult] = await Promise.all([
@@ -148,10 +154,8 @@ export class ProductTypeDAO implements IBaseDAO<IProductType> {
     };
   }
 
-  async getAllWithFilters(
-    req: Request,
-  ): Promise<IDataPaginator<IProductType>> {
-    const knex = KnexManager.getConnection();
+  async getAllWithFilters(req: Request): Promise<IDataPaginator<IProductType>> {
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

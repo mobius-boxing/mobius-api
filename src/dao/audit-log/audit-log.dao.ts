@@ -1,5 +1,5 @@
 import { Request } from "express";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IAuditLog } from "../../interfaces/audit-log/audit-log.interfaces";
 import {
@@ -37,11 +37,24 @@ const AUDIT_LOG_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
 );
 
 export class AuditLogDAO {
+  /**
+   * `audit_logs` is a FANNED-OUT table (D-2 / AC-2): one per database, because
+   * the audit write is fire-and-forget, never runs inside a transaction and has
+   * no inbound FKs. `ownership.ts` names `erp` its primary owner, so `ownerOf`
+   * returns `undefined` and the registry's wrong-database guard cannot arbitrate
+   * here — nothing will flag a wrong choice.
+   *
+   * `db("erp")` below is therefore a PLACEHOLDER, correct only while all four
+   * keys resolve to one physical database (state S1). Once they do not, a write
+   * must land in the database of the entity it describes and a read must fan out
+   * across all four — there is deliberately no cross-module audit view
+   * (non-goal 14). Routing belongs to the deletion/audit work, not here.
+   */
   private tableName = "audit_logs";
   private queryConfig = AUDIT_LOG_QUERY_CONFIG;
 
   async insert(item: IAuditLog): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     await knex(this.tableName).insert({
       ...item,
       snapshot: item.snapshot ? JSON.stringify(item.snapshot) : null,
@@ -49,7 +62,7 @@ export class AuditLogDAO {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IAuditLog>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

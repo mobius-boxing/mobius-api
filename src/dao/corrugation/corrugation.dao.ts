@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import {
   ICorrugation,
@@ -70,7 +70,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   private queryConfig = CORRUGATION_QUERY_CONFIG;
 
   async create(item: ICorrugation): Promise<ICorrugation> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const corrugation = await knex.transaction(async (trx) => {
       const [created] = await trx(this.tableName)
         .insert({
@@ -91,7 +91,10 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
       return created;
     });
 
-    return (await this.getByUuid(corrugation.uuid)) ?? this.mapToInterface(corrugation);
+    return (
+      (await this.getByUuid(corrugation.uuid)) ??
+      this.mapToInterface(corrugation)
+    );
   }
 
   /**
@@ -124,20 +127,28 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     corrugationId: number,
     layers: ICorrugationLayer[],
   ): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     await knex.transaction(async (trx) => {
-      await trx("corrugation_layers").where("corrugationId", corrugationId).delete();
+      await trx("corrugation_layers")
+        .where("corrugationId", corrugationId)
+        .delete();
       await this.insertLayers(trx, corrugationId, layers);
     });
   }
 
-  private async loadLayers(corrugationId: number): Promise<ICorrugationLayer[]> {
-    const knex = KnexManager.getConnection();
+  private async loadLayers(
+    corrugationId: number,
+  ): Promise<ICorrugationLayer[]> {
+    const knex = db("erp");
     const rows = await knex("corrugation_layers as cl")
       .select(
         "cl.*",
-        knex.raw(`CASE WHEN pc.id IS NOT NULL THEN to_jsonb(pc) END as "paperClass"`),
-        knex.raw(`CASE WHEN ft.id IS NOT NULL THEN to_jsonb(ft) END as "fluteType"`),
+        knex.raw(
+          `CASE WHEN pc.id IS NOT NULL THEN to_jsonb(pc) END as "paperClass"`,
+        ),
+        knex.raw(
+          `CASE WHEN ft.id IS NOT NULL THEN to_jsonb(ft) END as "fluteType"`,
+        ),
       )
       .leftJoin("paper_classes as pc", "cl.paperClassId", "pc.id")
       .leftJoin("flute_types as ft", "cl.fluteTypeId", "ft.id")
@@ -162,7 +173,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   }
 
   async getById(id: number): Promise<ICorrugation | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const corrugation = await knex(this.tableName).where("id", id).first();
 
     return corrugation ? this.mapToInterface(corrugation) : null;
@@ -172,7 +183,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     uuid: string,
     companyUuid?: string,
   ): Promise<ICorrugation | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName)
       .select(
         `${this.tableName}.*`,
@@ -204,7 +215,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     id: number,
     item: Partial<ICorrugation>,
   ): Promise<ICorrugation | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     // Layers are replaced wholesale when provided; undefined leaves them as-is.
     if (item.layers !== undefined) {
@@ -238,7 +249,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -249,7 +260,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<ICorrugation>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [corrugations, totalResult] = await Promise.all([
@@ -288,7 +299,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ICorrugation>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
@@ -383,8 +394,11 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     };
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const record = await query.select(`${this.tableName}.id`).first();

@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
 import { IAppConfig } from "../../interfaces/app-config/app-config.interfaces";
 
@@ -11,7 +11,7 @@ export class AppConfigDAO {
   private tableName = "app_config";
 
   async getAllForCompany(companyId: number): Promise<IAppConfig[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const rows = await knex(this.tableName)
       .where("companyId", companyId)
       .orderBy("key", "asc");
@@ -19,10 +19,8 @@ export class AppConfigDAO {
   }
 
   async getByKey(companyId: number, key: string): Promise<IAppConfig | null> {
-    const knex = KnexManager.getConnection();
-    const row = await knex(this.tableName)
-      .where({ companyId, key })
-      .first();
+    const knex = db("erp");
+    const row = await knex(this.tableName).where({ companyId, key }).first();
     return (row as IAppConfig) ?? null;
   }
 
@@ -32,7 +30,7 @@ export class AppConfigDAO {
     value: string,
     valueType: string,
   ): Promise<IAppConfig> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex(this.tableName)
       .insert({ companyId, key, value, valueType })
       .onConflict(["companyId", "key"])
@@ -43,8 +41,10 @@ export class AppConfigDAO {
 
   /** Remove the override so the key falls back to its default. */
   async deleteByKey(companyId: number, key: string): Promise<boolean> {
-    const knex = KnexManager.getConnection();
-    const deleted = await knex(this.tableName).where({ companyId, key }).delete();
+    const knex = db("erp");
+    const deleted = await knex(this.tableName)
+      .where({ companyId, key })
+      .delete();
     return deleted > 0;
   }
 

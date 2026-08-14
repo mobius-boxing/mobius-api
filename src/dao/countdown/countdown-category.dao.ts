@@ -1,5 +1,5 @@
 import type { Knex } from "knex";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   ICountdownCategory,
   ICountdownSubcategory,
@@ -50,7 +50,7 @@ export class CountdownCategoryDAO {
    * management screen.
    */
   async list(companyId: number): Promise<ICountdownCategory[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
 
     const categories = await knex<ICountdownCategoryRow>(CATEGORIES_TABLE)
       .where({ companyId })
@@ -109,7 +109,7 @@ export class CountdownCategoryDAO {
     uuid: string,
     companyId: number,
   ): Promise<number | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const row = await knex<ICountdownCategoryRow>(CATEGORIES_TABLE)
       .select("id")
       .where({ uuid, companyId })
@@ -121,7 +121,7 @@ export class CountdownCategoryDAO {
     uuid: string,
     companyId: number,
   ): Promise<ICountdownCategoryRow | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     return knex<ICountdownCategoryRow>(CATEGORIES_TABLE)
       .where({ uuid, companyId })
       .first();
@@ -132,7 +132,7 @@ export class CountdownCategoryDAO {
     companyId: number,
     name: string,
   ): Promise<ICountdownCategoryRow | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     return knex<ICountdownCategoryRow>(CATEGORIES_TABLE)
       .where({ companyId })
       .whereRaw("lower(name) = lower(?)", [name.trim()])
@@ -144,7 +144,7 @@ export class CountdownCategoryDAO {
     uuid: string,
     name: string,
   ): Promise<ICountdownCategoryRow> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows = await knex<ICountdownCategoryRow>(CATEGORIES_TABLE)
       .insert({ uuid, companyId, name: name.trim() })
       .returning("*");
@@ -155,14 +155,14 @@ export class CountdownCategoryDAO {
   }
 
   async rename(companyId: number, id: number, name: string): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     await knex<ICountdownCategoryRow>(CATEGORIES_TABLE)
       .where({ id, companyId })
       .update({ name: name.trim(), updatedAt: knex.fn.now() });
   }
 
   async delete(companyId: number, id: number): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     await knex<ICountdownCategoryRow>(CATEGORIES_TABLE)
       .where({ id, companyId })
       .delete();
@@ -170,7 +170,7 @@ export class CountdownCategoryDAO {
 
   /** Documents on the rubro itself or on any of its sub-rubros. */
   async countDocuments(companyId: number, id: number): Promise<number> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows = await knex(DOCUMENTS_TABLE)
       .where({ companyId })
       .andWhere((builder) => {
@@ -203,7 +203,7 @@ export class CountdownSubcategoryDAO {
     uuid: string,
     companyId: number,
   ): Promise<number | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const row = await knex<ICountdownSubcategoryRow>(SUBCATEGORIES_TABLE)
       .select("id")
       .where({ uuid })
@@ -216,7 +216,7 @@ export class CountdownSubcategoryDAO {
     uuid: string,
     companyId: number,
   ): Promise<ICountdownSubcategoryRow | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     return knex<ICountdownSubcategoryRow>(SUBCATEGORIES_TABLE)
       .where({ uuid })
       .whereIn("categoryId", this.scopedCategoryIds(knex, companyId))
@@ -228,7 +228,7 @@ export class CountdownSubcategoryDAO {
     categoryId: number,
     name: string,
   ): Promise<ICountdownSubcategoryRow | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     return knex<ICountdownSubcategoryRow>(SUBCATEGORIES_TABLE)
       .where({ categoryId })
       .whereRaw("lower(name) = lower(?)", [name.trim()])
@@ -240,7 +240,7 @@ export class CountdownSubcategoryDAO {
     uuid: string,
     name: string,
   ): Promise<ICountdownSubcategoryRow> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows = await knex<ICountdownSubcategoryRow>(SUBCATEGORIES_TABLE)
       .insert({ uuid, categoryId, name: name.trim() })
       .returning("*");
@@ -252,7 +252,7 @@ export class CountdownSubcategoryDAO {
   }
 
   async rename(companyId: number, id: number, name: string): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     await knex<ICountdownSubcategoryRow>(SUBCATEGORIES_TABLE)
       .where({ id })
       .whereIn("categoryId", this.scopedCategoryIds(knex, companyId))
@@ -260,7 +260,7 @@ export class CountdownSubcategoryDAO {
   }
 
   async delete(companyId: number, id: number): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     await knex<ICountdownSubcategoryRow>(SUBCATEGORIES_TABLE)
       .where({ id })
       .whereIn("categoryId", this.scopedCategoryIds(knex, companyId))
@@ -268,7 +268,7 @@ export class CountdownSubcategoryDAO {
   }
 
   async countDocuments(companyId: number, id: number): Promise<number> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows = await knex(DOCUMENTS_TABLE)
       .where({ companyId, subcategoryId: id })
       .count<{ count: string }[]>("* as count");

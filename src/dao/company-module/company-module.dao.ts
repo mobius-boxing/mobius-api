@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   ICompanyModuleWithModule,
   SubscriptionStatus,
@@ -16,7 +16,7 @@ export class CompanyModuleDAO {
    * Single round trip — no N+1.
    */
   async getByCompany(companyId: number): Promise<ICompanyModuleWithModule[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const records = await knex("modules as m")
       .leftJoin("company_modules as cm", function () {
         this.on("cm.moduleId", "=", "m.id").andOnVal(
@@ -57,7 +57,7 @@ export class CompanyModuleDAO {
    * Used by JWT issuance and /api/auth/me. Single round trip.
    */
   async getEnabledSlugsByCompany(companyId: number): Promise<string[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const slugs = await knex("company_modules as cm")
       .join("modules as m", "m.id", "cm.moduleId")
       .where("cm.companyId", companyId)
@@ -80,7 +80,7 @@ export class CompanyModuleDAO {
     moduleId: number,
     userId: number | null,
   ): Promise<ICompanyModuleWithModule> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const result = await knex.raw(
       `INSERT INTO company_modules
          ("companyId", "moduleId", enabled, "enabledAt", "enabledBy", "subscriptionStatus")
@@ -113,7 +113,7 @@ export class CompanyModuleDAO {
     moduleId: number,
     userId: number | null,
   ): Promise<ICompanyModuleWithModule | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const updated = await knex(this.tableName)
       .where({ companyId, moduleId })
       .update({
@@ -132,7 +132,7 @@ export class CompanyModuleDAO {
    * Single round trip — JOIN on modules to filter by slug.
    */
   async isEnabled(companyId: number, slug: string): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const row = await knex("company_modules as cm")
       .join("modules as m", "m.id", "cm.moduleId")
       .where("cm.companyId", companyId)
@@ -157,7 +157,7 @@ export class CompanyModuleDAO {
     companyId: number,
     slug: string,
   ): Promise<Record<string, unknown> | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const row = await knex("company_modules as cm")
       .join("modules as m", "m.id", "cm.moduleId")
       .where("cm.companyId", companyId)
@@ -192,7 +192,7 @@ export class CompanyModuleDAO {
     moduleSlug: string,
     section: Record<string, unknown>,
   ): Promise<ICompanyModuleWithModule | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
 
     const companyModulesId = await knex.transaction(async (trx) => {
       const existing = await trx(this.tableName)
@@ -233,7 +233,7 @@ export class CompanyModuleDAO {
   private async getJoinedRow(
     companyModulesId: number,
   ): Promise<ICompanyModuleWithModule> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const record = await knex("company_modules as cm")
       .join("modules as m", "m.id", "cm.moduleId")
       .where("cm.id", companyModulesId)

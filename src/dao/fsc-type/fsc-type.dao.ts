@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IFscType } from "../../interfaces/fsc-type/fsc-type.interfaces";
 import {
@@ -44,7 +44,7 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   private queryConfig = FSC_TYPE_QUERY_CONFIG;
 
   async create(item: IFscType): Promise<IFscType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -57,21 +57,27 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   }
 
   async getById(id: number): Promise<IFscType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const row = await knex(this.tableName).where("id", id).first();
     return row ? this.mapToInterface(row) : null;
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IFscType | null> {
-    const knex = KnexManager.getConnection();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IFscType | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.*`).first();
     return row ? this.mapToInterface(row) : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -79,10 +85,11 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   }
 
   async update(id: number, item: Partial<IFscType>): Promise<IFscType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
     updateData.updatedAt = knex.fn.now();
 
     const [row] = await knex(this.tableName)
@@ -93,17 +100,21 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   /** @deprecated Use getAllWithFilters for advanced querying. */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IFscType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
     const [rows, totalResult] = await Promise.all([
-      knex(this.tableName).select("*").orderBy("code", "asc").limit(limit).offset(offset),
+      knex(this.tableName)
+        .select("*")
+        .orderBy("code", "asc")
+        .limit(limit)
+        .offset(offset),
       knex(this.tableName).count("* as count").first(),
     ]);
     const totalCount = parseInt(totalResult?.count as string) || 0;
@@ -119,7 +130,7 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IFscType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

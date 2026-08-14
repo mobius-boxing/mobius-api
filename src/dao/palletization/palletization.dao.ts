@@ -1,6 +1,6 @@
 import { Request } from "express";
 import { toNumberOut } from "../../utils/numbers";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IPalletization } from "../../interfaces/palletization/palletization.interfaces";
 import {
@@ -69,13 +69,19 @@ export class PalletizationDAO {
     return knex(this.tableName)
       .select(
         `${this.tableName}.*`,
-        knex.raw(`CASE WHEN pt.id IS NOT NULL THEN to_jsonb(pt) END as "palletType"`),
+        knex.raw(
+          `CASE WHEN pt.id IS NOT NULL THEN to_jsonb(pt) END as "palletType"`,
+        ),
       )
-      .leftJoin("pallet_types as pt", `${this.tableName}.palletTypeId`, "pt.id");
+      .leftJoin(
+        "pallet_types as pt",
+        `${this.tableName}.palletTypeId`,
+        "pt.id",
+      );
   }
 
   async create(item: IPalletization): Promise<IPalletization> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const insertData: any = { uuid: item.uuid, companyId: item.companyId };
     for (const key of SCALAR_FIELDS) {
       if (item[key] !== undefined) insertData[key] = item[key];
@@ -84,24 +90,36 @@ export class PalletizationDAO {
     return (await this.getByUuid(row.uuid)) ?? this.mapToInterface(row);
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IPalletization | null> {
-    const knex = KnexManager.getConnection();
-    const query = this.selectWithJoins(knex).where(`${this.tableName}.uuid`, uuid);
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IPalletization | null> {
+    const knex = db("erp");
+    const query = this.selectWithJoins(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
 
-  async update(id: number, item: Partial<IPalletization>): Promise<IPalletization | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IPalletization>,
+  ): Promise<IPalletization | null> {
+    const knex = db("erp");
     const updateData: any = {};
     for (const key of SCALAR_FIELDS) {
       if (item[key] !== undefined) updateData[key] = item[key];
@@ -111,17 +129,21 @@ export class PalletizationDAO {
       .where("id", id)
       .update(updateData)
       .returning("*");
-    return row ? ((await this.getByUuid(row.uuid)) ?? this.mapToInterface(row)) : null;
+    return row
+      ? ((await this.getByUuid(row.uuid)) ?? this.mapToInterface(row))
+      : null;
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IPalletization>> {
-    const knex = KnexManager.getConnection();
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IPalletization>> {
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
@@ -190,7 +212,8 @@ export class PalletizationDAO {
       updatedAt: record.updatedAt,
       // Parity with Procusto's transient CajasPorPallet.
       boxesPerPallet:
-        boxesPerPackage * (packagesPerLevel * levelsPerPallet + additionalPackages),
+        boxesPerPackage *
+        (packagesPerLevel * levelsPerPallet + additionalPackages),
       palletType: record.palletType
         ? {
             uuid: record.palletType.uuid,

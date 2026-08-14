@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IPaperClass } from "../../interfaces/paper-class/paper-class.interfaces";
 import {
@@ -59,7 +59,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   private queryConfig = PAPER_CLASS_QUERY_CONFIG;
 
   async create(item: IPaperClass): Promise<IPaperClass> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const paperClass = await knex.transaction(async (trx) => {
       const [created] = await trx(this.tableName)
         .insert({
@@ -73,7 +73,10 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
       return created;
     });
 
-    return this.mapToInterface(paperClass, await this.loadPaperUuids(paperClass.id));
+    return this.mapToInterface(
+      paperClass,
+      await this.loadPaperUuids(paperClass.id),
+    );
   }
 
   /**
@@ -85,11 +88,15 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     paperClassId: number,
     paperUuids: string[],
   ): Promise<void> {
-    await trx("paper_class_papers").where("paperClassId", paperClassId).delete();
+    await trx("paper_class_papers")
+      .where("paperClassId", paperClassId)
+      .delete();
     // Malformed uuids would make Postgres throw on the uuid-typed column
     // (the old jsonb storage accepted anything) — drop them up front.
     const validUuids = paperUuids.filter((u) =>
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(u ?? ""),
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        u ?? "",
+      ),
     );
     if (!validUuids.length) return;
     const supplies = await trx("paper_supplies")
@@ -103,20 +110,27 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   }
 
   private async loadPaperUuids(paperClassId: number): Promise<string[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const rows = await knex("paper_class_papers")
-      .join("paper_supplies", "paper_class_papers.paperSupplyId", "paper_supplies.id")
+      .join(
+        "paper_supplies",
+        "paper_class_papers.paperSupplyId",
+        "paper_supplies.id",
+      )
       .where("paper_class_papers.paperClassId", paperClassId)
       .select("paper_supplies.uuid");
     return rows.map((r: any) => r.uuid);
   }
 
   async getById(id: number): Promise<IPaperClass | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const paperClass = await knex(this.tableName).where("id", id).first();
 
     return paperClass
-      ? this.mapToInterface(paperClass, await this.loadPaperUuids(paperClass.id))
+      ? this.mapToInterface(
+          paperClass,
+          await this.loadPaperUuids(paperClass.id),
+        )
       : null;
   }
 
@@ -124,13 +138,16 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IPaperClass | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const paperClass = await query.select(`${this.tableName}.*`).first();
 
     return paperClass
-      ? this.mapToInterface(paperClass, await this.loadPaperUuids(paperClass.id))
+      ? this.mapToInterface(
+          paperClass,
+          await this.loadPaperUuids(paperClass.id),
+        )
       : null;
   }
 
@@ -138,7 +155,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     id: number,
     item: Partial<IPaperClass>,
   ): Promise<IPaperClass | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -163,7 +180,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -176,7 +193,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IPaperClass>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [paperClasses, totalResult] = await Promise.all([
@@ -212,9 +229,13 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   ): Promise<Map<number, string[]>> {
     const result = new Map<number, string[]>();
     if (!paperClassIds.length) return result;
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const rows = await knex("paper_class_papers")
-      .join("paper_supplies", "paper_class_papers.paperSupplyId", "paper_supplies.id")
+      .join(
+        "paper_supplies",
+        "paper_class_papers.paperSupplyId",
+        "paper_supplies.id",
+      )
       .whereIn("paper_class_papers.paperClassId", paperClassIds)
       .select("paper_class_papers.paperClassId", "paper_supplies.uuid");
     for (const row of rows as any[]) {
@@ -226,7 +247,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPaperClass>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

@@ -1,4 +1,4 @@
-import KnexManager from "../database/KnexConnection";
+import { db } from "../database/registry";
 
 /**
  * Shared code generator (Procusto autonumerador framework replacement — spec:
@@ -73,7 +73,7 @@ export class CodeGeneratorService {
     scope: string,
     parentKey: string | null = null,
   ): Promise<number> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex("code_sequences")
       .insert({ companyId, scope, parentKey: parentKey ?? "", lastValue: 1 })
       .onConflict(["companyId", "scope", "parentKey"])
@@ -95,12 +95,14 @@ export class CodeGeneratorService {
     parentKey: string | null,
     lastValue: number,
   ): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     await knex("code_sequences")
       .insert({ companyId, scope, parentKey: parentKey ?? "", lastValue })
       .onConflict(["companyId", "scope", "parentKey"])
       .merge({
-        lastValue: knex.raw('GREATEST("code_sequences"."lastValue", ?)', [lastValue]),
+        lastValue: knex.raw('GREATEST("code_sequences"."lastValue", ?)', [
+          lastValue,
+        ]),
         updatedAt: knex.fn.now(),
       });
   }

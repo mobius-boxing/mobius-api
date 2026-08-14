@@ -42,9 +42,9 @@ jest.mock("../../../services/audit.service", () => ({
     return { record: () => Promise.resolve(undefined) };
   },
 }));
-jest.mock("../../../database/KnexConnection", () => ({
+jest.mock("../../../database/registry", () => ({
   __esModule: true,
-  default: { getConnection: () => mockKnex },
+  db: () => mockKnex,
 }));
 
 import { ProductController } from "../../../controllers/product/product.controller";

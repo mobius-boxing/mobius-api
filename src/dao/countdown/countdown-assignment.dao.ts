@@ -1,5 +1,5 @@
 import { Knex } from "knex";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   CountdownAssignmentKind,
   ICountdownAssignmentInput,
@@ -54,7 +54,7 @@ export class CountdownAssignmentDAO {
     const result = new Map<number, ICountdownAssignments>();
     if (documentIds.length === 0) return result;
 
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows: IJoinedAssignmentRow[] = await knex(
       `${ASSIGNMENTS_TABLE} as da`,
     )
@@ -97,7 +97,7 @@ export class CountdownAssignmentDAO {
     const result = new Map<number, Set<number>>();
     if (documentIds.length === 0) return result;
 
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows: IEffectiveUserRow[] = await knex(`${ASSIGNMENTS_TABLE} as da`)
       .leftJoin(`${GROUP_MEMBERS_TABLE} as gm`, "gm.groupId", "da.groupId")
       .where("da.kind", kind)
@@ -122,7 +122,7 @@ export class CountdownAssignmentDAO {
     input: ICountdownAssignmentInput,
     trx?: Knex.Transaction,
   ): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const run = async (executor: Knex | Knex.Transaction): Promise<void> => {
       await executor(ASSIGNMENTS_TABLE).where({ documentId }).delete();
 
@@ -164,7 +164,7 @@ export class CountdownAssignmentDAO {
    */
   async groupIdsByUuids(uuids: string[], companyId: number): Promise<number[]> {
     if (uuids.length === 0) return [];
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows: { id: number }[] = await knex(GROUPS_TABLE)
       .select("id")
       .whereIn("uuid", uuids)

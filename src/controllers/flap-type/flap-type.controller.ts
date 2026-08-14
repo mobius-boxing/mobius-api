@@ -7,7 +7,7 @@ import {
   FlapTypeUpdateInputDTO,
 } from "../../dto/input/flapType";
 import { getCompanyForCreate } from "../../utils/companyScope";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   BaseCrudController,
   BaseCrudOptions,
@@ -63,7 +63,7 @@ export class FlapTypeController extends BaseCrudController<IFlapType> {
       return null;
     }
 
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const company = await knex("companies")
       .where("uuid", companyResult.companyUuid)
       .first();

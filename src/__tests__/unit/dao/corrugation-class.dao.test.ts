@@ -24,11 +24,9 @@ let mockQueryBuilder: any;
 let mockKnex: jest.Mock<any>;
 
 // Mock KnexManager - the factory function creates fresh mocks
-jest.mock("../../../database/KnexConnection", () => ({
+jest.mock("../../../database/registry", () => ({
   __esModule: true,
-  default: {
-    getConnection: () => mockKnex,
-  },
+  db: () => mockKnex,
 }));
 
 // Import DAO after mocking

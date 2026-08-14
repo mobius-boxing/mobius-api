@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IColor } from "../../interfaces/color/color.interfaces";
 import {
@@ -47,7 +47,7 @@ export class ColorDAO implements IBaseDAO<IColor> {
   private queryConfig = COLOR_QUERY_CONFIG;
 
   async create(item: IColor): Promise<IColor> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -64,21 +64,24 @@ export class ColorDAO implements IBaseDAO<IColor> {
   }
 
   async getById(id: number): Promise<IColor | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const row = await knex(this.tableName).where("id", id).first();
     return row ? this.mapToInterface(row) : null;
   }
 
   async getByUuid(uuid: string, companyUuid?: string): Promise<IColor | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.*`).first();
     return row ? this.mapToInterface(row) : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -86,14 +89,17 @@ export class ColorDAO implements IBaseDAO<IColor> {
   }
 
   async update(id: number, item: Partial<IColor>): Promise<IColor | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
     if (item.code !== undefined) updateData.code = item.code;
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.description !== undefined) updateData.description = item.description;
-    if (item.observations !== undefined) updateData.observations = item.observations;
+    if (item.description !== undefined)
+      updateData.description = item.description;
+    if (item.observations !== undefined)
+      updateData.observations = item.observations;
     if (item.tonality !== undefined) updateData.tonality = item.tonality;
-    if (item.colorTypeId !== undefined) updateData.colorTypeId = item.colorTypeId;
+    if (item.colorTypeId !== undefined)
+      updateData.colorTypeId = item.colorTypeId;
     updateData.updatedAt = knex.fn.now();
 
     const [row] = await knex(this.tableName)
@@ -104,17 +110,21 @@ export class ColorDAO implements IBaseDAO<IColor> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   /** @deprecated Use getAllWithFilters for advanced querying. */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IColor>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
     const [rows, totalResult] = await Promise.all([
-      knex(this.tableName).select("*").orderBy("code", "asc").limit(limit).offset(offset),
+      knex(this.tableName)
+        .select("*")
+        .orderBy("code", "asc")
+        .limit(limit)
+        .offset(offset),
       knex(this.tableName).count("* as count").first(),
     ]);
     const totalCount = parseInt(totalResult?.count as string) || 0;
@@ -130,7 +140,7 @@ export class ColorDAO implements IBaseDAO<IColor> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IColor>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
@@ -138,7 +148,9 @@ export class ColorDAO implements IBaseDAO<IColor> {
     delete parsedQuery.filters.companyId;
 
     // colorType comes from the client as a UUID as well.
-    const colorTypeUuid = parsedQuery.filters.colorTypeUuid as string | undefined;
+    const colorTypeUuid = parsedQuery.filters.colorTypeUuid as
+      | string
+      | undefined;
     delete parsedQuery.filters.colorTypeUuid;
 
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);

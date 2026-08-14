@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IModule } from "../../interfaces/module/module.interfaces";
 
 export class ModuleDAO {
@@ -6,21 +6,21 @@ export class ModuleDAO {
 
   /** List every module in the catalog. Static catalog, no pagination needed. */
   async getAll(): Promise<IModule[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const records = await knex(this.tableName).select("*").orderBy("id", "asc");
     return records.map((record) => this.mapToInterface(record));
   }
 
   /** Lookup by slug — used by backoffice toggle endpoints (slug is the public key). */
   async getBySlug(slug: string): Promise<IModule | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const record = await knex(this.tableName).where("slug", slug).first();
     return record ? this.mapToInterface(record) : null;
   }
 
   /** Lookup by primary key — used internally (e.g., joins, FK resolution). */
   async getById(id: number): Promise<IModule | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }

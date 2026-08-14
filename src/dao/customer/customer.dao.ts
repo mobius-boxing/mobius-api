@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import {
@@ -73,7 +73,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   private queryConfig = CUSTOMER_QUERY_CONFIG;
 
   async create(item: ICustomer): Promise<ICustomer> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [customer] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -102,7 +102,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   }
 
   async getById(id: number): Promise<ICustomer | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const customer = await knex(this.tableName).where("id", id).first();
 
     return customer ? this.mapToInterface(customer) : null;
@@ -113,7 +113,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     uuid: string,
     companyUuid?: string,
   ): Promise<ICustomer | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
     if (companyUuid) {
@@ -128,7 +128,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const customer = await knex(this.tableName)
       .where("uuid", uuid)
       .select("id")
@@ -141,7 +141,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     id: number,
     item: Partial<ICustomer>,
   ): Promise<ICustomer | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.name !== undefined) updateData.name = item.name;
@@ -178,7 +178,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -189,7 +189,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     limit: number,
     companyUuid?: string,
   ): Promise<IDataPaginator<ICustomer>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = knex(this.tableName);
@@ -227,7 +227,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ICustomer>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
@@ -276,7 +276,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     uuid: string,
     companyUuid?: string,
   ): Promise<ICustomer | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     const query = knex(this.tableName)
       .select(

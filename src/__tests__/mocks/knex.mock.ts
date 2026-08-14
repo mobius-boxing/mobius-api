@@ -4,7 +4,8 @@
  * Provides a mock implementation of Knex for unit testing
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
+import { DB_KEYS } from "../../database/keys";
 
 // Type for mock functions that can accept any value
 type MockFn = ReturnType<typeof jest.fn>;
@@ -65,7 +66,7 @@ export const createMockQueryBuilder = (): MockQueryBuilder => {
   queryBuilder.innerJoin = jest.fn(() => queryBuilder);
   queryBuilder.join = jest.fn(() => queryBuilder);
   queryBuilder.groupBy = jest.fn(() => queryBuilder);
-  queryBuilder.raw = jest.fn().mockReturnValue('');
+  queryBuilder.raw = jest.fn().mockReturnValue("");
   queryBuilder.fn = {
     now: jest.fn().mockReturnValue(new Date().toISOString()),
   };
@@ -79,7 +80,7 @@ export const createKnexMock = () => {
   const queryBuilder = createMockQueryBuilder();
 
   const knexMock = jest.fn().mockReturnValue(queryBuilder);
-  (knexMock as any).raw = jest.fn().mockReturnValue('');
+  (knexMock as any).raw = jest.fn().mockReturnValue("");
   (knexMock as any).fn = {
     now: jest.fn().mockReturnValue(new Date().toISOString()),
   };
@@ -92,25 +93,34 @@ export const createKnexMock = () => {
   return { knexMock, queryBuilder };
 };
 
-// Mock KnexManager
-export const mockKnexManager = () => {
-  const { knexMock, queryBuilder } = createKnexMock();
+/**
+ * Registry mock that routes by database key.
+ *
+ * One independent knex mock per key, so `core` and `erp` can be stubbed with
+ * different return values and a query issued on the wrong connection lands in
+ * the wrong mock instead of quietly answering (AC-7). Pass `dbMock` as the
+ * `db` export of a `jest.mock('.../database/registry')` factory.
+ */
+export const mockRegistry = () => {
+  const mocks: Record<string, any> = {};
+  const queryBuilders: Record<string, MockQueryBuilder> = {};
 
-  jest.mock('../../database/KnexConnection', () => ({
-    __esModule: true,
-    default: {
-      getConnection: jest.fn().mockReturnValue(knexMock),
-    },
-  }));
+  for (const key of DB_KEYS) {
+    const { knexMock, queryBuilder } = createKnexMock();
+    mocks[key] = knexMock;
+    queryBuilders[key] = queryBuilder;
+  }
 
-  return { knexMock, queryBuilder };
+  const dbMock = jest.fn((key: string) => mocks[key]);
+
+  return { dbMock, mocks, queryBuilders };
 };
 
 // Test data generators
 export const generateTestUuid = () =>
-  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+  "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 

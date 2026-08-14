@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IStoreBox } from "../../interfaces/store-box/store-box.interfaces";
 import {
@@ -50,7 +50,7 @@ export class StoreBoxDAO implements IBaseDAO<IStoreBox> {
   private queryConfig = STORE_BOX_QUERY_CONFIG;
 
   async create(item: IStoreBox): Promise<IStoreBox> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -66,7 +66,7 @@ export class StoreBoxDAO implements IBaseDAO<IStoreBox> {
   }
 
   async getById(id: number): Promise<IStoreBox | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
@@ -75,26 +75,33 @@ export class StoreBoxDAO implements IBaseDAO<IStoreBox> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IStoreBox | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("store");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
-  async update(id: number, item: Partial<IStoreBox>): Promise<IStoreBox | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IStoreBox>,
+  ): Promise<IStoreBox | null> {
+    const knex = db("store");
     const updateData: any = {};
 
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
     if (item.unitsPerPackage !== undefined)
       updateData.unitsPerPackage = item.unitsPerPackage;
     if (item.unitsPerPallet !== undefined)
@@ -112,13 +119,16 @@ export class StoreBoxDAO implements IBaseDAO<IStoreBox> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IStoreBox>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IStoreBox>> {
+    const knex = db("store");
     const offset = (page - 1) * limit;
 
     const [records, totalResult] = await Promise.all([
@@ -144,7 +154,7 @@ export class StoreBoxDAO implements IBaseDAO<IStoreBox> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IStoreBox>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

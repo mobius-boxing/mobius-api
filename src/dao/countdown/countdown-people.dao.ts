@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { INamedRef } from "../../interfaces/countdown/countdown.interfaces";
 
 const USERS_TABLE = "users";
@@ -24,7 +24,7 @@ function displayName(row: IPersonRow): string {
  */
 export class CountdownPeopleDAO {
   async list(companyId: number): Promise<INamedRef[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const rows = (await knex(USERS_TABLE)
       .where({ companyId, isActive: true })
       .select("uuid", "firstName", "lastName")
@@ -48,7 +48,7 @@ export class CountdownPeopleDAO {
     uuids: string[],
   ): Promise<number[]> {
     if (uuids.length === 0) return [];
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const rows = (await knex(USERS_TABLE)
       .where({ companyId, isActive: true })
       .whereIn("uuid", uuids)

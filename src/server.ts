@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import KnexManager from "./database/KnexConnection";
+import { connectAll, disconnectAll } from "./database/registry";
 import {
   startReminderScheduler,
   stopReminderScheduler,
@@ -24,8 +24,8 @@ const PORT: number = parseInt(envPort);
 (async () => {
   // Initialize Knex database connection
   try {
-    await KnexManager.connect();
-    console.info("Database connection established successfully");
+    await connectAll();
+    console.info("Database connections established successfully");
   } catch (error) {
     console.error("Failed to connect to database:", error);
     process.exit(1);
@@ -60,8 +60,8 @@ const PORT: number = parseInt(envPort);
     force.unref();
 
     server.close(() => {
-      void KnexManager.disconnect()
-        .catch((err) => console.error("Failed to close database pool:", err))
+      void disconnectAll()
+        .catch((err) => console.error("Failed to close database pools:", err))
         .finally(() => {
           clearTimeout(force);
           process.exit(0);

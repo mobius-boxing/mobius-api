@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IProduct } from "../../interfaces/product/product.interfaces";
 import {
@@ -63,7 +63,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   private queryConfig = PRODUCT_QUERY_CONFIG;
 
   async create(item: IProduct): Promise<IProduct> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [product] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -87,7 +87,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async getById(id: number): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const product = await knex(this.tableName).where("id", id).first();
 
     return product ? this.mapToInterface(product) : null;
@@ -98,7 +98,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
     if (companyUuid) {
@@ -113,7 +113,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async update(id: number, item: Partial<IProduct>): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -126,10 +126,14 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     if (item.productTypeId !== undefined)
       updateData.productTypeId = item.productTypeId;
     if (item.boxTypeId !== undefined) updateData.boxTypeId = item.boxTypeId;
-    if (item.technicalSheetFileUuid !== undefined) updateData.technicalSheetFileUuid = item.technicalSheetFileUuid;
-    if (item.blueprintFileUuid !== undefined) updateData.blueprintFileUuid = item.blueprintFileUuid;
-    if (item.sketchFileUuid !== undefined) updateData.sketchFileUuid = item.sketchFileUuid;
-    if (item.imageFileUuid !== undefined) updateData.imageFileUuid = item.imageFileUuid;
+    if (item.technicalSheetFileUuid !== undefined)
+      updateData.technicalSheetFileUuid = item.technicalSheetFileUuid;
+    if (item.blueprintFileUuid !== undefined)
+      updateData.blueprintFileUuid = item.blueprintFileUuid;
+    if (item.sketchFileUuid !== undefined)
+      updateData.sketchFileUuid = item.sketchFileUuid;
+    if (item.imageFileUuid !== undefined)
+      updateData.imageFileUuid = item.imageFileUuid;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -142,7 +146,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     return knex.transaction(async (trx) => {
       // parts.productId is ON DELETE CASCADE, so PartDAO.delete's private-route
       // cleanup never runs on product deletion — collect the parts' route ids
@@ -175,7 +179,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     limit: number,
     companyUuid?: string,
   ): Promise<IDataPaginator<IProduct>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = knex(this.tableName);
@@ -213,7 +217,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IProduct>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
@@ -224,8 +228,8 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       .select(
         `${this.tableName}.*`,
         knex.raw("to_jsonb(customers.*) as customer"),
-        knex.raw("to_jsonb(product_types.*) as \"productType\""),
-        knex.raw("to_jsonb(box_types.*) as \"boxType\""),
+        knex.raw('to_jsonb(product_types.*) as "productType"'),
+        knex.raw('to_jsonb(box_types.*) as "boxType"'),
       )
       .leftJoin("customers", `${this.tableName}.customerId`, "customers.id")
       .leftJoin(
@@ -233,11 +237,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
         `${this.tableName}.productTypeId`,
         "product_types.id",
       )
-      .leftJoin(
-        "box_types",
-        `${this.tableName}.boxTypeId`,
-        "box_types.id",
-      );
+      .leftJoin("box_types", `${this.tableName}.boxTypeId`, "box_types.id");
 
     if (companyUuid) {
       dataQuery
@@ -269,7 +269,8 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       data: products.map((product) => {
         const mapped = this.mapToInterface(product);
         if (product.customer) {
-          const { id, companyId, categoryId, salesPersonId, ...customerClean } = product.customer;
+          const { id, companyId, categoryId, salesPersonId, ...customerClean } =
+            product.customer;
           mapped.customer = customerClean;
         }
         if (product.productType) {
@@ -294,7 +295,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyUuid?: string,
   ): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName)
       .select(`${this.tableName}.id`)
       .where(`${this.tableName}.uuid`, uuid);
@@ -313,7 +314,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     const query = knex(this.tableName)
       .select("products.*", knex.raw("to_jsonb(customers.*) as customer"))
@@ -332,7 +333,8 @@ export class ProductDAO implements IBaseDAO<IProduct> {
 
     const mapped = this.mapToInterface(product);
     if (product.customer) {
-      const { id, companyId, categoryId, salesPersonId, ...customerClean } = product.customer;
+      const { id, companyId, categoryId, salesPersonId, ...customerClean } =
+        product.customer;
       mapped.customer = customerClean;
     }
 
@@ -371,7 +373,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     username: string,
     trx?: any,
   ): Promise<IProduct | null> {
-    const knex = trx ?? KnexManager.getConnection();
+    const knex = trx ?? db("erp");
     const updateData =
       action === "approve"
         ? {

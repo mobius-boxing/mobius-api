@@ -1,5 +1,5 @@
 import { Request } from "express";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IDeliveryZone } from "../../interfaces/delivery/delivery.interfaces";
 import {
@@ -40,7 +40,7 @@ export class DeliveryZoneDAO {
   private queryConfig = DELIVERY_ZONE_QUERY_CONFIG;
 
   async create(item: IDeliveryZone): Promise<IDeliveryZone> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -52,27 +52,37 @@ export class DeliveryZoneDAO {
     return this.mapToInterface(row);
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IDeliveryZone | null> {
-    const knex = KnexManager.getConnection();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IDeliveryZone | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.*`).first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
 
-  async update(id: number, item: Partial<IDeliveryZone>): Promise<IDeliveryZone | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IDeliveryZone>,
+  ): Promise<IDeliveryZone | null> {
+    const knex = db("erp");
     const updateData: any = {};
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
     updateData.updatedAt = knex.fn.now();
     const [row] = await knex(this.tableName)
       .where("id", id)
@@ -82,13 +92,15 @@ export class DeliveryZoneDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IDeliveryZone>> {
-    const knex = KnexManager.getConnection();
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IDeliveryZone>> {
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

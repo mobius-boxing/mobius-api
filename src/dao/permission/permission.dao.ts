@@ -1,5 +1,5 @@
 import { Request } from "express";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IPermission } from "../../interfaces/role/role.interfaces";
 import {
@@ -50,7 +50,7 @@ export class PermissionDAO {
   private queryConfig = PERMISSION_QUERY_CONFIG;
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPermission>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

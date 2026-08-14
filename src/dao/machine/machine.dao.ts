@@ -1,6 +1,6 @@
 import { Request } from "express";
 import { toNumberOut } from "../../utils/numbers";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IMachine } from "../../interfaces/machine/machine.interfaces";
 import {
@@ -68,17 +68,35 @@ export class MachineDAO {
     return knex(this.tableName)
       .select(
         `${this.tableName}.*`,
-        knex.raw(`CASE WHEN mt.id IS NOT NULL THEN to_jsonb(mt) END as "machineType"`),
-        knex.raw(`CASE WHEN sw.id IS NOT NULL THEN to_jsonb(sw) END as "sourceWarehouse"`),
-        knex.raw(`CASE WHEN dw.id IS NOT NULL THEN to_jsonb(dw) END as "destinationWarehouse"`),
+        knex.raw(
+          `CASE WHEN mt.id IS NOT NULL THEN to_jsonb(mt) END as "machineType"`,
+        ),
+        knex.raw(
+          `CASE WHEN sw.id IS NOT NULL THEN to_jsonb(sw) END as "sourceWarehouse"`,
+        ),
+        knex.raw(
+          `CASE WHEN dw.id IS NOT NULL THEN to_jsonb(dw) END as "destinationWarehouse"`,
+        ),
       )
-      .leftJoin("machine_types as mt", `${this.tableName}.machineTypeId`, "mt.id")
-      .leftJoin("warehouses as sw", `${this.tableName}.sourceWarehouseId`, "sw.id")
-      .leftJoin("warehouses as dw", `${this.tableName}.destinationWarehouseId`, "dw.id");
+      .leftJoin(
+        "machine_types as mt",
+        `${this.tableName}.machineTypeId`,
+        "mt.id",
+      )
+      .leftJoin(
+        "warehouses as sw",
+        `${this.tableName}.sourceWarehouseId`,
+        "sw.id",
+      )
+      .leftJoin(
+        "warehouses as dw",
+        `${this.tableName}.destinationWarehouseId`,
+        "dw.id",
+      );
   }
 
   async create(item: IMachine): Promise<IMachine> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const insertData: any = { uuid: item.uuid, companyId: item.companyId };
     for (const key of SCALAR_FIELDS) {
       if (item[key] !== undefined) insertData[key] = item[key];
@@ -87,16 +105,25 @@ export class MachineDAO {
     return (await this.getByUuid(row.uuid)) ?? this.mapToInterface(row);
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IMachine | null> {
-    const knex = KnexManager.getConnection();
-    const query = this.selectWithJoins(knex).where(`${this.tableName}.uuid`, uuid);
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IMachine | null> {
+    const knex = db("erp");
+    const query = this.selectWithJoins(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -104,7 +131,7 @@ export class MachineDAO {
   }
 
   async update(id: number, item: Partial<IMachine>): Promise<IMachine | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
     for (const key of SCALAR_FIELDS) {
       if (item[key] !== undefined) updateData[key] = item[key];
@@ -114,24 +141,28 @@ export class MachineDAO {
       .where("id", id)
       .update(updateData)
       .returning("*");
-    return row ? ((await this.getByUuid(row.uuid)) ?? this.mapToInterface(row)) : null;
+    return row
+      ? ((await this.getByUuid(row.uuid)) ?? this.mapToInterface(row))
+      : null;
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IMachine>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
     // machineTypeUuid convenience filter for the routes UI.
-    const machineTypeUuid = parsedQuery.filters.machineTypeUuid as string | undefined;
+    const machineTypeUuid = parsedQuery.filters.machineTypeUuid as
+      | string
+      | undefined;
     delete parsedQuery.filters.machineTypeUuid;
     if (machineTypeUuid) {
       const mt = await knex("machine_types")
@@ -178,8 +209,11 @@ export class MachineDAO {
   private mapToInterface(record: any): IMachine {
     const num = toNumberOut;
     const stripType = (obj: any) =>
-      obj ? { uuid: obj.uuid, name: obj.name, corrugated: obj.corrugated } : null;
-    const stripWh = (obj: any) => (obj ? { uuid: obj.uuid, name: obj.name } : null);
+      obj
+        ? { uuid: obj.uuid, name: obj.name, corrugated: obj.corrugated }
+        : null;
+    const stripWh = (obj: any) =>
+      obj ? { uuid: obj.uuid, name: obj.name } : null;
     return {
       uuid: record.uuid,
       companyId: record.companyId,

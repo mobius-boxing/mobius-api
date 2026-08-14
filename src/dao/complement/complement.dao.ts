@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IComplement } from "../../interfaces/complement/complement.interfaces";
 import {
@@ -59,7 +59,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   private queryConfig = COMPLEMENT_QUERY_CONFIG;
 
   async create(item: IComplement): Promise<IComplement> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [complement] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -73,7 +73,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   }
 
   async getById(id: number): Promise<IComplement | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const complement = await knex(this.tableName).where("id", id).first();
 
     return complement ? this.mapToInterface(complement) : null;
@@ -83,7 +83,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IComplement | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const complement = await query.select(`${this.tableName}.*`).first();
@@ -91,12 +91,16 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     return complement ? this.mapToInterface(complement) : null;
   }
 
-  async update(id: number, item: Partial<IComplement>): Promise<IComplement | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IComplement>,
+  ): Promise<IComplement | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -109,7 +113,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -118,8 +122,11 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   /**
    * @deprecated Use getAllWithFilters for advanced querying.
    */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IComplement>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IComplement>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [complements, totalResult] = await Promise.all([
@@ -145,7 +152,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IComplement>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid rather than

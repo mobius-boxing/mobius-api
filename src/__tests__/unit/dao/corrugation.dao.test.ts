@@ -16,11 +16,9 @@ import { createMockQueryBuilder } from '../../mocks/knex.mock';
 let mockQueryBuilder: any;
 let mockKnex: jest.Mock<any>;
 
-jest.mock('../../../database/KnexConnection', () => ({
+jest.mock('../../../database/registry', () => ({
   __esModule: true,
-  default: {
-    getConnection: () => mockKnex,
-  },
+  db: () => mockKnex,
 }));
 
 // Import DAO after mocking

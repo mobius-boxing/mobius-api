@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IInvitation } from "../../interfaces/invitation/invitation.interfaces";
 import { applyCompanyUuidScope } from "../../utils/daoScope";
@@ -8,7 +8,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
   private tableName = "invitations";
 
   async create(item: IInvitation): Promise<IInvitation> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const [invitation] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -29,7 +29,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
   }
 
   async getById(id: number): Promise<IInvitation | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const invitation = await knex(this.tableName).where("id", id).first();
 
     return invitation ? this.mapToSafe(invitation) : null;
@@ -40,7 +40,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IInvitation | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const invitation = await query.select(`${this.tableName}.*`).first();
@@ -53,7 +53,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     id: number,
     item: Partial<IInvitation>,
   ): Promise<IInvitation | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const updateData: any = {};
 
     if (item.email !== undefined) updateData.email = item.email;
@@ -77,7 +77,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -89,7 +89,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     limit: number,
     companyUuid?: string,
   ): Promise<IDataPaginator<IInvitation>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const offset = (page - 1) * limit;
 
     const dataQuery = knex(this.tableName);
@@ -124,11 +124,9 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
   // Returns the full (token-bearing) shape because internal accept/register flows need to
   // re-verify and consume the invitation — this result is never sent verbatim to clients.
   async getByToken(rawToken: string): Promise<IInvitation | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const hashed = hashToken(rawToken);
-    let invitation = await knex(this.tableName)
-      .where("token", hashed)
-      .first();
+    let invitation = await knex(this.tableName).where("token", hashed).first();
 
     // TRANSITION (hash cutover): invitations issued before hashing shipped
     // are stored in plaintext (7-day TTL). Fall back to a plaintext match and
@@ -147,7 +145,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
 
   // "Active" = unused AND not expired. SECURITY (C4): scoped by company UUID.
   async getActiveInvitations(companyUuid?: string): Promise<IInvitation[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const query = knex(this.tableName)
       .where(`${this.tableName}.isUsed`, false)
       .where(`${this.tableName}.expiresAt`, ">", knex.fn.now());

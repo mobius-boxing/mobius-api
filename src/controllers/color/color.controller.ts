@@ -8,7 +8,7 @@ import {
   ColorUpdateInputDTO,
 } from "../../dto/input/color";
 import { getCompanyForCreate } from "../../utils/companyScope";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   BaseCrudController,
   BaseCrudOptions,
@@ -65,7 +65,7 @@ export class ColorController extends BaseCrudController<IColor> {
       return null;
     }
 
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const company = await knex("companies")
       .where("uuid", companyResult.companyUuid)
       .first();
@@ -77,9 +77,13 @@ export class ColorController extends BaseCrudController<IColor> {
     // SECURITY: resolve client-supplied UUID to internal numeric ID before storing.
     let colorTypeId: number | undefined;
     if (payload.colorTypeUuid) {
-      const resolved = await this.colorTypeDAO.getIdByUuid(payload.colorTypeUuid);
+      const resolved = await this.colorTypeDAO.getIdByUuid(
+        payload.colorTypeUuid,
+      );
       if (!resolved) {
-        res.status(400).json({ success: false, message: "Color type not found" });
+        res
+          .status(400)
+          .json({ success: false, message: "Color type not found" });
         return null;
       }
       colorTypeId = resolved;
@@ -110,7 +114,9 @@ export class ColorController extends BaseCrudController<IColor> {
         inputDTO.colorTypeUuid,
       );
       if (!colorTypeId) {
-        res.status(400).json({ success: false, message: "Color type not found" });
+        res
+          .status(400)
+          .json({ success: false, message: "Color type not found" });
         return null;
       }
       updateData.colorTypeId = colorTypeId;

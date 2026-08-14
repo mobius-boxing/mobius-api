@@ -17,17 +17,19 @@ import {
   createTestCompany,
   resetIdCounter,
 } from "../../mocks/factories";
-import { createMockQueryBuilder } from "../../mocks/knex.mock";
+import { createMockQueryBuilder, mockRegistry } from "../../mocks/knex.mock";
 
 // We need to create fresh mocks that persist across beforeEach
 let mockQueryBuilder: any;
 let mockKnex: jest.Mock<any>;
+let mockOtherKeys: any;
 
-jest.mock("../../../database/KnexConnection", () => ({
+jest.mock("../../../database/registry", () => ({
   __esModule: true,
-  default: {
-    getConnection: () => mockKnex,
-  },
+  // `users` lives in core, so only that key gets the DAO's own mock. The other
+  // three answer with their own independent stubs, which is what makes a query
+  // on the wrong connection visible instead of silently passing (AC-7).
+  db: (key: string) => (key === "core" ? mockKnex : mockOtherKeys.mocks[key]),
 }));
 
 // Import DAO after mocking
@@ -46,6 +48,7 @@ describe("UserDAO", () => {
       now: jest.fn().mockReturnValue(new Date().toISOString()),
     };
     (mockKnex as any).raw = jest.fn().mockReturnValue("");
+    mockOtherKeys = mockRegistry();
 
     dao = new UserDAO();
   });
@@ -371,6 +374,25 @@ describe("UserDAO", () => {
       const result = await dao.getUserByEmail("nonexistent@example.com");
 
       expect(result).toBeNull();
+    });
+
+    it("reads core and never bleeds into another key's stub", async () => {
+      const testData = createTestUser();
+      mockQueryBuilder.first.mockResolvedValue(testData);
+      // A row that exists only on the erp stub: if the DAO ever asked the wrong
+      // connection, this is what would come back.
+      mockOtherKeys.queryBuilders.erp.first.mockResolvedValue({
+        ...createTestUser(),
+        email: "bleed@erp.invalid",
+      });
+
+      const result = await dao.getUserByEmail(testData.email);
+
+      expect(result?.email).toBe(testData.email);
+      expect(mockKnex).toHaveBeenCalledWith("users");
+      expect(mockOtherKeys.mocks.erp).not.toHaveBeenCalled();
+      expect(mockOtherKeys.mocks.countdown).not.toHaveBeenCalled();
+      expect(mockOtherKeys.mocks.store).not.toHaveBeenCalled();
     });
   });
 

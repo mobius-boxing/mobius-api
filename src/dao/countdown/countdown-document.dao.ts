@@ -1,5 +1,5 @@
 import { Knex } from "knex";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   CountdownDocumentStatus,
   ICountdownDocument,
@@ -151,7 +151,7 @@ export class CountdownDocumentDAO {
    * in Buenos Aires.
    */
   private baseQuery(companyId: number, today: string): Knex.QueryBuilder {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     return knex(DOCUMENTS_TABLE)
       .leftJoin(
         `${USERS_TABLE} as uploader`,
@@ -202,7 +202,7 @@ export class CountdownDocumentDAO {
     page: number,
     limit: number,
   ): Promise<{ rows: ICountdownDocumentEntry[]; totalCount: number }> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const sortColumn =
       (filters.sortBy && SORT_ALLOWLIST[filters.sortBy]) ?? DEFAULT_SORT_COLUMN;
 
@@ -276,7 +276,7 @@ export class CountdownDocumentDAO {
     uuid: string,
     companyId: number,
   ): Promise<number | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const row = await knex(DOCUMENTS_TABLE)
       .select("id")
       .where({ uuid, companyId })
@@ -288,7 +288,7 @@ export class CountdownDocumentDAO {
     uuid: string,
     companyId: number,
   ): Promise<ICountdownDocumentRow | undefined> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     return knex<ICountdownDocumentRow>(DOCUMENTS_TABLE)
       .where({ uuid, companyId })
       .first();
@@ -300,7 +300,7 @@ export class CountdownDocumentDAO {
     input: ICountdownDocumentWriteInput,
     trx?: Knex.Transaction,
   ): Promise<string> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const rows = await (trx ?? knex)(DOCUMENTS_TABLE)
       .insert({ ...input, uuid })
       .returning("uuid");
@@ -331,7 +331,7 @@ export class CountdownDocumentDAO {
       >
     >,
   ): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     await knex(DOCUMENTS_TABLE)
       .where({ id, companyId })
       .update({ ...patch, updatedAt: knex.fn.now() });
@@ -344,7 +344,7 @@ export class CountdownDocumentDAO {
     resolvedBy: number | null,
     trx?: Knex.Transaction,
   ): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const executor = trx ?? knex;
     await executor(DOCUMENTS_TABLE)
       .where({ id, companyId })
@@ -357,7 +357,7 @@ export class CountdownDocumentDAO {
   }
 
   async delete(id: number, companyId: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const deleted = await knex(DOCUMENTS_TABLE)
       .where({ id, companyId })
       .delete();
@@ -374,7 +374,7 @@ export class CountdownDocumentDAO {
     companyId: number,
     today: string,
   ): Promise<ICountdownDocumentSummary> {
-    const knex = KnexManager.getConnection();
+    const knex = db("countdown");
     const result = await knex.raw(
       `
       select

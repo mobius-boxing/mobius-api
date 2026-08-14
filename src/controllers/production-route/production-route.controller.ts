@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   ProductionRouteDAO,
   SUPPLY_TABLES,
@@ -36,7 +36,11 @@ export class ProductionRouteController {
   private machineDAO = new MachineDAO();
   private audit = new AuditService();
 
-  private recordAudit(req: any, op: "Alta" | "Baja" | "Modificacion", entity: any): void {
+  private recordAudit(
+    req: any,
+    op: "Alta" | "Baja" | "Modificacion",
+    entity: any,
+  ): void {
     void this.audit.record(req, "Production route", op, entity ?? null);
   }
 
@@ -47,7 +51,7 @@ export class ProductionRouteController {
     res: Response,
   ): Promise<IRouteStage[] | null | undefined> {
     if (stages === undefined) return undefined;
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const companyUuid = getCompanyFilterUuid(req);
     const resolved: IRouteStage[] = [];
 
@@ -60,16 +64,26 @@ export class ProductionRouteController {
           companyUuid,
         );
         if (!machineTypeId) {
-          res.status(400).json({ success: false, message: `${label}: machine type not found` });
+          res
+            .status(400)
+            .json({
+              success: false,
+              message: `${label}: machine type not found`,
+            });
           return null;
         }
       }
 
       const machines = [];
       for (const m of stage.machines ?? []) {
-        const machineId = await this.machineDAO.getIdByUuid(m.machineUuid, companyUuid);
+        const machineId = await this.machineDAO.getIdByUuid(
+          m.machineUuid,
+          companyUuid,
+        );
         if (!machineId) {
-          res.status(400).json({ success: false, message: `${label}: machine not found` });
+          res
+            .status(400)
+            .json({ success: false, message: `${label}: machine not found` });
           return null;
         }
         machines.push({ machineId, isPrimary: m.isPrimary ?? true });
@@ -78,7 +92,10 @@ export class ProductionRouteController {
       const supplies = [];
       for (const s of stage.supplies ?? []) {
         const table = SUPPLY_TABLES[s.supplyType as StageSupplyType];
-        const row = await knex(table).where("uuid", s.supplyUuid).select("id").first();
+        const row = await knex(table)
+          .where("uuid", s.supplyUuid)
+          .select("id")
+          .first();
         if (!row) {
           res.status(400).json({
             success: false,
@@ -134,7 +151,11 @@ export class ProductionRouteController {
     return validation.warnings;
   }
 
-  public async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async getAll(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       enforceCompanyFilter(req);
       const result = await this.dao.getAllWithFilters(req);
@@ -144,11 +165,20 @@ export class ProductionRouteController {
     }
   }
 
-  public async getByUuid(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async getByUuid(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
-      const route = await this.dao.getByUuid(req.params.uuid, getCompanyFilterUuid(req));
+      const route = await this.dao.getByUuid(
+        req.params.uuid,
+        getCompanyFilterUuid(req),
+      );
       if (!route) {
-        res.status(404).json({ success: false, message: "Production route not found" });
+        res
+          .status(404)
+          .json({ success: false, message: "Production route not found" });
         return;
       }
       res.status(200).json({ success: true, data: route });
@@ -157,7 +187,11 @@ export class ProductionRouteController {
     }
   }
 
-  public async create(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async create(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const inputDTO = new ProductionRouteCreateInputDTO(req.body).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -181,7 +215,11 @@ export class ProductionRouteController {
       if (stages === null) return;
 
       const warnings = this.validateOrReject(
-        { name: inputDTO.name, isGlobal: inputDTO.isGlobal ?? false, stages: stages ?? [] },
+        {
+          name: inputDTO.name,
+          isGlobal: inputDTO.isGlobal ?? false,
+          stages: stages ?? [],
+        },
         res,
       );
       if (warnings === null) return;
@@ -201,12 +239,18 @@ export class ProductionRouteController {
     }
   }
 
-  public async update(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async update(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyUuid = getCompanyFilterUuid(req);
       const existing = await this.dao.getByUuid(req.params.uuid, companyUuid);
       if (!existing || !existing.id) {
-        res.status(404).json({ success: false, message: "Production route not found" });
+        res
+          .status(404)
+          .json({ success: false, message: "Production route not found" });
         return;
       }
 
@@ -240,12 +284,18 @@ export class ProductionRouteController {
     }
   }
 
-  public async clone(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async clone(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyUuid = getCompanyFilterUuid(req);
       const source = await this.dao.getByUuid(req.params.uuid, companyUuid);
       if (!source || !source.id) {
-        res.status(404).json({ success: false, message: "Production route not found" });
+        res
+          .status(404)
+          .json({ success: false, message: "Production route not found" });
         return;
       }
       let name = (req.body?.name as string) || source.name;
@@ -260,22 +310,32 @@ export class ProductionRouteController {
     }
   }
 
-  public async copyStages(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async copyStages(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyUuid = getCompanyFilterUuid(req);
       const target = await this.dao.getByUuid(req.params.uuid, companyUuid);
       if (!target || !target.id) {
-        res.status(404).json({ success: false, message: "Production route not found" });
+        res
+          .status(404)
+          .json({ success: false, message: "Production route not found" });
         return;
       }
       const { sourceRouteUuid } = req.body ?? {};
       if (!sourceRouteUuid) {
-        res.status(400).json({ success: false, message: "sourceRouteUuid is required" });
+        res
+          .status(400)
+          .json({ success: false, message: "sourceRouteUuid is required" });
         return;
       }
       const source = await this.dao.getByUuid(sourceRouteUuid, companyUuid);
       if (!source || !source.id) {
-        res.status(404).json({ success: false, message: "Source route not found" });
+        res
+          .status(404)
+          .json({ success: false, message: "Source route not found" });
         return;
       }
       await this.dao.copyStages(target.id, source.id);
@@ -287,25 +347,37 @@ export class ProductionRouteController {
     }
   }
 
-  public async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async delete(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyUuid = getCompanyFilterUuid(req);
       const existing = await this.dao.getByUuid(req.params.uuid, companyUuid);
       if (!existing || !existing.id) {
-        res.status(404).json({ success: false, message: "Production route not found" });
+        res
+          .status(404)
+          .json({ success: false, message: "Production route not found" });
         return;
       }
       // Spec 04: Procusto never hard-deletes a route parts still use.
       if (await this.dao.isReferencedByParts(existing.id)) {
         res.status(400).json({
           success: false,
-          message: "Cannot delete route: parts still reference it. Reassign them first.",
+          message:
+            "Cannot delete route: parts still reference it. Reassign them first.",
         });
         return;
       }
       await this.dao.delete(existing.id);
       this.recordAudit(req, "Baja", existing);
-      res.status(200).json({ success: true, message: "Production route deleted successfully" });
+      res
+        .status(200)
+        .json({
+          success: true,
+          message: "Production route deleted successfully",
+        });
     } catch (err: any) {
       next(err);
     }

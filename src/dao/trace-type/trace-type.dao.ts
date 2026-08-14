@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ITraceType } from "../../interfaces/trace-type/trace-type.interfaces";
 import {
@@ -59,7 +59,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   private queryConfig = TRACE_TYPE_QUERY_CONFIG;
 
   async create(item: ITraceType): Promise<ITraceType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [traceType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -73,7 +73,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   }
 
   async getById(id: number): Promise<ITraceType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const traceType = await knex(this.tableName).where("id", id).first();
 
     return traceType ? this.mapToInterface(traceType) : null;
@@ -83,7 +83,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
     uuid: string,
     companyUuid?: string,
   ): Promise<ITraceType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const traceType = await query.select(`${this.tableName}.*`).first();
@@ -91,12 +91,16 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
     return traceType ? this.mapToInterface(traceType) : null;
   }
 
-  async update(id: number, item: Partial<ITraceType>): Promise<ITraceType | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<ITraceType>,
+  ): Promise<ITraceType | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -109,7 +113,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -118,8 +122,11 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   /**
    * @deprecated Use getAllWithFilters for advanced querying.
    */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<ITraceType>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<ITraceType>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [traceTypes, totalResult] = await Promise.all([
@@ -145,7 +152,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ITraceType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

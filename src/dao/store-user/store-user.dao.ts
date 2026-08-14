@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import {
   IStoreUser,
@@ -66,7 +66,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
   // create accepts the INTERNAL shape so callers can pass passwordHash / invitationToken,
   // but the RETURN value is the public IStoreUser (secrets stripped by mapToInterface).
   async create(item: IStoreUserInternal): Promise<IStoreUser> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -87,19 +87,19 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
   }
 
   async getById(id: number): Promise<IStoreUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
 
   async getByUuid(uuid: string): Promise<IStoreUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const record = await knex(this.tableName).where("uuid", uuid).first();
     return record ? this.mapToInterface(record) : null;
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const record = await knex(this.tableName)
       .select("id")
       .where("uuid", uuid)
@@ -108,8 +108,11 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
   }
 
   // Company-scoped uniqueness check. Case-insensitive (uses the LOWER(email) index).
-  async getByEmail(companyId: number, email: string): Promise<IStoreUser | null> {
-    const knex = KnexManager.getConnection();
+  async getByEmail(
+    companyId: number,
+    email: string,
+  ): Promise<IStoreUser | null> {
+    const knex = db("store");
     const record = await knex(this.tableName)
       .where("companyId", companyId)
       .whereRaw("LOWER(email) = LOWER(?)", [email])
@@ -121,7 +124,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
     id: number,
     item: Partial<IStoreUser>,
   ): Promise<IStoreUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const updateData: any = {};
 
     if (item.email !== undefined) updateData.email = item.email;
@@ -145,7 +148,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -157,7 +160,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
     id: number,
     passwordHash: string,
   ): Promise<IStoreUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const [record] = await knex(this.tableName)
       .where("id", id)
       .update({
@@ -175,7 +178,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
     token: string,
     expiresAt: Date,
   ): Promise<IStoreUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const [record] = await knex(this.tableName)
       .where("id", id)
       .update({
@@ -188,7 +191,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
   }
 
   async markActive(id: number, isActive: boolean): Promise<IStoreUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const [record] = await knex(this.tableName)
       .where("id", id)
       .update({ isActive, updatedAt: knex.fn.now() })
@@ -210,7 +213,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
   ): Promise<
     Array<IStoreUserInternal & { companyUuid: string; companyName: string }>
   > {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const records = await knex(this.tableName)
       .join("companies", `${this.tableName}.companyId`, "companies.id")
       .select(
@@ -230,8 +233,10 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
   // the company uuid + name, in one query. Returns null if the uuid is unknown.
   async getByUuidWithCompany(
     uuid: string,
-  ): Promise<(IStoreUser & { companyUuid: string; companyName: string }) | null> {
-    const knex = KnexManager.getConnection();
+  ): Promise<
+    (IStoreUser & { companyUuid: string; companyName: string }) | null
+  > {
+    const knex = db("store");
     const record = await knex(this.tableName)
       .join("companies", `${this.tableName}.companyId`, "companies.id")
       .select(
@@ -252,7 +257,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
 
   // Stamp last login. Fire-and-forget from the controller after a successful auth.
   async updateLastLogin(id: number): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     await knex(this.tableName)
       .where("id", id)
       .update({ lastLoginAt: knex.fn.now(), updatedAt: knex.fn.now() });
@@ -262,7 +267,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IStoreUser>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const offset = (page - 1) * limit;
 
     const [records, totalResult] = await Promise.all([
@@ -288,7 +293,7 @@ export class StoreUserDAO implements IBaseDAO<IStoreUser> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IStoreUser>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

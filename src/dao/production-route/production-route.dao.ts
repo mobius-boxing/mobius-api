@@ -1,5 +1,5 @@
 import { Request } from "express";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import {
   SUPPLY_TABLES,
@@ -65,7 +65,7 @@ export class ProductionRouteDAO {
   // ── Create / update (stages replaced wholesale, transactional) ────────────
 
   async create(item: IProductionRoute): Promise<IProductionRoute> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const uuid = item.uuid ?? uuidv4();
     await knex.transaction(async (trx) => {
       if (item.isDefault) await this.clearDefault(trx, item.companyId!);
@@ -88,7 +88,7 @@ export class ProductionRouteDAO {
     id: number,
     item: Partial<IProductionRoute>,
   ): Promise<IProductionRoute | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const existing = await knex(this.tableName).where("id", id).first();
     if (!existing) return null;
 
@@ -172,7 +172,7 @@ export class ProductionRouteDAO {
     uuid: string,
     companyUuid?: string,
   ): Promise<IProductionRoute | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const route = await query.select(`${this.tableName}.*`).first();
@@ -186,7 +186,7 @@ export class ProductionRouteDAO {
     uuid: string,
     companyUuid?: string,
   ): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -194,7 +194,7 @@ export class ProductionRouteDAO {
   }
 
   private async loadStages(routeId: number): Promise<IRouteStage[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const stages = await knex("production_route_stages as st")
       .select(
         "st.*",
@@ -285,14 +285,14 @@ export class ProductionRouteDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   /** True when any part references this route (delete guard, spec 04). */
   async isReferencedByParts(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const hasParts = await knex.schema.hasTable("parts");
     if (!hasParts) return false;
     const row = await knex("parts")
@@ -306,7 +306,7 @@ export class ProductionRouteDAO {
 
   /** Clonar(): full copy; isDefault forced false. */
   async clone(sourceId: number, name: string): Promise<IProductionRoute> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const source = await knex(this.tableName).where("id", sourceId).first();
     if (!source) throw new Error("Source route not found");
     const stages = await this.loadStagesForCopy(sourceId);
@@ -322,7 +322,7 @@ export class ProductionRouteDAO {
 
   /** CopiarEtapas(src): clear own stages, deep-copy the source's. */
   async copyStages(targetId: number, sourceId: number): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const stages = await this.loadStagesForCopy(sourceId);
     await knex.transaction(async (trx) => {
       await trx("production_route_stages").where("routeId", targetId).delete();
@@ -335,7 +335,7 @@ export class ProductionRouteDAO {
 
   /** Raw stage tree with numeric ids, ready for insertStages. */
   private async loadStagesForCopy(routeId: number): Promise<IRouteStage[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const stages = await knex("production_route_stages")
       .where("routeId", routeId)
       .orderBy("number", "asc");
@@ -378,7 +378,7 @@ export class ProductionRouteDAO {
   }
 
   async nameExists(companyId: number, name: string): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const row = await knex(this.tableName)
       .where({ companyId, name })
       .select("id")
@@ -391,7 +391,7 @@ export class ProductionRouteDAO {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IProductionRoute>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

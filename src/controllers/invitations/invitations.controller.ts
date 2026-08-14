@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { InvitationCreateInputDTO } from "../../dto/input/invitation";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { getCompanyFilterUuid } from "../../utils/companyScope";
+import { db } from "../../database/registry";
 
 // SECURITY (C4): role hierarchy used to forbid escalation via invitations.
 const ROLE_RANK: Record<string, number> = {
@@ -33,8 +34,7 @@ export class InvitationsController implements IBaseController {
     try {
       const { companyId } = req.query;
 
-      const knex =
-        require("../../database/KnexConnection").default.getConnection();
+      const knex = db("core");
 
       let query = knex("invitations");
 

@@ -18,7 +18,7 @@ import {
   enforceCompanyFilter,
   getCompanyFilterUuid,
 } from "../../utils/companyScope";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { PartDAO } from "../../dao/part/part.dao";
 import { RbacService } from "../../services/rbac.service";
 import { PartController } from "../part/part.controller";
@@ -251,9 +251,7 @@ export class ProductController implements IBaseController {
           if (productId) {
             await this._productDAO.delete(productId);
           } else {
-            await KnexManager.getConnection()("products")
-              .where("uuid", result.uuid)
-              .delete();
+            await db("erp")("products").where("uuid", result.uuid).delete();
           }
           if (partError) throw partError;
           if (!productId) {
@@ -436,7 +434,7 @@ export class ProductController implements IBaseController {
       }
 
       const username = req.user?.email ?? "unknown";
-      const knex = KnexManager.getConnection();
+      const knex = db("erp");
 
       // Cascade to parts (04-state-and-lifecycle): approving/cancelling the
       // product propagates to its parts' FINAL machine when the client

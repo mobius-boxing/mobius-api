@@ -38,9 +38,9 @@ const makeBuilder = (table) => {
 
 let mockKnex;
 
-jest.mock("../../../database/KnexConnection", () => ({
+jest.mock("../../../database/registry", () => ({
   __esModule: true,
-  default: { getConnection: () => mockKnex },
+  db: () => mockKnex,
 }));
 
 import { PartDAO } from "../../../dao/part/part.dao";

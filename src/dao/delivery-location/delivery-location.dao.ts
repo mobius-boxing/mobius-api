@@ -1,5 +1,5 @@
 import { Request } from "express";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IDeliveryLocation } from "../../interfaces/delivery/delivery.interfaces";
 import {
@@ -52,15 +52,23 @@ export class DeliveryLocationDAO {
     return knex(this.tableName)
       .select(
         `${this.tableName}.*`,
-        knex.raw(`CASE WHEN dz.id IS NOT NULL THEN to_jsonb(dz) END as "deliveryZone"`),
-        knex.raw(`CASE WHEN c.id IS NOT NULL THEN to_jsonb(c) END as "customer"`),
+        knex.raw(
+          `CASE WHEN dz.id IS NOT NULL THEN to_jsonb(dz) END as "deliveryZone"`,
+        ),
+        knex.raw(
+          `CASE WHEN c.id IS NOT NULL THEN to_jsonb(c) END as "customer"`,
+        ),
       )
-      .leftJoin("delivery_zones as dz", `${this.tableName}.deliveryZoneId`, "dz.id")
+      .leftJoin(
+        "delivery_zones as dz",
+        `${this.tableName}.deliveryZoneId`,
+        "dz.id",
+      )
       .leftJoin("customers as c", `${this.tableName}.customerId`, "c.id");
   }
 
   async create(item: IDeliveryLocation): Promise<IDeliveryLocation> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,24 +85,36 @@ export class DeliveryLocationDAO {
     return (await this.getByUuid(row.uuid)) ?? this.mapToInterface(row);
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IDeliveryLocation | null> {
-    const knex = KnexManager.getConnection();
-    const query = this.selectWithJoins(knex).where(`${this.tableName}.uuid`, uuid);
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IDeliveryLocation | null> {
+    const knex = db("erp");
+    const query = this.selectWithJoins(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
 
-  async update(id: number, item: Partial<IDeliveryLocation>): Promise<IDeliveryLocation | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IDeliveryLocation>,
+  ): Promise<IDeliveryLocation | null> {
+    const knex = db("erp");
     const updateData: any = {};
     for (const key of [
       "address",
@@ -111,17 +131,21 @@ export class DeliveryLocationDAO {
       .where("id", id)
       .update(updateData)
       .returning("*");
-    return row ? ((await this.getByUuid(row.uuid)) ?? this.mapToInterface(row)) : null;
+    return row
+      ? ((await this.getByUuid(row.uuid)) ?? this.mapToInterface(row))
+      : null;
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IDeliveryLocation>> {
-    const knex = KnexManager.getConnection();
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IDeliveryLocation>> {
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

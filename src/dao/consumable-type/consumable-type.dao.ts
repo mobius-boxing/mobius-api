@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IConsumableType } from "../../interfaces/consumable-type/consumable-type.interfaces";
 import {
@@ -55,7 +55,7 @@ const CONSUMABLE_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       column: "createdAt",
       order: "desc",
     },
-  }
+  },
 );
 
 export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
@@ -63,7 +63,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
   private queryConfig = CONSUMABLE_TYPE_QUERY_CONFIG;
 
   async create(item: IConsumableType): Promise<IConsumableType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -78,7 +78,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
   }
 
   async getById(id: number): Promise<IConsumableType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
@@ -87,28 +87,35 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IConsumableType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
-  async update(id: number, item: Partial<IConsumableType>): Promise<IConsumableType | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IConsumableType>,
+  ): Promise<IConsumableType | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.autoConsumption !== undefined) updateData.autoConsumption = item.autoConsumption;
+    if (item.autoConsumption !== undefined)
+      updateData.autoConsumption = item.autoConsumption;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -121,13 +128,16 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IConsumableType>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IConsumableType>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [records, totalResult] = await Promise.all([
@@ -152,8 +162,10 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
     };
   }
 
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IConsumableType>> {
-    const knex = KnexManager.getConnection();
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IConsumableType>> {
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

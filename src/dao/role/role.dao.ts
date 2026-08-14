@@ -1,6 +1,6 @@
 import { Request } from "express";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IRole } from "../../interfaces/role/role.interfaces";
 import {
@@ -39,13 +39,13 @@ export class RoleDAO {
   private queryConfig = ROLE_QUERY_CONFIG;
 
   async create(item: Partial<IRole>): Promise<IRole> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const [row] = await knex(this.tableName).insert(item).returning("*");
     return row as IRole;
   }
 
   async getByUuid(uuid: string, companyUuid?: string): Promise<IRole | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid, "companyId");
     const row = await query.select(`${this.tableName}.*`).first();
@@ -55,11 +55,14 @@ export class RoleDAO {
       .join("permissions", "role_permissions.permissionId", "permissions.id")
       .where("role_permissions.roleId", row.id)
       .select("permissions.code");
-    return { ...(row as IRole), permissionCodes: grants.map((g: any) => g.code) };
+    return {
+      ...(row as IRole),
+      permissionCodes: grants.map((g: any) => g.code),
+    };
   }
 
   async update(id: number, item: Partial<IRole>): Promise<IRole | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const [row] = await knex(this.tableName)
       .where("id", id)
       .update({ ...item, updatedAt: knex.fn.now() })
@@ -68,7 +71,7 @@ export class RoleDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -79,7 +82,7 @@ export class RoleDAO {
     companyId: number,
     codes: string[],
   ): Promise<string[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     return knex.transaction(async (trx) => {
       const permissions = codes.length
         ? await trx("permissions")
@@ -103,12 +106,12 @@ export class RoleDAO {
 
   /** Assign a role to a user (both scoped to the same company). */
   async assignToUser(userId: number, roleId: number | null): Promise<void> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     await knex("users").where("id", userId).update({ roleId });
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IRole>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;

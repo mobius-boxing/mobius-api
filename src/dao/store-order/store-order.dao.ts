@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { Knex } from "knex";
 import { IDataPaginator } from "../../database/d.types";
 import {
@@ -24,7 +24,7 @@ export interface IStoreOrderListParams {
 
 // StoreOrderDAO does NOT implement IBaseDAO<IStoreOrder>: create has a two-arg
 // (order, items) signature and there is no update/delete/getById in v1 scope.
-// Local-DAO style (KnexManager.getConnection() per call) with private mappers.
+// Local-DAO style (db("store") per call) with private mappers.
 export class StoreOrderDAO {
   private tableName = "store_orders";
   private itemsTableName = "store_order_items";
@@ -36,7 +36,7 @@ export class StoreOrderDAO {
     order: IStoreOrder,
     items: IStoreOrderItem[],
   ): Promise<IStoreOrderWithItems> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
 
     const result = await knex.transaction(async (trx) => {
       const [newOrder] = await trx(this.tableName)
@@ -83,7 +83,7 @@ export class StoreOrderDAO {
     uuid: string,
     companyId: number,
   ): Promise<IStoreOrderWithItems | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
 
     // LEFT JOIN store_users to surface the buyer email on the detail view.
     // storeUserId may be null (SET NULL on store-user delete) -> LEFT JOIN, email nullable.
@@ -185,7 +185,7 @@ export class StoreOrderDAO {
     companyId: number,
     params: IStoreOrderListParams,
   ): Promise<IDataPaginator<IStoreOrderWithItemCount>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const { page, limit } = params;
     const offset = (page - 1) * limit;
     const scope = {
@@ -240,7 +240,7 @@ export class StoreOrderDAO {
     companyId: number,
     params: IStoreOrderListParams,
   ): Promise<IDataPaginator<IStoreOrderWithItemCount>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
     const { page, limit } = params;
     const offset = (page - 1) * limit;
     const scope = {
@@ -295,7 +295,7 @@ export class StoreOrderDAO {
     companyId: number,
     status: StoreOrderStatus,
   ): Promise<IStoreOrderWithItems | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("store");
 
     const [updated] = await knex(this.tableName)
       .where("uuid", uuid)

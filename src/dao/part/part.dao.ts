@@ -1,6 +1,6 @@
 import { Request } from "express";
 import { v4 as uuidv4 } from "uuid";
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import {
   ApprovalMachine,
@@ -62,7 +62,12 @@ const PART_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("parts", {
 /** Approval machine → column prefixes (08-approvals.md). */
 const MACHINE_COLUMNS: Record<
   ApprovalMachine,
-  { approvedAt: string; approvedBy: string; cancelledAt: string; cancelledBy: string }
+  {
+    approvedAt: string;
+    approvedBy: string;
+    cancelledAt: string;
+    cancelledBy: string;
+  }
 > = {
   dimensions: {
     approvedAt: "dimensionsApprovalAt",
@@ -183,7 +188,7 @@ export class PartDAO {
    * Procusto's IndexOf/Count+1 (which duplicates after a middle deletion).
    */
   async generateCode(productId: number, trx?: any): Promise<string> {
-    const knex = trx ?? KnexManager.getConnection();
+    const knex = trx ?? db("erp");
     const product = await knex("products")
       .where("id", productId)
       .select("code")
@@ -213,8 +218,10 @@ export class PartDAO {
    * "RUTA PROPIA" (13-production-routes.md: Global=false, name
    * `{description} (RUTA PROPIA)`), inside the same transaction.
    */
-  async create(item: IPart & { createdByUsername?: string | null }): Promise<IPart> {
-    const knex = KnexManager.getConnection();
+  async create(
+    item: IPart & { createdByUsername?: string | null },
+  ): Promise<IPart> {
+    const knex = db("erp");
     const created = await knex.transaction(async (trx) => {
       let routeId = item.productionRouteId;
       if (!routeId) {
@@ -260,7 +267,8 @@ export class PartDAO {
       };
       for (const key of SCALAR_COLUMNS) {
         if (key === "code" || key === "productionRouteId") continue;
-        if ((item as any)[key] !== undefined) insertData[key] = (item as any)[key];
+        if ((item as any)[key] !== undefined)
+          insertData[key] = (item as any)[key];
       }
 
       const [row] = await trx(this.tableName).insert(insertData).returning("*");
@@ -274,39 +282,85 @@ export class PartDAO {
     return knex(this.tableName)
       .select(
         `${this.tableName}.*`,
-        knex.raw(`CASE WHEN prod.id IS NOT NULL THEN to_jsonb(prod) END as "product"`),
-        knex.raw(`CASE WHEN cust.id IS NOT NULL THEN to_jsonb(cust) END as "productCustomer"`),
-        knex.raw(`CASE WHEN corr.id IS NOT NULL THEN to_jsonb(corr) END as "corrugation"`),
-        knex.raw(`CASE WHEN route.id IS NOT NULL THEN to_jsonb(route) END as "productionRoute"`),
-        knex.raw(`CASE WHEN pall.id IS NOT NULL THEN to_jsonb(pall) END as "palletization"`),
-        knex.raw(`CASE WHEN ft.id IS NOT NULL THEN to_jsonb(ft) END as "flapType"`),
-        knex.raw(`CASE WHEN gt.id IS NOT NULL THEN to_jsonb(gt) END as "glueType"`),
-        knex.raw(`CASE WHEN st.id IS NOT NULL THEN to_jsonb(st) END as "strappingType"`),
-        knex.raw(`CASE WHEN tt.id IS NOT NULL THEN to_jsonb(tt) END as "traceType"`),
-        knex.raw(`CASE WHEN comp.id IS NOT NULL THEN to_jsonb(comp) END as "complement"`),
+        knex.raw(
+          `CASE WHEN prod.id IS NOT NULL THEN to_jsonb(prod) END as "product"`,
+        ),
+        knex.raw(
+          `CASE WHEN cust.id IS NOT NULL THEN to_jsonb(cust) END as "productCustomer"`,
+        ),
+        knex.raw(
+          `CASE WHEN corr.id IS NOT NULL THEN to_jsonb(corr) END as "corrugation"`,
+        ),
+        knex.raw(
+          `CASE WHEN route.id IS NOT NULL THEN to_jsonb(route) END as "productionRoute"`,
+        ),
+        knex.raw(
+          `CASE WHEN pall.id IS NOT NULL THEN to_jsonb(pall) END as "palletization"`,
+        ),
+        knex.raw(
+          `CASE WHEN ft.id IS NOT NULL THEN to_jsonb(ft) END as "flapType"`,
+        ),
+        knex.raw(
+          `CASE WHEN gt.id IS NOT NULL THEN to_jsonb(gt) END as "glueType"`,
+        ),
+        knex.raw(
+          `CASE WHEN st.id IS NOT NULL THEN to_jsonb(st) END as "strappingType"`,
+        ),
+        knex.raw(
+          `CASE WHEN tt.id IS NOT NULL THEN to_jsonb(tt) END as "traceType"`,
+        ),
+        knex.raw(
+          `CASE WHEN comp.id IS NOT NULL THEN to_jsonb(comp) END as "complement"`,
+        ),
       )
       .leftJoin("products as prod", `${this.tableName}.productId`, "prod.id")
       .leftJoin("customers as cust", "prod.customerId", "cust.id")
-      .leftJoin("corrugations as corr", `${this.tableName}.corrugationId`, "corr.id")
-      .leftJoin("production_routes as route", `${this.tableName}.productionRouteId`, "route.id")
-      .leftJoin("palletizations as pall", `${this.tableName}.palletizationId`, "pall.id")
+      .leftJoin(
+        "corrugations as corr",
+        `${this.tableName}.corrugationId`,
+        "corr.id",
+      )
+      .leftJoin(
+        "production_routes as route",
+        `${this.tableName}.productionRouteId`,
+        "route.id",
+      )
+      .leftJoin(
+        "palletizations as pall",
+        `${this.tableName}.palletizationId`,
+        "pall.id",
+      )
       .leftJoin("flap_types as ft", `${this.tableName}.flapTypeId`, "ft.id")
       .leftJoin("glue_types as gt", `${this.tableName}.glueTypeId`, "gt.id")
-      .leftJoin("strapping_types as st", `${this.tableName}.strappingTypeId`, "st.id")
+      .leftJoin(
+        "strapping_types as st",
+        `${this.tableName}.strappingTypeId`,
+        "st.id",
+      )
       .leftJoin("trace_types as tt", `${this.tableName}.traceTypeId`, "tt.id")
-      .leftJoin("complements as comp", `${this.tableName}.complementId`, "comp.id");
+      .leftJoin(
+        "complements as comp",
+        `${this.tableName}.complementId`,
+        "comp.id",
+      );
   }
 
   async getByUuid(uuid: string, companyUuid?: string): Promise<IPart | null> {
-    const knex = KnexManager.getConnection();
-    const query = this.selectWithJoins(knex).where(`${this.tableName}.uuid`, uuid);
+    const knex = db("erp");
+    const query = this.selectWithJoins(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
-  async getIdByUuid(uuid: string, companyUuid?: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyUuidScope(query, this.tableName, companyUuid);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -314,10 +368,11 @@ export class PartDAO {
   }
 
   async update(id: number, item: Partial<IPart>): Promise<IPart | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
     for (const key of SCALAR_COLUMNS) {
-      if ((item as any)[key] !== undefined) updateData[key] = (item as any)[key];
+      if ((item as any)[key] !== undefined)
+        updateData[key] = (item as any)[key];
     }
     updateData.updatedAt = knex.fn.now();
     const [row] = await knex(this.tableName)
@@ -332,7 +387,7 @@ export class PartDAO {
    * other part references, the route goes with it.
    */
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     return knex.transaction(async (trx) => {
       const part = await trx(this.tableName)
         .where("id", id)
@@ -369,7 +424,7 @@ export class PartDAO {
     action: "approve" | "cancel",
     username: string,
   ): Promise<IPart | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const cols = MACHINE_COLUMNS[machine];
     const updateData: any = { updatedAt: knex.fn.now() };
     if (action === "approve") {
@@ -405,7 +460,7 @@ export class PartDAO {
    */
   async bulkApprove(ids: number[], username: string): Promise<number> {
     if (!ids.length) return 0;
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     return knex.transaction(async (trx) => {
       const updateData: any = { updatedAt: trx.fn.now() };
       for (const machine of BULK_MACHINES) {
@@ -413,7 +468,9 @@ export class PartDAO {
         updateData[cols.approvedAt] = trx.fn.now();
         updateData[cols.approvedBy] = username;
       }
-      const count = await trx(this.tableName).whereIn("id", ids).update(updateData);
+      const count = await trx(this.tableName)
+        .whereIn("id", ids)
+        .update(updateData);
       // Chunked like every other event fan-out — a large bulk selection must
       // not blow the bind-parameter cap in one insert.
       await this.insertEventsChunked(
@@ -434,7 +491,7 @@ export class PartDAO {
   /** Bulk unapprove — nulls approvals leaving PENDING, not CANCELLED (quirk kept). */
   async bulkUnapprove(ids: number[], username: string): Promise<number> {
     if (!ids.length) return 0;
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     return knex.transaction(async (trx) => {
       const updateData: any = { updatedAt: trx.fn.now() };
       for (const machine of BULK_MACHINES) {
@@ -442,7 +499,9 @@ export class PartDAO {
         updateData[cols.approvedAt] = null;
         updateData[cols.approvedBy] = "";
       }
-      const count = await trx(this.tableName).whereIn("id", ids).update(updateData);
+      const count = await trx(this.tableName)
+        .whereIn("id", ids)
+        .update(updateData);
       // 'unapprove', not 'cancel': the resulting state is PENDING (approvals
       // nulled, cancellations untouched) — logging 'cancel' would over-count
       // cancellations in history reconstruction.
@@ -464,7 +523,9 @@ export class PartDAO {
   /** part_approval_events inserts chunked to stay far below the bind-param cap. */
   private async insertEventsChunked(trx: any, rows: any[]): Promise<void> {
     for (let i = 0; i < rows.length; i += EVENT_INSERT_CHUNK) {
-      await trx("part_approval_events").insert(rows.slice(i, i + EVENT_INSERT_CHUNK));
+      await trx("part_approval_events").insert(
+        rows.slice(i, i + EVENT_INSERT_CHUNK),
+      );
     }
   }
 
@@ -524,7 +585,7 @@ export class PartDAO {
     field: CascadeField,
     value: number | null,
   ): Promise<IPart | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     // Transaction + row lock: two concurrent cascades on the same part must
     // serialize, or each computes from the pre-other-write state and the
     // second silently clobbers the first's cascaded values.
@@ -590,7 +651,7 @@ export class PartDAO {
 
   // ── List ─────────────────────────────────────────────────────────────────
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPart>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
@@ -607,15 +668,19 @@ export class PartDAO {
     }
 
     // approvalState filter on the FINAL (part) machine: pending|approved|cancelled
-    const approvalState = parsedQuery.filters.approvalState as string | undefined;
+    const approvalState = parsedQuery.filters.approvalState as
+      | string
+      | undefined;
     delete parsedQuery.filters.approvalState;
 
     const customerUuid = parsedQuery.filters.customerUuid as string | undefined;
     delete parsedQuery.filters.customerUuid;
 
     const applyExtra = (q: any) => {
-      if (approvalState === "approved") q.whereNotNull(`${this.tableName}.partApprovalAt`);
-      else if (approvalState === "cancelled") q.whereNotNull(`${this.tableName}.partCancelledAt`);
+      if (approvalState === "approved")
+        q.whereNotNull(`${this.tableName}.partApprovalAt`);
+      else if (approvalState === "cancelled")
+        q.whereNotNull(`${this.tableName}.partCancelledAt`);
       else if (approvalState === "pending")
         q.whereNull(`${this.tableName}.partApprovalAt`).whereNull(
           `${this.tableName}.partCancelledAt`,
@@ -630,10 +695,11 @@ export class PartDAO {
         );
       }
       if (companyUuid) {
-        q.join("companies", `${this.tableName}.companyId`, "companies.id").where(
-          "companies.uuid",
-          companyUuid,
-        );
+        q.join(
+          "companies",
+          `${this.tableName}.companyId`,
+          "companies.id",
+        ).where("companies.uuid", companyUuid);
       }
       return q;
     };
@@ -697,10 +763,13 @@ export class PartDAO {
     }
     // Transients (01-entity.md computed properties)
     part.effectiveGrammage =
-      num(record.grammage) ?? num(record.corrugation?.theoreticalGrammage) ?? null;
+      num(record.grammage) ??
+      num(record.corrugation?.theoreticalGrammage) ??
+      null;
     part.sheetSurface =
       record.sheetLength != null && record.sheetWidth != null
-        ? (parseFloat(record.sheetLength) * parseFloat(record.sheetWidth)) / 1_000_000
+        ? (parseFloat(record.sheetLength) * parseFloat(record.sheetWidth)) /
+          1_000_000
         : null;
     part.longDescription = [
       record.code,
@@ -725,7 +794,10 @@ export class PartDAO {
     part.updatedAt = record.updatedAt;
     part.legacyId = record.legacyId;
     part.product = product;
-    part.corrugation = pick(record.corrugation, ["code", "theoreticalGrammage"]);
+    part.corrugation = pick(record.corrugation, [
+      "code",
+      "theoreticalGrammage",
+    ]);
     part.productionRoute = pick(record.productionRoute, ["name", "isGlobal"]);
     part.palletization = pick(record.palletization, ["code", "name"]);
     part.flapType = pick(record.flapType, ["code"]);
