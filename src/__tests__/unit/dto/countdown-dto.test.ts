@@ -57,13 +57,43 @@ describe("CountdownDocumentCreateInputDTO", () => {
     ).toThrow("El título es obligatorio");
   });
 
-  it("requires a rubro — nothing is filed without one", () => {
-    expect(() =>
-      new CountdownDocumentCreateInputDTO({
-        title: "Factura",
-        dueDate: "2026-03-10",
-      }).build(),
-    ).toThrow("Elegí un rubro");
+  it("files a document with no rubro — absence is legal", () => {
+    // The reverse of the original decision, made deliberately (D-B): a company
+    // that has not finished classifying its paperwork must still be able to
+    // load an expiration.
+    const dto = new CountdownDocumentCreateInputDTO({
+      title: "Factura",
+      dueDate: "2026-03-10",
+    }).build();
+
+    expect(dto.category).toBeUndefined();
+    expect(dto.subcategory).toBeUndefined();
+  });
+
+  it("coerces every empty rubro form to 'not provided' and rejects a malformed one", () => {
+    // `null` is the frontend's empty <select> (`value || null`, AC-16) and
+    // reaches create as well as patch — reading it as a bad uuid would 400
+    // every rubro-less save from the dialog.
+    for (const value of ["", "   ", null]) {
+      expect(buildCreate({ category: value }).category).toBeUndefined();
+    }
+    expect(buildCreate({ category: CATEGORY }).category).toBe(CATEGORY);
+
+    // "Elegí un rubro" would now be a false statement: not choosing one is
+    // legal, so a present-but-broken value says it is invalid instead (D-3).
+    for (const value of ["abc", 7, {}]) {
+      expect(() => buildCreate({ category: value })).toThrow("Rubro inválido");
+    }
+  });
+
+  it("takes a null sub-rubro on create as 'not provided', not as a bad uuid", () => {
+    // The dialog sends both keys on every save, so `subcategory: null` arrives
+    // on create too. Throwing here would 400 every rubro-less UI create while
+    // every other test still passed.
+    expect(buildCreate({ subcategory: null }).subcategory).toBeUndefined();
+    expect(() => buildCreate({ subcategory: "abc" })).toThrow(
+      "Sub-rubro inválido",
+    );
   });
 
   it("rejects a date the calendar does not have", () => {
@@ -204,6 +234,45 @@ describe("CountdownDocumentUpdateInputDTO", () => {
     expect(() =>
       new CountdownDocumentUpdateInputDTO({ reminderDays: -1 }).build(),
     ).toThrow("Mínimo 0 días de aviso");
+  });
+
+  it("treats an empty rubro string as 'no change' and a null as 'clear it'", () => {
+    // The whole of D-1 in four assertions. If anyone "simplifies" by making
+    // `emptyToUndefined` treat "" as a clearing sentinel, the first one fails
+    // loudly — and it would have silently changed issuer, referenceNumber,
+    // notes, currency, amountCents, recurrence* and reminderDays with it.
+    expect(() =>
+      new CountdownDocumentUpdateInputDTO({ category: "" }).build(),
+    ).toThrow("No hay cambios para aplicar");
+
+    const cleared = new CountdownDocumentUpdateInputDTO({
+      category: null,
+    }).build();
+    expect(Object.keys(cleared)).toEqual(["category"]);
+    expect(cleared.category).toBeNull();
+
+    expect(() =>
+      new CountdownDocumentUpdateInputDTO({ category: "abc" }).build(),
+    ).toThrow("Rubro inválido");
+    expect(() =>
+      new CountdownDocumentUpdateInputDTO({ subcategory: "abc" }).build(),
+    ).toThrow("Sub-rubro inválido");
+  });
+
+  it("carries a lone sub-rubro, cleared or set — a one-field patch is a patch", () => {
+    // The DTO half of AC-6's middle column: both of these must reach the
+    // service, which resolves them against the document's stored rubro (L-007).
+    const clearedSub = new CountdownDocumentUpdateInputDTO({
+      subcategory: null,
+    }).build();
+    expect(Object.keys(clearedSub)).toEqual(["subcategory"]);
+    expect(clearedSub.subcategory).toBeNull();
+
+    const setSub = new CountdownDocumentUpdateInputDTO({
+      subcategory: CATEGORY,
+    }).build();
+    expect(Object.keys(setSub)).toEqual(["subcategory"]);
+    expect(setSub.subcategory).toBe(CATEGORY);
   });
 
   it("applies the same calendar and money rules as the create DTO", () => {

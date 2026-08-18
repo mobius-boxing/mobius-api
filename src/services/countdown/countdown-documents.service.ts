@@ -208,6 +208,27 @@ export class CountdownDocumentsService {
     if (!categoryId) throw notFound("Rubro no encontrado");
     if (!subcategoryUuid) return { categoryId, subcategoryId: null };
 
+    return {
+      categoryId,
+      subcategoryId: await this.resolveSubcategoryId(
+        subcategoryUuid,
+        categoryId,
+        companyId,
+      ),
+    };
+  }
+
+  /**
+   * The sub-rubro half of the resolution above, extracted so a patch that
+   * carries a sub-rubro and no rubro can validate it against the rubro the
+   * document already has (D-2/AC-9) with the same rules — one resolver, two
+   * callers, never two copies that drift.
+   */
+  private async resolveSubcategoryId(
+    subcategoryUuid: string,
+    categoryId: number,
+    companyId: number,
+  ): Promise<number> {
     const subcategory = await this._subcategoryDAO.findByUuid(
       subcategoryUuid,
       companyId,
@@ -216,8 +237,7 @@ export class CountdownDocumentsService {
     if (subcategory.categoryId !== categoryId) {
       throw badRequest("El sub-rubro no pertenece a ese rubro");
     }
-
-    return { categoryId, subcategoryId: subcategory.id };
+    return subcategory.id;
   }
 
   private async getWithToday(
@@ -346,19 +366,47 @@ export class CountdownDocumentsService {
     patch: CountdownDocumentUpdateInputDTO,
     ctx: ICountdownRequestContext,
   ): Promise<ICountdownDocument> {
-    const id = await this._documentDAO.getIdByUuid(uuid, ctx.companyId);
-    if (!id) throw notFound("Documento no encontrado");
+    // The whole row, not just the id (L-005 + L-009: uuid AND companyId): the
+    // stored `categoryId` is what a sub-rubro sent on its own is validated
+    // against, and reading it here costs the same single query.
+    const row = await this._documentDAO.getRowByUuid(uuid, ctx.companyId);
+    if (!row) throw notFound("Documento no encontrado");
+    const id = row.id;
 
-    // Rubro and sub-rubro move together: changing the rubro without clearing the
-    // sub-rubro would leave a sub-rubro belonging to a different rubro.
-    const categoryPatch =
-      patch.category !== undefined
-        ? await this.resolveForDocument(
-            patch.category,
-            patch.subcategory,
-            ctx.companyId,
-          )
-        : undefined;
+    // The rubro/sub-rubro matrix, in wire terms: `null` clears, absent leaves
+    // the column untouched, a uuid sets it.
+    //
+    // - `category` sent (uuid or null) → the pair is resolved together, so a
+    //   rubro that moves or clears never leaves its old sub-rubro behind.
+    // - `subcategory` alone → validated against the STORED rubro, because the
+    //   patch is complete without a field the caller is not changing (D-2). A
+    //   200 that quietly dropped it is the accepted-but-ignored trap (L-007).
+    // - neither sent → both columns stay out of the patch entirely.
+    let categoryPatch:
+      | { categoryId: number | null; subcategoryId: number | null }
+      | { subcategoryId: number | null }
+      | undefined;
+    if (patch.category !== undefined) {
+      categoryPatch = await this.resolveForDocument(
+        patch.category ?? undefined,
+        patch.subcategory ?? undefined,
+        ctx.companyId,
+      );
+    } else if (patch.subcategory === null) {
+      // A no-op clear on a document that has no rubro either, never an error.
+      categoryPatch = { subcategoryId: null };
+    } else if (patch.subcategory !== undefined) {
+      if (row.categoryId === null) {
+        throw badRequest("Elegí un rubro antes del sub-rubro");
+      }
+      categoryPatch = {
+        subcategoryId: await this.resolveSubcategoryId(
+          patch.subcategory,
+          row.categoryId,
+          ctx.companyId,
+        ),
+      };
+    }
 
     await this._documentDAO.update(id, ctx.companyId, {
       ...(patch.title !== undefined ? { title: patch.title } : {}),

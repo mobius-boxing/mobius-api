@@ -66,7 +66,7 @@ export class CountdownCategoriesService {
     return subcategory;
   }
 
-  /** Readable by every module user: a rubro is required to file a document. */
+  /** Readable by every module user: filing a document may name a rubro. */
   list(companyId: number): Promise<ICountdownCategory[]> {
     return this.categories.list(companyId);
   }

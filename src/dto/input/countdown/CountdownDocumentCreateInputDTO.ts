@@ -153,8 +153,15 @@ export class CountdownDocumentCreateInputDTO {
   title: string;
   issuer?: string;
   referenceNumber?: string;
-  /** Required — the client's decision: nothing is filed without a rubro. */
-  category: string;
+  /**
+   * Optional: a company that has not finished classifying its paperwork must
+   * still be able to file an expiration. Absent, `""` and `null` all mean "no
+   * rubro" and are filed as such; only a present, non-empty, non-uuid value is
+   * an error, and it says `"Rubro inválido"` rather than `"Elegí un rubro"` —
+   * not choosing one is legal now (D-3).
+   */
+  category?: string;
+  /** Optional, and refused by the service unless a rubro travels with it. */
   subcategory?: string;
   notes?: string;
   amountCents?: number;
@@ -180,11 +187,17 @@ export class CountdownDocumentCreateInputDTO {
       "El número de referencia",
     );
     if (referenceNumber !== undefined) this.referenceNumber = referenceNumber;
-    this.category =
-      typeof source.category === "string" ? source.category.trim() : "";
+    // `null` is the frontend's "no rubro" (an empty <select> becomes
+    // `value || null`, AC-16) and must not be mistaken for a malformed uuid on
+    // create either — that is the whole of the create-side trap.
+    const category = emptyToUndefined(source.category);
+    if (category !== undefined && category !== null) {
+      this.category = assertUuid(category, "Rubro inválido");
+    }
     const subcategory = emptyToUndefined(source.subcategory);
-    if (subcategory !== undefined)
+    if (subcategory !== undefined && subcategory !== null) {
       this.subcategory = assertUuid(subcategory, "Sub-rubro inválido");
+    }
     const notes = optionalText(source.notes, 5000, "Las notas");
     if (notes !== undefined) this.notes = notes;
     const amountCents = toAmountCents(source.amountCents);
@@ -209,7 +222,6 @@ export class CountdownDocumentCreateInputDTO {
     if (this.title.length > 200) {
       throw new Error("El título no puede superar los 200 caracteres");
     }
-    assertUuid(this.category, "Elegí un rubro");
     assertCalendarDate(this.dueDate);
     assertRecurrencePair(this.recurrenceCount, this.recurrenceUnit);
     return this;

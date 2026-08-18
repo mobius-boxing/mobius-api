@@ -143,6 +143,18 @@ export class CountdownRemindersService {
    * per recipient, listing every document of theirs currently inside its own
    * reminder window.
    *
+   * Who a document's recipients are, stated once: the effective watchers if it
+   * has any, and otherwise **every active non-`superAdmin` user of the
+   * document's own company**. An expiration nobody was assigned to used to warn
+   * exactly one person — whoever filed it — so one holiday was enough for it to
+   * reach nobody who could act on it. The uploader is still warned, by virtue of
+   * being an active user of that company and not by a branch of their own; a
+   * company whose only active user is a `superAdmin` produces no mail, which is
+   * the accepted degenerate case (D-5).
+   *
+   * One closure serves both loops below, so the candidate lookup and the pairing
+   * can never disagree about who the recipients are.
+   *
    * Safe to call repeatedly. `countdown_reminder_digests` carries
    * `UNIQUE (userId, sendDate)` and a recipient already recorded for today is
    * skipped, so a container restart in the middle of a run cannot mail anybody
@@ -181,13 +193,30 @@ export class CountdownRemindersService {
       this._reminderDAO.findDigestedUserIds(today),
     ]);
 
+    // Only the companies that actually need a fallback, and only once each: a
+    // batch where every due document has watchers asks nothing of the database
+    // at all, and five unassigned documents of one company ask exactly once.
+    const fallbackCompanyIds = new Set<number>();
+    for (const row of due) {
+      const set = watchers.get(row.id);
+      if (!set || set.size === 0) fallbackCompanyIds.add(row.companyId);
+    }
+    const companyUsers = fallbackCompanyIds.size
+      ? await this._reminderDAO.findCompanyRecipientIds([...fallbackCompanyIds])
+      : new Map<number, number[]>();
+
+    /** The recipient rule, in one place, for both loops below. */
+    const recipientIdsFor = (row: ICountdownDueDocumentRow): number[] => {
+      const set = watchers.get(row.id);
+      if (set && set.size > 0) return [...set];
+      // Nobody named: the document's whole company is warned, uploader included.
+      return companyUsers.get(row.companyId) ?? [];
+    };
+
     // One lookup for every user that might be written to.
     const candidateIds = new Set<number>();
     for (const row of due) {
-      const set = watchers.get(row.id);
-      if (set && set.size > 0) set.forEach((id) => candidateIds.add(id));
-      // No watchers named: the person who filed it is the one who gets warned.
-      else candidateIds.add(row.uploadedBy);
+      for (const id of recipientIdsFor(row)) candidateIds.add(id);
     }
     const recipients = new Map(
       (await this._reminderDAO.findRecipients([...candidateIds])).map(
@@ -205,15 +234,13 @@ export class CountdownRemindersService {
     // from twelve deactivated accounts.
     const dropped = new Set<number>();
     for (const row of due) {
-      const watcherSet = watchers.get(row.id);
-      const recipientIds =
-        watcherSet && watcherSet.size > 0 ? [...watcherSet] : [row.uploadedBy];
-
-      for (const userId of recipientIds) {
+      for (const userId of recipientIdsFor(row)) {
         const recipient = recipients.get(userId);
-        // A watcher assignment pointing at a user of another company is dropped
-        // here, never mailed: the scheduler has no request scope to inherit, so
-        // this is the module's tenant boundary (L-009).
+        // A watcher assignment — or a company lookup — pointing at a user of
+        // another company is dropped here, never mailed: the scheduler has no
+        // request scope to inherit, so this is the module's tenant boundary
+        // (L-009), and it stays as the second belt now that the fallback set is
+        // company-wide.
         if (!recipient || recipient.companyId !== row.companyId) {
           dropped.add(userId);
           continue;

@@ -27,6 +27,8 @@ const mockReminderDAO = {
   findDigestedUserIds: jest.fn<(sendDate: string) => Promise<Set<number>>>(),
   findRecipients:
     jest.fn<(userIds: number[]) => Promise<ICountdownReminderRecipient[]>>(),
+  findCompanyRecipientIds:
+    jest.fn<(companyIds: number[]) => Promise<Map<number, number[]>>>(),
   recordDigest: jest.fn<(input: ICountdownDigestInput) => Promise<void>>(),
 };
 
@@ -53,6 +55,9 @@ jest.mock("../../../dao/countdown/countdown-reminder.dao", () => ({
     }
     findRecipients(userIds: number[]) {
       return mockReminderDAO.findRecipients(userIds);
+    }
+    findCompanyRecipientIds(companyIds: number[]) {
+      return mockReminderDAO.findCompanyRecipientIds(companyIds);
     }
     recordDigest(input: ICountdownDigestInput) {
       return mockReminderDAO.recordDigest(input);
@@ -321,6 +326,13 @@ describe("countdown reminder batch — run", () => {
       new Map<number, Set<number>>(),
     );
     mockReminderDAO.findDigestedUserIds.mockResolvedValue(new Set<number>());
+    // The fixture company's only member is the fixture uploader, so a document
+    // with no watchers lands on the same person the old uploader fallback
+    // reached — which is why every case below that predates the company-wide
+    // rule still reads exactly as it did.
+    mockReminderDAO.findCompanyRecipientIds.mockResolvedValue(
+      new Map([[100, [10]]]),
+    );
     mockReminderDAO.recordDigest.mockResolvedValue(undefined);
     mockSendModuleEmail.mockResolvedValue(true);
   });
@@ -518,6 +530,12 @@ describe("countdown reminder batch — run", () => {
       dueRow({ id: 1, uploadedBy: 11 }),
       dueRow({ id: 2, uploadedBy: 12 }),
     ]);
+    // Two recipients, reached the way they are actually reached now: the
+    // company-wide fallback, not the uploader column the service no longer
+    // reads at all.
+    mockReminderDAO.findCompanyRecipientIds.mockResolvedValue(
+      new Map([[100, [11, 12]]]),
+    );
     mockReminderDAO.findRecipients.mockResolvedValue([
       recipient({ id: 11, email: "beto@example.com", name: "Beto" }),
       recipient({ id: 12, email: "carla@example.com", name: "Carla" }),
@@ -544,5 +562,214 @@ describe("countdown reminder batch — run", () => {
     expect(mockReminderDAO.findRecipients).not.toHaveBeenCalled();
     expect(mockSendModuleEmail).not.toHaveBeenCalled();
     expect(outcome).toEqual({ sent: 0, failed: 0, skipped: 0 });
+  });
+
+  it("mails every active user of the company when nobody is watching", async () => {
+    // The whole point of the change: an expiration nobody was assigned to used
+    // to warn exactly one person, so one holiday was enough for it to reach
+    // nobody who could act on it.
+    mockReminderDAO.findDue.mockResolvedValue([
+      dueRow({ id: 1, companyId: 100, uploadedBy: 10 }),
+    ]);
+    mockReminderDAO.findCompanyRecipientIds.mockResolvedValue(
+      new Map([[100, [10, 11, 12]]]),
+    );
+    mockReminderDAO.findRecipients.mockResolvedValue([
+      recipient({ id: 10 }),
+      recipient({ id: 11, email: "beto@example.com", name: "Beto" }),
+      recipient({ id: 12, email: "carla@example.com", name: "Carla" }),
+    ]);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    expect(mockSendModuleEmail).toHaveBeenCalledTimes(3);
+    expect(mockSendModuleEmail.mock.calls.map((call) => call[0].to)).toEqual([
+      "ana@example.com",
+      "beto@example.com",
+      "carla@example.com",
+    ]);
+    expect(mockReminderDAO.recordDigest).toHaveBeenCalledTimes(3);
+    expect(outcome).toEqual({ sent: 3, failed: 0, skipped: 0 });
+  });
+
+  it("never mails a superAdmin and never counts one as skipped", async () => {
+    // The lookup excludes them, so they are never candidates — a selection
+    // rule, not a tenant rejection, and `skipped` must not report it as one.
+    // A company whose only active user is a superAdmin therefore sends nothing:
+    // the accepted degenerate case (D-5), not an error.
+    mockReminderDAO.findDue.mockResolvedValue([dueRow({ companyId: 100 })]);
+    mockReminderDAO.findCompanyRecipientIds.mockResolvedValue(
+      new Map([[100, []]]),
+    );
+    mockReminderDAO.findRecipients.mockResolvedValue([]);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    expect(mockSendModuleEmail).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ sent: 0, failed: 0, skipped: 0 });
+  });
+
+  it("mails a plain member and skips a deactivated one", async () => {
+    // A member with no role and no permission grant is exactly the population
+    // this fallback exists for — filing and resolving are open to any module
+    // user. Deactivation is still the belt that stops the mail.
+    mockReminderDAO.findDue.mockResolvedValue([dueRow({ companyId: 100 })]);
+    mockReminderDAO.findCompanyRecipientIds.mockResolvedValue(
+      new Map([[100, [11, 12]]]),
+    );
+    mockReminderDAO.findRecipients.mockResolvedValue([
+      recipient({ id: 11, email: "beto@example.com", name: "Beto" }),
+      recipient({
+        id: 12,
+        email: "carla@example.com",
+        name: "Carla",
+        isActive: false,
+      }),
+    ]);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    expect(mockSendModuleEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendModuleEmail.mock.calls[0]?.[0].to).toBe("beto@example.com");
+    expect(outcome).toEqual({ sent: 1, failed: 0, skipped: 1 });
+  });
+
+  it("drops a fallback recipient the lookup wrongly returned from another company", async () => {
+    // L-009's second belt, tested against the case where the new lookup itself
+    // misbehaves: widening the recipient set must never widen the tenant
+    // boundary, and the pairing check is what guarantees that.
+    mockReminderDAO.findDue.mockResolvedValue([dueRow({ companyId: 100 })]);
+    mockReminderDAO.findCompanyRecipientIds.mockResolvedValue(
+      new Map([[100, [11]]]),
+    );
+    mockReminderDAO.findRecipients.mockResolvedValue([
+      recipient({ id: 11, companyId: 999 }),
+    ]);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    expect(mockSendModuleEmail).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ sent: 0, failed: 0, skipped: 1 });
+  });
+
+  it("looks the company up once for the whole batch", async () => {
+    // Once per company, never once per document: five unassigned documents of
+    // one company are five round trips waiting to happen.
+    mockReminderDAO.findDue.mockResolvedValue([
+      dueRow({ id: 1, companyId: 100 }),
+      dueRow({ id: 2, companyId: 100 }),
+      dueRow({ id: 3, companyId: 100 }),
+      dueRow({ id: 4, companyId: 100 }),
+      dueRow({ id: 5, companyId: 100 }),
+    ]);
+    mockReminderDAO.findRecipients.mockResolvedValue([recipient()]);
+
+    await new CountdownRemindersService().run(NOW);
+
+    expect(mockReminderDAO.findCompanyRecipientIds).toHaveBeenCalledTimes(1);
+    expect(mockReminderDAO.findCompanyRecipientIds).toHaveBeenCalledWith([100]);
+  });
+
+  it("counts a skipped fallback recipient once, not once per document", async () => {
+    // `skipped` counts recipients, not pairings — a bigger candidate set makes
+    // that easier to get wrong, and it is persisted to countdown_reminder_runs.
+    //
+    // The dropped recipient is deliberately CROSS-TENANT rather than merely
+    // deactivated: the `isActive` skip iterates `byRecipient`, which holds each
+    // recipient once by construction, so it can never count per pairing and
+    // proves nothing here. Only the tenant drop reaches the `dropped` set three
+    // times — once per document — which is the reconciliation this pins.
+    mockReminderDAO.findDue.mockResolvedValue([
+      dueRow({ id: 1, companyId: 100 }),
+      dueRow({ id: 2, companyId: 100 }),
+      dueRow({ id: 3, companyId: 100 }),
+    ]);
+    mockReminderDAO.findCompanyRecipientIds.mockResolvedValue(
+      new Map([[100, [10, 11]]]),
+    );
+    mockReminderDAO.findRecipients.mockResolvedValue([
+      recipient({ id: 10 }),
+      recipient({
+        id: 11,
+        email: "beto@example.com",
+        name: "Beto",
+        companyId: 999,
+      }),
+    ]);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    // 1, not 3: one person lost their mail, however many documents they lost.
+    expect(outcome).toEqual({ sent: 1, failed: 0, skipped: 1 });
+    expect(mockSendModuleEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendModuleEmail.mock.calls[0]?.[0].to).toBe("ana@example.com");
+  });
+
+  it("batches the fallback and the named documents into one digest", async () => {
+    // Being in the fallback set of four documents and a named watcher on a
+    // fifth is still one email: volume scales with people, not with people ×
+    // documents, and that is the only cap this feature has (D-8).
+    mockReminderDAO.findDue.mockResolvedValue([
+      dueRow({ id: 1, companyId: 100 }),
+      dueRow({ id: 2, companyId: 100 }),
+      dueRow({ id: 3, companyId: 100 }),
+      dueRow({ id: 4, companyId: 100 }),
+      dueRow({ id: 5, companyId: 100 }),
+    ]);
+    mockAssignmentDAO.effectiveUserIds.mockResolvedValue(
+      new Map([[5, new Set([11])]]),
+    );
+    mockReminderDAO.findCompanyRecipientIds.mockResolvedValue(
+      new Map([[100, [11]]]),
+    );
+    mockReminderDAO.findRecipients.mockResolvedValue([
+      recipient({ id: 11, email: "beto@example.com", name: "Beto" }),
+    ]);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    expect(mockSendModuleEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendModuleEmail.mock.calls[0]?.[0].idempotencyKey).toBe(
+      `countdown-digest-11-${TODAY}`,
+    );
+    expect(mockReminderDAO.recordDigest).toHaveBeenCalledTimes(1);
+    expect(mockReminderDAO.recordDigest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 11,
+        companyId: 100,
+        documents: [
+          { documentId: 1, offsetDays: 0 },
+          { documentId: 2, offsetDays: 0 },
+          { documentId: 3, offsetDays: 0 },
+          { documentId: 4, offsetDays: 0 },
+          { documentId: 5, offsetDays: 0 },
+        ],
+      }),
+    );
+    expect(outcome).toEqual({ sent: 1, failed: 0, skipped: 0 });
+  });
+
+  it("never looks the company up when every due document has watchers", async () => {
+    // The argument is the companies that actually need a fallback, not every
+    // company in the batch — so a fully assigned morning asks nothing at all.
+    mockReminderDAO.findDue.mockResolvedValue([
+      dueRow({ id: 1, companyId: 100 }),
+      dueRow({ id: 2, companyId: 100 }),
+    ]);
+    mockAssignmentDAO.effectiveUserIds.mockResolvedValue(
+      new Map([
+        [1, new Set([11])],
+        [2, new Set([11])],
+      ]),
+    );
+    mockReminderDAO.findRecipients.mockResolvedValue([
+      recipient({ id: 11, email: "beto@example.com", name: "Beto" }),
+    ]);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    expect(mockReminderDAO.findCompanyRecipientIds).not.toHaveBeenCalled();
+    expect(mockSendModuleEmail).toHaveBeenCalledTimes(1);
+    expect(outcome).toEqual({ sent: 1, failed: 0, skipped: 0 });
   });
 });

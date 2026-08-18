@@ -20,13 +20,21 @@ import {
  * `PUT /documents/:uuid/assignments`, which is permission-gated. Accepting them
  * here and ignoring them (as the original schema did) is the accepted-but-ignored
  * parameter trap (L-007).
+ *
+ * `category` and `subcategory` carry a three-state wire contract, and they are
+ * the only two fields that do: **absent or `""` means "no change"** (the shared
+ * `emptyToUndefined` is reused byte-identical, so `""` keeps that meaning for
+ * every field), **`null` means "clear it"**, and a **uuid means "set it"**. The
+ * null survives `build()`'s strip pass below, which deletes `undefined` and only
+ * `undefined` — that is what makes it distinguishable from "not sent" all the
+ * way to the service (D-1).
  */
 export class CountdownDocumentUpdateInputDTO {
   title?: string;
   issuer?: string;
   referenceNumber?: string;
-  category?: string;
-  subcategory?: string;
+  category?: string | null;
+  subcategory?: string | null;
   notes?: string;
   amountCents?: number;
   currency?: string;
@@ -49,11 +57,18 @@ export class CountdownDocumentUpdateInputDTO {
       "El número de referencia",
     );
     if (referenceNumber !== undefined) this.referenceNumber = referenceNumber;
-    if (emptyToUndefined(source.category) !== undefined) {
-      this.category = assertUuid(source.category, "Elegí un rubro");
+    // Three states, not two: null clears, "" and absence leave the column
+    // alone, a uuid sets it. Clearing the rubro clears its sub-rubro too, but
+    // that is the service's job — the DTO only carries the intent.
+    const category = emptyToUndefined(source.category);
+    if (category === null) this.category = null;
+    else if (category !== undefined) {
+      this.category = assertUuid(category, "Rubro inválido");
     }
-    if (emptyToUndefined(source.subcategory) !== undefined) {
-      this.subcategory = assertUuid(source.subcategory, "Sub-rubro inválido");
+    const subcategory = emptyToUndefined(source.subcategory);
+    if (subcategory === null) this.subcategory = null;
+    else if (subcategory !== undefined) {
+      this.subcategory = assertUuid(subcategory, "Sub-rubro inválido");
     }
     const notes = optionalText(source.notes, 5000, "Las notas");
     if (notes !== undefined) this.notes = notes;

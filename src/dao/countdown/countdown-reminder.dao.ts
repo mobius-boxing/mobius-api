@@ -124,6 +124,57 @@ export class CountdownReminderDAO {
     }));
   }
 
+  /**
+   * Every user eligible to be warned about a document nobody was assigned to,
+   * grouped by company: active, of that company, and not a `superAdmin`.
+   *
+   * This is deliberately NOT a permission lookup (D-4/D-6). Countdown is gated
+   * per company, there is no per-user countdown assignment, and filing,
+   * editing and resolving are open to any module user — so "countdown user" is
+   * a plain property of the `users` row, and neither a permission-grant join
+   * nor the RBAC service belongs anywhere near this query. Scoping to
+   * `countdown.manage` holders would have mailed the module's admins and
+   * excluded the plain members who file most of the documents. Company admins
+   * are in the set by virtue of being active users; so is the uploader, who is
+   * therefore never unioned in separately.
+   *
+   * `is distinct from` rather than `<> 'superAdmin'`: `users.role` is
+   * `text NOT NULL` today, so the two agree right now — but `<>` answers NULL,
+   * not true, for a null role, and would therefore drop exactly the role-less
+   * plain members this fallback exists for the day the column is relaxed. The
+   * null-safe form costs nothing and cannot rot that way.
+   *
+   * One query for the whole batch, keyed by the distinct companyIds that
+   * actually need a fallback (D-7) — a query per document would be hundreds of
+   * round trips on a busy morning. Company-scoped by argument (L-009): the
+   * scheduler has no request scope to inherit, and the pairing loop's
+   * `recipient.companyId === row.companyId` check remains the second belt.
+   *
+   * `users` is core's, not countdown's — the same seam `findRecipients` reads,
+   * and the same one AC-15.4 replaces with `CoreClient.usersByIds` in T2b.
+   */
+  async findCompanyRecipientIds(
+    companyIds: number[],
+  ): Promise<Map<number, number[]>> {
+    const byCompany = new Map<number, number[]>();
+    if (companyIds.length === 0) return byCompany;
+
+    const knex = db("core");
+    const rows = await knex<{ id: number; companyId: number }>("users")
+      .whereIn("companyId", companyIds)
+      .where("isActive", true)
+      .whereRaw(`"role" is distinct from ?`, ["superAdmin"])
+      .select("id", "companyId")
+      .orderBy("id");
+
+    for (const row of rows) {
+      const ids = byCompany.get(row.companyId) ?? [];
+      ids.push(row.id);
+      byCompany.set(row.companyId, ids);
+    }
+    return byCompany;
+  }
+
   /** Who has already had their digest for this send day. */
   async findDigestedUserIds(sendDate: string): Promise<Set<number>> {
     const knex = db("countdown");

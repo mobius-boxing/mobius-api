@@ -144,11 +144,12 @@ export async function up(knex: Knex): Promise<void> {
     table.text("notes");
 
     /**
-     * Nullable in the database though the API requires a rubro on create: the
-     * renewal path copies whatever the source row had, and a document whose
-     * category was later reorganised must not become unwritable. ON DELETE
-     * RESTRICT is the backstop; the service refuses first, with a message that
-     * says how many documents are in the way.
+     * Nullable, and optional end to end: a document can be filed with no rubro
+     * and an existing rubro can be cleared again, so a company that has not
+     * finished classifying its paperwork is never blocked. The renewal path
+     * copies whatever the source row had, nulls included. A rubro already in use
+     * is protected by ON DELETE RESTRICT as the backstop; the service refuses
+     * first, with a message that says how many documents are in the way.
      */
     table
       .integer("categoryId")
