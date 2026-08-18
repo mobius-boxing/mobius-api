@@ -94,3 +94,43 @@ Check these on every review; each has already been found at least once.
   `toRecurrenceCount`, `toReminderDays` all accept `true` → 1 and `[]` → 0. It is
   the house pattern, so it is a nit, not a new defect — but say so rather than
   silently passing it.
+- **The leftover day claim.** `countdown_reminder_runs` is the one table nothing
+  cleans up: the INT suite's `reminder batch` describe (and any manual
+  `POST /countdown/reminders/run`) inserts today's claim, and `repos/tests` has no
+  DB handle to delete it. A leftover row silently disables reminders for the rest
+  of the day. Always `select * from countdown_reminder_runs` at the end of a
+  countdown review; other countdown tables do get cleaned (`documents`,
+  `categories`, `subcategories`, `assignments`, `digests`, `log` → 0 rows, and
+  `countdown_documents_id_seq` is good circumstantial proof the INT suite ran).
+- **`inputValidator` explicitly whitelists JSON `null`.** Its body is
+  `if (_.isNil(v) && v !== null) → failure`, so a one-key patch `{field: null}`
+  passes the middleware. Do not flag a `null` clearing sentinel as blocked by it —
+  probe it (`node -e` against `@sundaysf/utils`) before claiming either way.
+- **"Stale comment" sweeps miss paraphrases.** A spec that verifies R1-style
+  comment corrections with one `rg` alternation will pass while other phrasings
+  survive (e.g. `countdown-categories.service.ts:69` "a rubro is required to file
+  a document" survived a sweep for "requires a rubro"). Re-sweep on the *concept*
+  (`rg -i "rubro" | rg -i "oblig|requer|required|mandator"`), not the spec's regex.
+- **Non-git trees make evidence unfalsifiable.** `repos/tests` and `repos/debug`
+  have no git history and the local `traffic_production` is often re-created the
+  same day (check `users.createdAt` / `companies.createdAt`), so "the DB is back
+  to its original state" and "the INT suite was green twice" cannot be
+  reconstructed. Demand pasted output; corroborate with sequence values and
+  row counts instead of trusting or dismissing the claim.
+- **A contradicted artifact is not a disproved run.** A teardown `update
+  countdown_reminder_runs set sent=0,failed=0,skipped=0` zeroed a real evidence
+  run, and because `recordOutcome` is the only writer that sets `updatedAt`
+  (`.update({...outcome, updatedAt: knex.fn.now()})`) and there are **no triggers
+  on any countdown table**, the row kept its ~10 ms created/updated gap and looked
+  like a completed batch that found nobody. Refusing the AC was right; concluding
+  "the run found nothing" was wrong. State the two readings and demand the log,
+  rather than asserting which happened. Corollary: `updatedAt` is only trustworthy
+  where the writing code sets it — check `information_schema.triggers` first.
+- **`shouldRunAt` is `weekday && baLocalHour >= SEND_HOUR`, not "at 08:00".** Any
+  long-running local API grabs the `countdown_reminder_runs` day claim on its next
+  tick at any weekday hour after 08:00 BA, so stray claim rows appear without
+  anyone triggering a run. Do not read a claim row as proof somebody ran M-1.
+- **`UNIQUE ("runDate")` + `on conflict do nothing` means two reminder runs can
+  never hold the same day.** Any "a second instance independently claimed the same
+  day seconds later" story requires the row to have been deleted in between —
+  sequential and operator-mediated, not independent corroboration.

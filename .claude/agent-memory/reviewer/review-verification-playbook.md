@@ -78,3 +78,31 @@ deployed host, and the run is read-only if you stick to `SELECT`.
 3001/3002, and delete `repos/mobius-api/uploads/` if you exercised `POST /api/files`
 (local storage driver writes there). `rm -rf` is blocked by a guard hook — use
 `node -e "fs.rmSync(p,{recursive:true,force:true})"`.
+
+**Exercising a service without a database (fastest AC-matrix check).** `private`
+is compile-time only, so after `npm run build` you can
+`require("dist/services/<x>.service.js")`, `new` it, and overwrite its DAO fields
+(`svc._documentDAO = {...}`) with fakes that capture the patch object. Drive real
+DTO instances (`dist/dto/input/...`) through the public method and print what
+reached `dao.update()`. This reproduced a full 9-cell update matrix, including
+error messages and `statusCode`, in one file and zero DB calls — far stronger
+evidence than reading the branches, and it works when the INT suite cannot run.
+
+**When the INT suite cannot run.** `repos/tests/api/countdown` needs a fixture
+universe (Dev Co + `igonzalez@genium.io` + `testuser@mobius.test` + a second
+company with the module enabled). Implementers create and delete it, so the local
+DB is usually back to 1 user / 1 company by review time and `beforeAll` throws.
+Do not re-seed a DB another session is using; verify at the DTO/service/controller
+layers instead and mark the HTTP ACs unverifiable. `config/environment.ts`
+hardcodes `http://localhost:3001/api` with no env override — a scratchpad
+`--setupFiles` shim mutating the exported `env` object is the correct way to
+point it elsewhere, and leaves the shared config untouched.
+
+**The implementer's artifacts are often already in the scratchpad.** When the
+implementer ran in the same session id, `/private/tmp/claude-501/<proj>/<session>/
+scratchpad/` still holds their raw logs (`int-run*.log`, `pup.log`, `api<port>.log`,
+tokens, fixture uuids, jest shims) and their pid files. `ls -la` it before writing
+off a manual AC as unverifiable — jest output with timings, recorded puppeteer
+request bodies and the API access log are far better evidence than a summary, and
+the pid files let you confirm L-015 (nothing left listening). Cross-check the log
+mtimes against source-file mtimes to prove the run exercised the final code.
