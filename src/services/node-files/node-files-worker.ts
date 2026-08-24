@@ -6,6 +6,7 @@ import {
 } from "../../dao/node-files/nf-run.dao";
 import { NfWorkflowDAO } from "../../dao/node-files/nf-workflow.dao";
 import { FileStorageService } from "../file-storage.service";
+import { executeRun } from "./executor";
 import { ClaudeExtractionProvider } from "./extraction/claude-extraction.provider";
 import {
   ExtractionError,
@@ -15,7 +16,7 @@ import {
 import { missingRequiredLabels } from "./extraction/field-schema";
 
 /**
- * The extraction worker: claim one queued run, extract it, record the result.
+ * The worker: claim one queued run, extract it, then walk its node graph.
  *
  * The house rule this file exists to respect: **external I/O never happens
  * inside a transaction.** The claim is one short statement of its own; the
@@ -28,6 +29,19 @@ import { missingRequiredLabels } from "./extraction/field-schema";
  * delay, `.unref()` on both, a re-entrancy guard, started from server.ts and
  * stopped in shutdown). Its *claim* mechanism is not: a calendar-day row cannot
  * express "one worker at a time per run", which is what SKIP LOCKED does.
+ *
+ * Phase 2 gives the tick a second half. A run reaches the executor by one of
+ * exactly two routes — the two hand-off points of brief D-1 — and BOTH are
+ * wired here:
+ *
+ *   `requireReview: false` → extraction ends in `running` and this same tick
+ *                            executes the graph, still holding its own claim.
+ *   `requireReview: true`  → extraction ends in `pending_review`; `POST /review`
+ *                            moves the run to `running` and UNLOCKS it, and
+ *                            `processNextExecution` claims it on a later tick.
+ *
+ * Missing either one leaves a whole class of run that quietly never executes
+ * its nodes, which is precisely what Phase 1 did to every workflow with a graph.
  */
 
 /** How often the worker looks for work. */
@@ -108,6 +122,33 @@ export async function sweepStaleLocks(now: Date = new Date()): Promise<number> {
 }
 
 /**
+ * The same staleness rule applied to abandoned EXECUTIONS — with the opposite
+ * recovery, deliberately.
+ *
+ * An abandoned extraction is requeued: re-reading a document costs money but
+ * changes nothing outside the module. An abandoned execution is FAILED: its
+ * dead worker may already have sent an email and called an external API, and
+ * nothing in the row records exactly how far it got. Re-running would repeat
+ * those side effects; failing it tells the truth and leaves "reintentar" to a
+ * human who can look at the node timeline first.
+ */
+export async function sweepAbandonedExecutions(
+  now: Date = new Date(),
+): Promise<number> {
+  const candidates = await runDAO.listRunningClaims();
+  const ids = staleRunIds(candidates, now);
+  if (ids.length === 0) return 0;
+  const failed = await runDAO.failAbandonedExecutions(
+    ids,
+    "La ejecución se interrumpió; revisá los nodos ya ejecutados antes de reintentar",
+  );
+  if (failed > 0) {
+    console.warn(`[node-files] failed ${failed} abandoned execution(s)`);
+  }
+  return failed;
+}
+
+/**
  * Claim and process ONE run. Returns whether there was anything to do, so a
  * caller can drain the queue without waiting for the next tick.
  *
@@ -159,16 +200,29 @@ export async function processNextRun(
       return true;
     }
 
+    // **Hand-off point one** (brief D-1). This used to be
+    // `requireReview ? "pending_review" : "succeeded"`, and "succeeded" was
+    // where every non-reviewed run stopped forever: extraction finished, the
+    // node graph never ran, and nothing anywhere said so.
+    const nextStatus = workflow.requireReview ? "pending_review" : "running";
     await runDAO.markFinished(claim.id, claim.companyId, {
-      status: workflow.requireReview ? "pending_review" : "succeeded",
+      status: nextStatus,
       extracted: result.values,
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
     });
     console.info(
-      `[node-files] run ${claim.uuid} ${workflow.requireReview ? "pending_review" : "succeeded"} ` +
+      `[node-files] run ${claim.uuid} extracted → ${nextStatus} ` +
         `tokensIn=${result.tokensIn} tokensOut=${result.tokensOut}`,
     );
+
+    // Executed in THIS tick, still under this worker's claim: `markFinished`
+    // kept `lockedBy`, so no other worker can pick the run up and run every
+    // node a second time. The claim is a row flag, not a held connection —
+    // nothing below holds one while a node is working.
+    if (nextStatus === "running") {
+      await executeRun(claim);
+    }
     return true;
   } catch (err) {
     // An ExtractionError's message is written for the tenant; anything else is
@@ -197,12 +251,49 @@ export async function processNextRun(
   }
 }
 
+/**
+ * **Hand-off point two** (brief D-1): claim one run that is `running` and
+ * unlocked — which is what `POST /review` leaves behind — and execute it.
+ *
+ * Returns whether there was anything to do.
+ */
+export async function processNextExecution(): Promise<boolean> {
+  const claim = await runDAO.claimNextRunnable(WORKER_ID);
+  if (!claim) return false;
+
+  try {
+    await executeRun(claim);
+  } catch (err) {
+    // `executeRun` handles its own node failures; reaching here means the
+    // executor itself broke, and the run must not be left locked forever.
+    console.error(
+      `[node-files] execution of run ${claim.uuid} crashed:`,
+      err instanceof Error ? err.message : err,
+    );
+    await runDAO
+      .finishExecution(
+        claim.id,
+        claim.companyId,
+        "failed",
+        "Error inesperado al ejecutar el flujo",
+      )
+      .catch((markErr: unknown) => {
+        console.error(
+          `[node-files] could not record failure for run ${claim.uuid}:`,
+          markErr instanceof Error ? markErr.message : markErr,
+        );
+      });
+  }
+  return true;
+}
+
 let running = false;
 let timer: NodeJS.Timeout | null = null;
 
 /**
- * One run per tick, never two at a time in one process: `running` is the
- * re-entrancy guard, and a tick that overruns simply skips the next one.
+ * One extraction and one execution per tick, never two at a time in one
+ * process: `running` is the re-entrancy guard, and a tick that overruns simply
+ * skips the next one.
  */
 export function startNodeFilesWorker(): void {
   const tick = async (): Promise<void> => {
@@ -210,7 +301,11 @@ export function startNodeFilesWorker(): void {
     running = true;
     try {
       await sweepStaleLocks();
+      await sweepAbandonedExecutions();
       await processNextRun();
+      // Both hand-off points, every tick: the extraction path (above, which
+      // executes inline) and the review path (here).
+      await processNextExecution();
     } catch (err) {
       // A worker that throws takes the process down with it; log and wait for
       // the next tick instead.

@@ -4,8 +4,10 @@ import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import {
+  NodeFilesCredentialCreateInputDTO,
   NodeFilesRunReviewInputDTO,
   NodeFilesWorkflowCreateInputDTO,
+  NodeFilesWorkflowStatusInputDTO,
   NodeFilesWorkflowUpdateInputDTO,
 } from "../../dto/input/node-files";
 import { AuditService } from "../../services/audit.service";
@@ -55,6 +57,17 @@ const RUN_QUERY_PARAMS = [
   "companyId",
 ] as const;
 const RUN_SORT_KEYS = ["status", "createdAt", "finishedAt"];
+
+const CREDENTIAL_QUERY_PARAMS = [
+  "page",
+  "limit",
+  "sortBy",
+  "sortOrder",
+  "search",
+  "type",
+  "companyId",
+] as const;
+const CREDENTIAL_SORT_KEYS = ["name", "type", "createdAt", "lastUsedAt"];
 
 /**
  * node-files — workflows, uploads and runs.
@@ -167,7 +180,7 @@ export class NodeFilesController {
   /** Best-effort audit hook (audit_logs) — fire-and-forget, never blocks. */
   private recordAudit(
     req: Request,
-    entityName: "NodeFilesWorkflow" | "NodeFilesRun",
+    entityName: "NodeFilesWorkflow" | "NodeFilesRun" | "NodeFilesCredential",
     operation: "Alta" | "Modificacion" | "Baja",
     entity: Record<string, unknown> | null,
   ): void {
@@ -308,6 +321,51 @@ export class NodeFilesController {
     }
   }
 
+  /**
+   * `GET /node-types` — the registry's config schemas.
+   *
+   * Authenticated and module-gated like everything else, but company-agnostic:
+   * the registry is code, identical for every tenant, and asking for a company
+   * scope here would only add a way to fail.
+   */
+  public listNodeTypes(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): void {
+    try {
+      res.status(200).json({ success: true, data: this._service.listNodeTypes() });
+    } catch (err) {
+      this.fail(req, next, err);
+    }
+  }
+
+  public async setWorkflowStatus(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const inputDTO = this.validated(() =>
+        new NodeFilesWorkflowStatusInputDTO(req.body).build(),
+      );
+      const context = await this.buildContext(req);
+      if (!context.success) {
+        req.statusCode = 400;
+        return next(new Error(context.message));
+      }
+      const data = await this._service.setWorkflowStatus(
+        req.params.uuid as string,
+        inputDTO.status,
+        context.ctx,
+      );
+      this.recordAudit(req, "NodeFilesWorkflow", "Modificacion", { ...data });
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      this.fail(req, next, err);
+    }
+  }
+
   // ---- documents --------------------------------------------------------
 
   /** multipart, field `file` → one document plus the run it queues. */
@@ -412,6 +470,105 @@ export class NodeFilesController {
       );
       this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
       res.status(200).json({ success: true, data });
+    } catch (err) {
+      this.fail(req, next, err);
+    }
+  }
+
+  public async cancelRun(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const context = await this.buildContext(req);
+      if (!context.success) {
+        req.statusCode = 400;
+        return next(new Error(context.message));
+      }
+      const data = await this._service.cancelRun(
+        req.params.uuid as string,
+        context.ctx,
+      );
+      this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      this.fail(req, next, err);
+    }
+  }
+
+  // ---- credentials ------------------------------------------------------
+
+  public async listCredentials(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      this.assertKnownQuery(req, CREDENTIAL_QUERY_PARAMS, CREDENTIAL_SORT_KEYS);
+      const context = await this.buildContext(req);
+      if (!context.success) {
+        req.statusCode = 400;
+        return next(new Error(context.message));
+      }
+      const result = await this._service.listCredentials(req, context.ctx);
+      res.status(200).json(result);
+    } catch (err) {
+      this.fail(req, next, err);
+    }
+  }
+
+  /**
+   * The secret arrives here once and leaves in no response — not even this
+   * one. The audit entry is written from the SAME secret-free shape the
+   * response carries, so `audit_logs` cannot become the place the secret is
+   * readable after all.
+   */
+  public async createCredential(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const inputDTO = this.validated(() =>
+        new NodeFilesCredentialCreateInputDTO(req.body).build(),
+      );
+      const context = await this.buildContext(req);
+      if (!context.success) {
+        req.statusCode = 400;
+        return next(new Error(context.message));
+      }
+      const data = await this._service.createCredential(
+        uuidv4(),
+        inputDTO,
+        context.ctx,
+      );
+      this.recordAudit(req, "NodeFilesCredential", "Alta", { ...data });
+      res.status(201).json({ success: true, data });
+    } catch (err) {
+      this.fail(req, next, err);
+    }
+  }
+
+  public async deleteCredential(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const context = await this.buildContext(req);
+      if (!context.success) {
+        req.statusCode = 400;
+        return next(new Error(context.message));
+      }
+      const removed = await this._service.deleteCredential(
+        req.params.uuid as string,
+        context.ctx,
+      );
+      this.recordAudit(req, "NodeFilesCredential", "Baja", { ...removed });
+      res
+        .status(200)
+        .json({ success: true, message: "Credencial eliminada correctamente" });
     } catch (err) {
       this.fail(req, next, err);
     }

@@ -22,14 +22,14 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 /**
  * D-5, frozen by measurement on the live host 2026-08-13, less the 5 store
  * tables deleted with the store module on 2026-08-24 (amendment-2026-08-24),
- * plus the 3 `nf_*` tables of node-files Phase 1.
+ * plus the 6 `nf_*` tables of node-files Phases 1 and 2.
  */
-const DOMAIN_TABLE_COUNT = 78;
+const DOMAIN_TABLE_COUNT = 81;
 const DOMAIN_COUNTS: Record<DbKey, number> = {
   core: 10,
   countdown: 9,
   erp: 56,
-  nodefiles: 3,
+  nodefiles: 6,
 };
 /**
  * The two names that deliberately live in more than one database (AC-2).
@@ -48,7 +48,7 @@ const countBy = (owners: DbKey[]): Record<string, number> =>
 describe("TABLE_OWNER manifest (AC-1 a/b/d, AC-2)", () => {
   it("assigns every domain table to a known key, with no key collapsed by a duplicate", () => {
     // A duplicated literal key would silently collapse, so the count is the
-    // duplicate check: 78 names in, 78 names out.
+    // duplicate check: 81 names in, 81 names out.
     expect(Object.keys(DOMAIN_OWNER)).toHaveLength(DOMAIN_TABLE_COUNT);
     for (const [table, owner] of Object.entries(DOMAIN_OWNER)) {
       expect(DB_KEYS).toContain(owner);
@@ -89,6 +89,7 @@ describe("TABLE_OWNER manifest (AC-1 a/b/d, AC-2)", () => {
     expect(ownerOf("companies")).toBe("core");
     expect(ownerOf("countdown_documents")).toBe("countdown");
     expect(ownerOf("nf_runs")).toBe("nodefiles");
+    expect(ownerOf("nf_node_runs")).toBe("nodefiles");
     // `undefined` is what stops the wrong-database guard objecting to a table
     // that legitimately exists on more than one connection.
     expect(ownerOf("files")).toBeUndefined();

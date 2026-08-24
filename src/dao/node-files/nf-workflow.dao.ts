@@ -2,6 +2,7 @@ import { Request } from "express";
 import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import {
+  INodeFilesDefinition,
   INodeFilesField,
   INodeFilesWorkflow,
   INodeFilesWorkflowRow,
@@ -48,6 +49,7 @@ export interface INodeFilesWorkflowWriteInput {
   requireReview: boolean;
   status: NodeFilesWorkflowStatus;
   fields: INodeFilesField[];
+  definition: INodeFilesDefinition | null;
   createdByUserId: number | null;
   createdByName: string | null;
 }
@@ -58,6 +60,7 @@ export interface INodeFilesWorkflowPatch {
   requireReview?: boolean;
   status?: NodeFilesWorkflowStatus;
   fields?: INodeFilesField[];
+  definition?: INodeFilesDefinition | null;
 }
 
 /**
@@ -86,6 +89,8 @@ export class NfWorkflowDAO {
         requireReview: input.requireReview,
         status: input.status,
         fields: JSON.stringify(input.fields),
+        definition:
+          input.definition === null ? null : JSON.stringify(input.definition),
         createdByUserId: input.createdByUserId,
         createdByName: input.createdByName,
       })
@@ -177,6 +182,10 @@ export class NfWorkflowDAO {
     if (patch.status !== undefined) changes.status = patch.status;
     if (patch.fields !== undefined)
       changes.fields = JSON.stringify(patch.fields);
+    if (patch.definition !== undefined) {
+      changes.definition =
+        patch.definition === null ? null : JSON.stringify(patch.definition);
+    }
 
     const [row] = await this.scoped(companyId)
       .where(`${TABLE}.id`, id)
@@ -203,6 +212,8 @@ export class NfWorkflowDAO {
       // jsonb comes back parsed; the `?? []` covers a row written before the
       // column had a default.
       fields: (row.fields as INodeFilesField[]) ?? [],
+      // jsonb comes back parsed; `null` is a workflow that only extracts.
+      definition: (row.definition as INodeFilesDefinition | null) ?? null,
       createdByName: row.createdByName,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

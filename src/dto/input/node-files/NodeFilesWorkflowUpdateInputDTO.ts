@@ -1,7 +1,9 @@
 import {
+  INodeFilesDefinition,
   INodeFilesField,
   NodeFilesWorkflowStatus,
 } from "../../../interfaces/node-files/node-files.interfaces";
+import { parseDefinition } from "../../../services/node-files/definition";
 import { parseWorkflowStatus } from "./NodeFilesWorkflowCreateInputDTO";
 import {
   optionalText,
@@ -20,6 +22,7 @@ export class NodeFilesWorkflowUpdateInputDTO {
   requireReview?: boolean;
   status?: NodeFilesWorkflowStatus;
   fields?: INodeFilesField[];
+  definition?: INodeFilesDefinition | null;
 
   constructor(data: Record<string, unknown>) {
     const source = data ?? {};
@@ -40,6 +43,12 @@ export class NodeFilesWorkflowUpdateInputDTO {
     }
     if (source.fields !== undefined) {
       this.fields = parseFields(source.fields);
+    }
+    if (source.definition !== undefined) {
+      // `null` is a real value here: it clears the graph and turns the flow
+      // back into extraction-only.
+      this.definition =
+        source.definition === null ? null : parseDefinition(source.definition);
     }
   }
 

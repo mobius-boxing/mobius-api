@@ -32,12 +32,15 @@ const upload = multer({
  * without the module gets 403 regardless of who is asking. It also pins the
  * company — superAdmins must pass ?companyId=<uuid>.
  *
- * Only DELETE is permission-gated (`node-files.manage`). Building a flow,
- * uploading a document and confirming what came back are everyday actions for
- * any member of a company that has the module — the same product decision
- * countdown made, for the same reason: RbacService denies every code to a
- * role-less user, so gating the everyday surface would lock out plain members.
- * Deleting a flow is the one destructive act, and it is gated.
+ * Deletes and credential writes are permission-gated (`node-files.manage`).
+ * Building a flow, uploading a document and confirming what came back are
+ * everyday actions for any member of a company that has the module — the same
+ * product decision countdown made, for the same reason: RbacService denies every
+ * code to a role-less user, so gating the everyday surface would lock out plain
+ * members. Two things are not everyday: deleting a flow, and handling secrets.
+ * Creating a credential means pasting a token that this API will replay against
+ * someone else's system, which is an administrative act however routine it
+ * looks, so both credential writes carry the gate.
  */
 export class NodeFilesRouter {
   public router: Router = Router();
@@ -93,6 +96,51 @@ export class NodeFilesRouter {
       controller.deleteWorkflow.bind(controller),
     );
 
+    this.router.post(
+      "/workflows/:uuid/status",
+      authenticate,
+      gate,
+      validateUUID(),
+      apiRateLimiter,
+      controller.setWorkflowStatus.bind(controller),
+    );
+
+    // ---- the node registry (code, not data) -----------------------------
+    this.router.get(
+      "/node-types",
+      authenticate,
+      gate,
+      apiRateLimiter,
+      controller.listNodeTypes.bind(controller),
+    );
+
+    // ---- credentials (secrets are write-only) ---------------------------
+    this.router.get(
+      "/credentials",
+      authenticate,
+      gate,
+      validatePagination,
+      apiRateLimiter,
+      controller.listCredentials.bind(controller),
+    );
+    this.router.post(
+      "/credentials",
+      authenticate,
+      gate,
+      requirePermission("node-files.manage"),
+      sensitiveRateLimiter,
+      controller.createCredential.bind(controller),
+    );
+    this.router.delete(
+      "/credentials/:uuid",
+      authenticate,
+      gate,
+      requirePermission("node-files.manage"),
+      validateUUID(),
+      sensitiveRateLimiter,
+      controller.deleteCredential.bind(controller),
+    );
+
     // ---- documents (upload → queued run) --------------------------------
     this.router.post(
       "/workflows/:uuid/documents",
@@ -136,6 +184,14 @@ export class NodeFilesRouter {
       validateUUID(),
       apiRateLimiter,
       controller.retryRun.bind(controller),
+    );
+    this.router.post(
+      "/runs/:uuid/cancel",
+      authenticate,
+      gate,
+      validateUUID(),
+      apiRateLimiter,
+      controller.cancelRun.bind(controller),
     );
   }
 }

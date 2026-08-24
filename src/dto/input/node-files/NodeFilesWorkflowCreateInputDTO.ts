@@ -1,8 +1,10 @@
 import {
+  INodeFilesDefinition,
   INodeFilesField,
   NODE_FILES_WORKFLOW_STATUSES,
   NodeFilesWorkflowStatus,
 } from "../../../interfaces/node-files/node-files.interfaces";
+import { parseDefinition } from "../../../services/node-files/definition";
 import {
   emptyToUndefined,
   optionalText,
@@ -32,6 +34,12 @@ export class NodeFilesWorkflowCreateInputDTO {
   requireReview: boolean;
   status: NodeFilesWorkflowStatus;
   fields: INodeFilesField[];
+  /**
+   * Shape-parsed here; the graph RULES (one trigger, no cycles, configs, the
+   * credentials it references) are checked in the service, which is the only
+   * layer that can ask the database whether a credential exists.
+   */
+  definition: INodeFilesDefinition | null;
 
   constructor(data: Record<string, unknown>) {
     const source = data ?? {};
@@ -42,6 +50,10 @@ export class NodeFilesWorkflowCreateInputDTO {
       toBoolean(source.requireReview, "Revisión manual") ?? false;
     this.status = parseStatus(source.status) ?? "draft";
     this.fields = parseFields(source.fields);
+    this.definition =
+      source.definition === undefined || source.definition === null
+        ? null
+        : parseDefinition(source.definition);
   }
 
   /** Throws on anything the table would accept but the business would not. */

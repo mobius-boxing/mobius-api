@@ -5,6 +5,7 @@ import {
   INodeFilesClaimedRun,
   INodeFilesRun,
   INodeFilesRunRow,
+  NODE_FILES_ACTIVE_RUN_STATUSES,
   NodeFilesExtractedValues,
 } from "../../interfaces/node-files/node-files.interfaces";
 import {
@@ -157,6 +158,26 @@ export class NfRunDAO {
     return toCountOut(result?.count);
   }
 
+  /**
+   * How many runs of this workflow are still the engine's business.
+   *
+   * This is the workflow lock: editing or deleting a workflow while one of its
+   * runs is queued, extracting, waiting for review or executing would change
+   * the definition under a worker that has already read it, or is about to.
+   * The service turns a non-zero count into a 409 that says the number.
+   */
+  async countActiveByWorkflow(
+    workflowId: number,
+    companyId: number,
+  ): Promise<number> {
+    const result = await db("nodefiles")(TABLE)
+      .where({ workflowId, companyId })
+      .whereIn("status", [...NODE_FILES_ACTIVE_RUN_STATUSES])
+      .count("* as count")
+      .first();
+    return toCountOut(result?.count);
+  }
+
   // ---- worker-only, process-wide (see the class comment) -----------------
 
   /**
@@ -193,6 +214,39 @@ export class NfRunDAO {
   }
 
   /**
+   * The executor's claim: a run that has finished extraction (or review) and is
+   * waiting for its node graph to be walked.
+   *
+   * `status = 'running' AND "lockedBy" IS NULL` is precisely "handed off and
+   * unclaimed", which is what the review hand-off leaves behind
+   * (`nf_runs_runnable_idx` is the matching partial index). The worker that
+   * just extracted a run does NOT go through here — it already holds the claim
+   * and executes in the same tick — so this query exists for the review path
+   * and for nothing else.
+   */
+  async claimNextRunnable(
+    lockedBy: string,
+  ): Promise<INodeFilesClaimedRun | null> {
+    const result = await db("nodefiles").raw(
+      `UPDATE nf_runs
+          SET "lockedAt" = now(),
+              "lockedBy" = ?,
+              "updatedAt" = now()
+        WHERE id = (
+          SELECT id FROM nf_runs
+           WHERE status = 'running' AND "lockedBy" IS NULL
+           ORDER BY id
+           FOR UPDATE SKIP LOCKED
+           LIMIT 1
+        )
+        RETURNING id, uuid, "companyId", "workflowId", "documentId"`,
+      [lockedBy],
+    );
+    const rows = (result as { rows: INodeFilesClaimedRun[] }).rows;
+    return rows[0] ?? null;
+  }
+
+  /**
    * Every run currently held by a worker. Small by construction — a row is only
    * `extracting` while a process is actually working on it — and capped anyway.
    * The staleness decision itself is NOT made here: it lives in `isStaleLock`
@@ -206,6 +260,49 @@ export class NfRunDAO {
       .orderBy("id")
       .limit(STALE_SWEEP_LIMIT);
     return rows as INodeFilesLockCandidate[];
+  }
+
+  /**
+   * Runs whose EXECUTION is held by a worker. Separate from `listExtracting`
+   * because the recovery is different and must not be shared: an abandoned
+   * extraction goes back in the queue, an abandoned execution does NOT — see
+   * `failAbandonedExecutions`.
+   */
+  async listRunningClaims(): Promise<INodeFilesLockCandidate[]> {
+    const rows = await db("nodefiles")(TABLE)
+      .where("status", "running")
+      .whereNotNull("lockedBy")
+      .select("id", "lockedAt")
+      .orderBy("id")
+      .limit(STALE_SWEEP_LIMIT);
+    return rows as INodeFilesLockCandidate[];
+  }
+
+  /**
+   * An abandoned EXECUTION is failed, not requeued.
+   *
+   * Re-running the graph would re-send every email and repeat every HTTP call
+   * the dead worker already made — side effects that cannot be un-made and
+   * that nothing in the row records precisely enough to resume from. Failing it
+   * tells the truth and leaves the decision to a human, who has "reintentar".
+   */
+  async failAbandonedExecutions(
+    ids: number[],
+    message: string,
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+    const knex = db("nodefiles");
+    return knex(TABLE)
+      .whereIn("id", ids)
+      .where("status", "running")
+      .update({
+        status: "failed",
+        error: message,
+        lockedAt: null,
+        lockedBy: null,
+        finishedAt: knex.fn.now(),
+        updatedAt: knex.fn.now(),
+      });
   }
 
   /** Put abandoned runs back in the queue. Returns how many moved. */
@@ -225,17 +322,36 @@ export class NfRunDAO {
 
   // ---- result persistence (short, DB-only, after the LLM call) -----------
 
+  /**
+   * Extraction is over. **Hand-off point one** (brief D-1).
+   *
+   * The status parameter used to be `"pending_review" | "succeeded"`, which is
+   * exactly what made a whole class of run terminate here instead of executing:
+   * a workflow with `requireReview: false` and a node graph went straight to
+   * `succeeded` and its nodes never ran. It now also accepts `"running"`, and
+   * the lock bookkeeping differs by status, deliberately:
+   *
+   *  - `running` KEEPS `lockedBy` (the worker calling this is about to execute
+   *    the graph in the same tick — releasing the lock here would let a second
+   *    worker claim it through `claimNextRunnable` and run every node twice)
+   *    and REFRESHES `lockedAt`, so the stale sweep measures the execution, not
+   *    the extraction that preceded it. `finishedAt` stays null: the run is not
+   *    finished.
+   *  - `pending_review` and `succeeded` are terminal for this worker: the lock
+   *    is released and `finishedAt` is stamped.
+   */
   async markFinished(
     id: number,
     companyId: number,
     result: {
-      status: "pending_review" | "succeeded";
+      status: "pending_review" | "running" | "succeeded";
       extracted: NodeFilesExtractedValues;
       tokensIn: number;
       tokensOut: number;
     },
   ): Promise<void> {
     const knex = db("nodefiles");
+    const stillWorking = result.status === "running";
     await knex(TABLE)
       .where({ id, companyId })
       .update({
@@ -244,11 +360,34 @@ export class NfRunDAO {
         tokensIn: result.tokensIn,
         tokensOut: result.tokensOut,
         error: null,
-        lockedAt: null,
-        lockedBy: null,
-        finishedAt: knex.fn.now(),
+        lockedAt: stillWorking ? knex.fn.now() : null,
+        ...(stillWorking ? {} : { lockedBy: null }),
+        finishedAt: stillWorking ? null : knex.fn.now(),
         updatedAt: knex.fn.now(),
       });
+  }
+
+  /**
+   * The executor's last statement: the run is over, one way or the other.
+   *
+   * One short UPDATE after every node has run and every `nf_node_runs` row is
+   * written — no connection was held while any of them executed.
+   */
+  async finishExecution(
+    id: number,
+    companyId: number,
+    status: "succeeded" | "failed",
+    error: string | null,
+  ): Promise<void> {
+    const knex = db("nodefiles");
+    await knex(TABLE).where({ id, companyId }).update({
+      status,
+      error,
+      lockedAt: null,
+      lockedBy: null,
+      finishedAt: knex.fn.now(),
+      updatedAt: knex.fn.now(),
+    });
   }
 
   async markFailed(
@@ -267,6 +406,19 @@ export class NfRunDAO {
     });
   }
 
+  /**
+   * A human confirmed the values. **Hand-off point two** (brief D-1).
+   *
+   * This method used to hardcode `status: "succeeded"` and stamp `finishedAt`,
+   * which meant every reviewed run ended at the review screen and its node
+   * graph never ran — the second of the two places a run silently terminated.
+   * It now moves to `running` with NO lock, which is exactly the state
+   * `claimNextRunnable` looks for, so the worker picks it up on its next tick.
+   *
+   * Executing inline, inside the review request, was the alternative and is
+   * wrong twice over: the caller would wait through every HTTP node's timeout,
+   * and the request would hold its connection while doing it.
+   */
   async review(
     id: number,
     companyId: number,
@@ -278,13 +430,35 @@ export class NfRunDAO {
     await knex(TABLE)
       .where({ id, companyId })
       .update({
-        status: "succeeded",
+        status: "running",
         reviewedValues: JSON.stringify(values),
         reviewedByUserId,
         reviewedByName,
-        finishedAt: knex.fn.now(),
+        error: null,
+        lockedAt: null,
+        lockedBy: null,
+        finishedAt: null,
         updatedAt: knex.fn.now(),
       });
+  }
+
+  /**
+   * failed → running, unlocked: re-execute the graph WITHOUT re-extracting.
+   *
+   * The values are already in the row and were already paid for; the retry of a
+   * run that failed inside the graph must not bill a second extraction. The
+   * unlocked `running` state is exactly what `claimNextRunnable` looks for.
+   */
+  async requeueExecution(id: number, companyId: number): Promise<void> {
+    const knex = db("nodefiles");
+    await knex(TABLE).where({ id, companyId }).update({
+      status: "running",
+      error: null,
+      lockedAt: null,
+      lockedBy: null,
+      finishedAt: null,
+      updatedAt: knex.fn.now(),
+    });
   }
 
   /** failed → queued. The retry clears the previous error and the lock. */
