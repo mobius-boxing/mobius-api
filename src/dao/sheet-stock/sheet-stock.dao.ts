@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ISheetStock } from "../../interfaces/sheet-stock/sheet-stock.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScopeViaWarehouse } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is handled separately via a join (against warehouses.company_id) because the client sends a UUID, not a numeric id.
@@ -77,7 +78,7 @@ const SHEET_STOCK_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       column: "createdAt",
       order: "desc",
     },
-  }
+  },
 );
 
 export class SheetStockDAO implements IBaseDAO<ISheetStock> {
@@ -85,7 +86,7 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
   private queryConfig = SHEET_STOCK_QUERY_CONFIG;
 
   async create(item: ISheetStock): Promise<ISheetStock> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -104,35 +105,50 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
   }
 
   async getById(id: number): Promise<ISheetStock | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getByUuid(uuid: string): Promise<ISheetStock | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).where("uuid", uuid).first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ISheetStock | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    // SECURITY (C2): no direct companyId column — scope via warehouses.company_id.
+    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
-  async update(id: number, item: Partial<ISheetStock>): Promise<ISheetStock | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<ISheetStock>,
+  ): Promise<ISheetStock | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
-    if (item.warehouseId !== undefined) updateData.warehouseId = item.warehouseId;
-    if (item.warehouseLocationId !== undefined) updateData.warehouseLocationId = item.warehouseLocationId;
+    if (item.warehouseId !== undefined)
+      updateData.warehouseId = item.warehouseId;
+    if (item.warehouseLocationId !== undefined)
+      updateData.warehouseLocationId = item.warehouseLocationId;
     if (item.supplierId !== undefined) updateData.supplierId = item.supplierId;
-    if (item.manufacturerId !== undefined) updateData.manufacturerId = item.manufacturerId;
-    if (item.paperSheetId !== undefined) updateData.paperSheetId = item.paperSheetId;
+    if (item.manufacturerId !== undefined)
+      updateData.manufacturerId = item.manufacturerId;
+    if (item.paperSheetId !== undefined)
+      updateData.paperSheetId = item.paperSheetId;
     if (item.comments !== undefined) updateData.comments = item.comments;
     if (item.price !== undefined) updateData.price = item.price;
     if (item.quantity !== undefined) updateData.quantity = item.quantity;
@@ -148,20 +164,26 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAll(page: number, limit: number): Promise<IDataPaginator<ISheetStock>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<ISheetStock>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = this.buildJoinQuery(knex);
     const countQuery = knex(this.tableName);
 
     const [records, totalResult] = await Promise.all([
-      query.orderBy(`${this.tableName}.createdAt`, "desc").limit(limit).offset(offset),
+      query
+        .orderBy(`${this.tableName}.createdAt`, "desc")
+        .limit(limit)
+        .offset(offset),
       countQuery.count("* as count").first(),
     ]);
 
@@ -179,7 +201,7 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ISheetStock>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via warehouses → companies join.
@@ -188,8 +210,11 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
 
     const dataQuery = this.buildJoinQuery(knex);
     // Count query needs the warehouses join too so companyId filtering matches.
-    const countQuery = knex(this.tableName)
-      .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id");
+    const countQuery = knex(this.tableName).leftJoin(
+      "warehouses",
+      `${this.tableName}.warehouseId`,
+      "warehouses.id",
+    );
 
     if (companyUuid) {
       dataQuery
@@ -222,8 +247,11 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
   }
 
   async getWithDetails(uuid: string): Promise<ISheetStock | null> {
-    const knex = KnexManager.getConnection();
-    const query = this.buildJoinQuery(knex).where(`${this.tableName}.uuid`, uuid);
+    const knex = db("erp");
+    const query = this.buildJoinQuery(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
     const record = await query.first();
 
     if (!record) return null;
@@ -231,7 +259,7 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
   }
 
   async getAllByWarehouseId(warehouseId: number): Promise<ISheetStock[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const records = await this.buildJoinQuery(knex)
       .where(`${this.tableName}.warehouseId`, warehouseId)
       .orderBy(`${this.tableName}.createdAt`, "desc");
@@ -247,13 +275,25 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
         knex.raw('to_jsonb(warehouse_locations.*) as "warehouseLocation"'),
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
-        knex.raw('to_jsonb(paper_sheets.*) as "paperSheet"')
+        knex.raw('to_jsonb(paper_sheets.*) as "paperSheet"'),
       )
       .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id")
-      .leftJoin("warehouse_locations", `${this.tableName}.warehouseLocationId`, "warehouse_locations.id")
+      .leftJoin(
+        "warehouse_locations",
+        `${this.tableName}.warehouseLocationId`,
+        "warehouse_locations.id",
+      )
       .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
-      .leftJoin("manufacturers", `${this.tableName}.manufacturerId`, "manufacturers.id")
-      .leftJoin("paper_sheets", `${this.tableName}.paperSheetId`, "paper_sheets.id");
+      .leftJoin(
+        "manufacturers",
+        `${this.tableName}.manufacturerId`,
+        "manufacturers.id",
+      )
+      .leftJoin(
+        "paper_sheets",
+        `${this.tableName}.paperSheetId`,
+        "paper_sheets.id",
+      );
   }
 
   private mapToInterface(record: any): ISheetStock {

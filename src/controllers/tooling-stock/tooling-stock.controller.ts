@@ -26,7 +26,14 @@ export class ToolingStockController extends BaseCrudController<IToolingStock> {
   private _manufacturerDAO = new ManufacturerDAO();
   private _toolingDAO = new ToolingDAO();
 
-  protected async getOneByUuid(uuid: string): Promise<IToolingStock | null> {
+  protected async getOneByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IToolingStock | null> {
+    // SECURITY (C2): ownership gate via the company-scoped getByUuid before returning details.
+    if (companyUuid && !(await this.dao.getByUuid(uuid, companyUuid))) {
+      return null;
+    }
     return this.dao.getWithDetails(uuid);
   }
 

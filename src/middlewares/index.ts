@@ -8,6 +8,7 @@ export {
   authenticate,
   optionalAuth,
   requireRole,
+  requirePermission,
   requireSuperAdmin,
   requireAdmin,
   requireSameCompany,
@@ -15,10 +16,7 @@ export {
 } from "./auth.middleware";
 
 // Module-enabled gate middleware
-export { requireModule, requireStoreModule } from "./module.middleware";
-
-// Store-customer authentication middleware (isolated from internal auth)
-export { authenticateStore } from "./store-auth.middleware";
+export { requireModule, requireCountdownModule } from "./module.middleware";
 
 // Validation middleware
 export {
@@ -35,6 +33,7 @@ export {
   authRateLimiter,
   apiRateLimiter,
   publicRateLimiter,
+  globalRateLimiter,
   sensitiveRateLimiter,
   sensitiveUserDeletionRateLimiter,
   sensitiveCustomerDeletionRateLimiter,
@@ -45,6 +44,7 @@ export {
   sensitiveStrappingTypeDeletionRateLimiter,
   sensitiveComplementDeletionRateLimiter,
   sensitiveTraceTypeDeletionRateLimiter,
+  sensitiveCountdownDeletionRateLimiter,
   clearRateLimit,
   clearAllRateLimits,
   getRateLimitStatus,

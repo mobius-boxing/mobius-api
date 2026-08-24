@@ -12,6 +12,7 @@ import {
   BaseCrudController,
   BaseCrudOptions,
 } from "../base/base-crud.controller";
+import { getCompanyFilterUuid } from "../../utils/companyScope";
 
 export class WarehouseLocationController extends BaseCrudController<IWarehouseLocation> {
   protected dao = new WarehouseLocationDAO();
@@ -68,7 +69,12 @@ export class WarehouseLocationController extends BaseCrudController<IWarehouseLo
     try {
       const { warehouseUuid } = req.params;
 
-      const warehouseId = await this._warehouseDAO.getIdByUuid(warehouseUuid);
+      // SECURITY (C2): scope the warehouse to the caller's company so cross-company warehouse
+      // uuids resolve to "not found" (closes a read IDOR on getByWarehouse and a write IDOR on batchUpdate).
+      const warehouseId = await this._warehouseDAO.getIdByUuid(
+        warehouseUuid,
+        getCompanyFilterUuid(req),
+      );
       if (!warehouseId) {
         res.status(404).json({
           success: false,
@@ -97,7 +103,12 @@ export class WarehouseLocationController extends BaseCrudController<IWarehouseLo
       const { warehouseUuid } = req.params;
       const data = req.body;
 
-      const warehouseId = await this._warehouseDAO.getIdByUuid(warehouseUuid);
+      // SECURITY (C2): scope the warehouse to the caller's company so cross-company warehouse
+      // uuids resolve to "not found" (closes a read IDOR on getByWarehouse and a write IDOR on batchUpdate).
+      const warehouseId = await this._warehouseDAO.getIdByUuid(
+        warehouseUuid,
+        getCompanyFilterUuid(req),
+      );
       if (!warehouseId) {
         res.status(404).json({
           success: false,

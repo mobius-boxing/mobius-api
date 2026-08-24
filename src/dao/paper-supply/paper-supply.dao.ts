@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IPaperSupply } from "../../interfaces/paper-supply/paper-supply.interfaces";
 import {
@@ -89,7 +89,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   private queryConfig = PAPER_SUPPLY_QUERY_CONFIG;
 
   async create(item: IPaperSupply): Promise<IPaperSupply> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [paperSupply] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -102,8 +102,10 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         paperTypeId: item.paperTypeId,
         grammage: item.grammage,
         price: item.price,
+        color: item.color,
+        fscTypeId: item.fscTypeId,
         minimumStock: JSON.stringify(
-          item.minimumStock || { pallets: 0, boxes: 0 },
+          item.minimumStock || { weightKg: null, diameterMm: null },
         ),
       })
       .returning("*");
@@ -112,7 +114,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   }
 
   async getById(id: number): Promise<IPaperSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const paperSupply = await knex(this.tableName).where("id", id).first();
 
     return paperSupply ? this.mapToInterface(paperSupply) : null;
@@ -123,7 +125,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IPaperSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
     if (companyUuid) {
@@ -132,13 +134,25 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         .where("companies.uuid", companyUuid);
     }
 
-    const paperSupply = await query.select(`${this.tableName}.*`).first();
+    const paperSupply = await query
+      .leftJoin("fsc_types", "paper_supplies.fscTypeId", "fsc_types.id")
+      .select(
+        `${this.tableName}.*`,
+        knex.raw('to_jsonb(fsc_types.*) as "fscType"'),
+      )
+      .first();
 
-    return paperSupply ? this.mapToInterface(paperSupply) : null;
+    if (!paperSupply) return null;
+    const mapped = this.mapToInterface(paperSupply);
+    if (paperSupply.fscType) {
+      const { id, ...fscTypeWithoutId } = paperSupply.fscType;
+      mapped.fscType = fscTypeWithoutId;
+    }
+    return mapped;
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const record = await knex(this.tableName)
       .select("id")
       .where("uuid", uuid)
@@ -150,7 +164,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     id: number,
     item: Partial<IPaperSupply>,
   ): Promise<IPaperSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -164,6 +178,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       updateData.paperTypeId = item.paperTypeId;
     if (item.grammage !== undefined) updateData.grammage = item.grammage;
     if (item.price !== undefined) updateData.price = item.price;
+    if (item.color !== undefined) updateData.color = item.color;
+    if (item.fscTypeId !== undefined) updateData.fscTypeId = item.fscTypeId;
     if (item.minimumStock !== undefined)
       updateData.minimumStock = JSON.stringify(item.minimumStock);
 
@@ -178,7 +194,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -190,7 +206,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     limit: number,
     companyUuid?: string,
   ): Promise<IDataPaginator<IPaperSupply>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = knex(this.tableName)
@@ -199,6 +215,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw('to_jsonb(paper_types.*) as "paperType"'),
+        knex.raw('to_jsonb(fsc_types.*) as "fscType"'),
       )
       .leftJoin(
         "manufacturers",
@@ -206,7 +223,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         "manufacturers.id",
       )
       .leftJoin("suppliers", "paper_supplies.supplierId", "suppliers.id")
-      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id");
+      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id")
+      .leftJoin("fsc_types", "paper_supplies.fscTypeId", "fsc_types.id");
 
     const countQuery = knex(this.tableName);
 
@@ -245,6 +263,10 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
           const { id, ...paperTypeWithoutId } = paperSupply.paperType;
           mapped.paperType = paperTypeWithoutId;
         }
+        if (paperSupply.fscType) {
+          const { id, ...fscTypeWithoutId } = paperSupply.fscType;
+          mapped.fscType = fscTypeWithoutId;
+        }
         return mapped;
       }),
       page,
@@ -259,7 +281,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     req: Request,
     companyUuid?: string,
   ): Promise<IDataPaginator<IPaperSupply>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const dataQuery = knex(this.tableName)
@@ -268,6 +290,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw('to_jsonb(paper_types.*) as "paperType"'),
+        knex.raw('to_jsonb(fsc_types.*) as "fscType"'),
       )
       .leftJoin(
         "manufacturers",
@@ -275,7 +298,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         "manufacturers.id",
       )
       .leftJoin("suppliers", "paper_supplies.supplierId", "suppliers.id")
-      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id");
+      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id")
+      .leftJoin("fsc_types", "paper_supplies.fscTypeId", "fsc_types.id");
 
     const countQuery = knex(this.tableName);
 
@@ -314,6 +338,10 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
           const { id, ...paperTypeWithoutId } = paperSupply.paperType;
           mapped.paperType = paperTypeWithoutId;
         }
+        if (paperSupply.fscType) {
+          const { id, ...fscTypeWithoutId } = paperSupply.fscType;
+          mapped.fscType = fscTypeWithoutId;
+        }
         return mapped;
       }),
       page: parsedQuery.page,
@@ -328,7 +356,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IPaperSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     const query = knex(this.tableName)
       .select(
@@ -378,7 +406,11 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   }
 
   private mapToInterface(record: any): IPaperSupply {
-    let minimumStock = { pallets: 0, boxes: 0 };
+    // Corrected shape (§L.3): {weightKg, diameterMm}; pre-migration values kept under `legacy`.
+    let minimumStock: IPaperSupply["minimumStock"] = {
+      weightKg: null,
+      diameterMm: null,
+    };
 
     try {
       if (record.minimumStock) {
@@ -402,6 +434,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       paperTypeId: record.paperTypeId,
       grammage: record.grammage ? parseFloat(record.grammage) : undefined,
       price: record.price ? parseFloat(record.price) : undefined,
+      color: record.color,
+      fscTypeId: record.fscTypeId,
       minimumStock,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

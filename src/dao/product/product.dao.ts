@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IProduct } from "../../interfaces/product/product.interfaces";
 import {
@@ -11,10 +11,15 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { assertUuidParam } from "../../utils/query-params";
 import { Request } from "express";
 
 // companyId is handled separately via a join because the client sends a UUID, not a numeric id.
-const PRODUCT_FILTERS: FilterConfigs = {
+// The customer filter is `customerUuid`, applied directly on the query in
+// getAllWithFilters. There is deliberately NO `customerId` entry here: it
+// parseInt'ed a value that, under the uuid-only API, is always a UUID — i.e. it
+// was accepted and broken, which L-007 forbids (gate decision OQ-1).
+export const PRODUCT_FILTERS: FilterConfigs = {
   code: {
     column: "code",
     operator: "ILIKE",
@@ -26,11 +31,6 @@ const PRODUCT_FILTERS: FilterConfigs = {
   description: {
     column: "description",
     operator: "ILIKE",
-  },
-  customerId: {
-    column: "customerId",
-    operator: "=",
-    transform: (value: string) => parseInt(value, 10),
   },
   uuid: {
     column: "uuid",
@@ -63,7 +63,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   private queryConfig = PRODUCT_QUERY_CONFIG;
 
   async create(item: IProduct): Promise<IProduct> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [product] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -76,6 +76,10 @@ export class ProductDAO implements IBaseDAO<IProduct> {
         vip: item.vip ?? false,
         productTypeId: item.productTypeId,
         boxTypeId: item.boxTypeId,
+        technicalSheetFileUuid: item.technicalSheetFileUuid ?? null,
+        blueprintFileUuid: item.blueprintFileUuid ?? null,
+        sketchFileUuid: item.sketchFileUuid ?? null,
+        imageFileUuid: item.imageFileUuid ?? null,
       })
       .returning("*");
 
@@ -83,7 +87,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async getById(id: number): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const product = await knex(this.tableName).where("id", id).first();
 
     return product ? this.mapToInterface(product) : null;
@@ -94,7 +98,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
     if (companyUuid) {
@@ -109,7 +113,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async update(id: number, item: Partial<IProduct>): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -122,6 +126,14 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     if (item.productTypeId !== undefined)
       updateData.productTypeId = item.productTypeId;
     if (item.boxTypeId !== undefined) updateData.boxTypeId = item.boxTypeId;
+    if (item.technicalSheetFileUuid !== undefined)
+      updateData.technicalSheetFileUuid = item.technicalSheetFileUuid;
+    if (item.blueprintFileUuid !== undefined)
+      updateData.blueprintFileUuid = item.blueprintFileUuid;
+    if (item.sketchFileUuid !== undefined)
+      updateData.sketchFileUuid = item.sketchFileUuid;
+    if (item.imageFileUuid !== undefined)
+      updateData.imageFileUuid = item.imageFileUuid;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -134,10 +146,32 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
-    const deleted = await knex(this.tableName).where("id", id).delete();
+    const knex = db("erp");
+    return knex.transaction(async (trx) => {
+      // parts.productId is ON DELETE CASCADE, so PartDAO.delete's private-route
+      // cleanup never runs on product deletion — collect the parts' route ids
+      // first and drop any now-unreferenced RUTA PROPIA afterwards.
+      const routeIds = (await trx("parts")
+        .where("productId", id)
+        .whereNotNull("productionRouteId")
+        .pluck("productionRouteId")) as number[];
 
-    return deleted > 0;
+      const deleted = await trx(this.tableName).where("id", id).delete();
+
+      if (deleted > 0 && routeIds.length) {
+        await trx("production_routes")
+          .whereIn("id", routeIds)
+          .where("isGlobal", false)
+          .whereNotExists(
+            trx("parts").whereRaw(
+              'parts."productionRouteId" = production_routes.id',
+            ),
+          )
+          .delete();
+      }
+
+      return deleted > 0;
+    });
   }
 
   async getAll(
@@ -145,7 +179,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     limit: number,
     companyUuid?: string,
   ): Promise<IDataPaginator<IProduct>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = knex(this.tableName);
@@ -183,19 +217,39 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IProduct>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
+    // customerUuid → the numeric column, applied on the query (not through the
+    // filter config, so no numeric-id filter is client-reachable). A miss pins
+    // the impossible id -1 rather than returning everything. The value is
+    // shape-checked first: `customers.uuid` is a uuid column, so a malformed
+    // value would reach Postgres and come back as 22P02 — a 500 whose body can
+    // echo the generated SQL — instead of a 400.
+    const customerUuid = assertUuidParam(
+      "customerUuid",
+      parsedQuery.filters.customerUuid,
+    );
+    delete parsedQuery.filters.customerUuid;
+    let customerId: number | undefined;
+    if (customerUuid) {
+      const customer = await knex("customers")
+        .where("uuid", customerUuid)
+        .select("id")
+        .first();
+      customerId = customer?.id ?? -1;
+    }
+
     const dataQuery = knex(this.tableName)
       .select(
         `${this.tableName}.*`,
         knex.raw("to_jsonb(customers.*) as customer"),
-        knex.raw("to_jsonb(product_types.*) as \"productType\""),
-        knex.raw("to_jsonb(box_types.*) as \"boxType\""),
+        knex.raw('to_jsonb(product_types.*) as "productType"'),
+        knex.raw('to_jsonb(box_types.*) as "boxType"'),
       )
       .leftJoin("customers", `${this.tableName}.customerId`, "customers.id")
       .leftJoin(
@@ -203,16 +257,15 @@ export class ProductDAO implements IBaseDAO<IProduct> {
         `${this.tableName}.productTypeId`,
         "product_types.id",
       )
-      .leftJoin(
-        "box_types",
-        `${this.tableName}.boxTypeId`,
-        "box_types.id",
-      );
+      .leftJoin("box_types", `${this.tableName}.boxTypeId`, "box_types.id");
 
     if (companyUuid) {
       dataQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
         .where("companies.uuid", companyUuid);
+    }
+    if (customerId !== undefined) {
+      dataQuery.where(`${this.tableName}.customerId`, customerId);
     }
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
@@ -223,6 +276,9 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       countQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
         .where("companies.uuid", companyUuid);
+    }
+    if (customerId !== undefined) {
+      countQuery.where(`${this.tableName}.customerId`, customerId);
     }
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
@@ -239,7 +295,8 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       data: products.map((product) => {
         const mapped = this.mapToInterface(product);
         if (product.customer) {
-          const { id, companyId, categoryId, salesPersonId, ...customerClean } = product.customer;
+          const { id, companyId, categoryId, salesPersonId, ...customerClean } =
+            product.customer;
           mapped.customer = customerClean;
         }
         if (product.productType) {
@@ -264,7 +321,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyUuid?: string,
   ): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName)
       .select(`${this.tableName}.id`)
       .where(`${this.tableName}.uuid`, uuid);
@@ -283,7 +340,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyUuid?: string,
   ): Promise<IProduct | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     const query = knex(this.tableName)
       .select("products.*", knex.raw("to_jsonb(customers.*) as customer"))
@@ -302,7 +359,8 @@ export class ProductDAO implements IBaseDAO<IProduct> {
 
     const mapped = this.mapToInterface(product);
     if (product.customer) {
-      const { id, companyId, categoryId, salesPersonId, ...customerClean } = product.customer;
+      const { id, companyId, categoryId, salesPersonId, ...customerClean } =
+        product.customer;
       mapped.customer = customerClean;
     }
 
@@ -317,8 +375,49 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       description: record.description,
       revision: record.revision,
       vip: record.vip,
+      technicalSheetFileUuid: record.technicalSheetFileUuid,
+      blueprintFileUuid: record.blueprintFileUuid,
+      sketchFileUuid: record.sketchFileUuid,
+      imageFileUuid: record.imageFileUuid,
+      productApprovalAt: record.productApprovalAt,
+      productApprovalBy: record.productApprovalBy,
+      productCancellationAt: record.productCancellationAt,
+      productCancellationBy: record.productCancellationBy,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
+  }
+
+  /**
+   * Product approval pair semantics (module 06 §04-state-and-lifecycle):
+   * approve sets AprobacionProducto(+user snapshot) and CLEARS the
+   * cancellation pair; cancel does the reverse. Pending = both NULL.
+   */
+  async setApproval(
+    id: number,
+    action: "approve" | "cancel",
+    username: string,
+    trx?: any,
+  ): Promise<IProduct | null> {
+    const knex = trx ?? db("erp");
+    const updateData =
+      action === "approve"
+        ? {
+            productApprovalAt: knex.fn.now(),
+            productApprovalBy: username,
+            productCancellationAt: null,
+            productCancellationBy: null,
+          }
+        : {
+            productCancellationAt: knex.fn.now(),
+            productCancellationBy: username,
+            productApprovalAt: null,
+            productApprovalBy: null,
+          };
+    const [product] = await knex(this.tableName)
+      .where("id", id)
+      .update({ ...updateData, updatedAt: knex.fn.now() })
+      .returning("*");
+    return product ? this.mapToInterface(product) : null;
   }
 }

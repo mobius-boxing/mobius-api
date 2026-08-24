@@ -6,6 +6,13 @@ export class CorrugationCreateInputDTO {
   caliper?: number;
   // SECURITY: Accept UUID from frontend, not numeric ID
   corrugationClassUuid?: string;
+  // Capas — the layer stack, ordered; each row references lookups by UUID.
+  layers?: Array<{
+    position?: number;
+    isLiner?: boolean;
+    paperClassUuid?: string;
+    fluteTypeUuid?: string;
+  }>;
 
   constructor(data: any) {
     this.code = data.code;
@@ -30,6 +37,17 @@ export class CorrugationCreateInputDTO {
     }
     if (data.corrugationClassUuid !== undefined) {
       this.corrugationClassUuid = data.corrugationClassUuid;
+    }
+    if (Array.isArray(data.layers)) {
+      this.layers = data.layers.map((layer: any) => ({
+        position:
+          typeof layer?.position === "string"
+            ? parseInt(layer.position, 10)
+            : layer?.position,
+        isLiner: layer?.isLiner === true,
+        paperClassUuid: layer?.paperClassUuid,
+        fluteTypeUuid: layer?.fluteTypeUuid,
+      }));
     }
   }
 

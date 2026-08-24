@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IConsumableSupply } from "../../interfaces/consumable-supply/consumable-supply.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -65,7 +66,7 @@ const CONSUMABLE_SUPPLY_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       column: "createdAt",
       order: "desc",
     },
-  }
+  },
 );
 
 export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
@@ -73,7 +74,7 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
   private queryConfig = CONSUMABLE_SUPPLY_QUERY_CONFIG;
 
   async create(item: IConsumableSupply): Promise<IConsumableSupply> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -84,6 +85,10 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
         manufacturerId: item.manufacturerId,
         consumableTypeId: item.consumableTypeId,
         companyId: item.companyId,
+        location: item.location,
+        expiry: item.expiry,
+        minimumStock: item.minimumStock,
+        colorId: item.colorId,
       })
       .returning("*");
 
@@ -91,36 +96,57 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
   }
 
   async getById(id: number): Promise<IConsumableSupply | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IConsumableSupply | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).where("uuid", uuid).first();
-    return record ? this.mapToInterface(record) : null;
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IConsumableSupply | null> {
+    const knex = db("erp");
+    const query = this.buildJoinQuery(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.first();
+    return record ? this.mapWithRelations(record) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
-  async update(id: number, item: Partial<IConsumableSupply>): Promise<IConsumableSupply | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IConsumableSupply>,
+  ): Promise<IConsumableSupply | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
     if (item.supplierId !== undefined) updateData.supplierId = item.supplierId;
-    if (item.manufacturerId !== undefined) updateData.manufacturerId = item.manufacturerId;
-    if (item.consumableTypeId !== undefined) updateData.consumableTypeId = item.consumableTypeId;
+    if (item.manufacturerId !== undefined)
+      updateData.manufacturerId = item.manufacturerId;
+    if (item.consumableTypeId !== undefined)
+      updateData.consumableTypeId = item.consumableTypeId;
+    if (item.location !== undefined) updateData.location = item.location;
+    if (item.expiry !== undefined) updateData.expiry = item.expiry;
+    if (item.minimumStock !== undefined)
+      updateData.minimumStock = item.minimumStock;
+    if (item.colorId !== undefined) updateData.colorId = item.colorId;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -133,20 +159,26 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IConsumableSupply>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IConsumableSupply>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = this.buildJoinQuery(knex);
     const countQuery = knex(this.tableName);
 
     const [records, totalResult] = await Promise.all([
-      query.orderBy(`${this.tableName}.createdAt`, "desc").limit(limit).offset(offset),
+      query
+        .orderBy(`${this.tableName}.createdAt`, "desc")
+        .limit(limit)
+        .offset(offset),
       countQuery.count("* as count").first(),
     ]);
 
@@ -163,8 +195,10 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
     };
   }
 
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IConsumableSupply>> {
-    const knex = KnexManager.getConnection();
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IConsumableSupply>> {
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
@@ -205,8 +239,11 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
   }
 
   async getWithDetails(uuid: string): Promise<IConsumableSupply | null> {
-    const knex = KnexManager.getConnection();
-    const query = this.buildJoinQuery(knex).where(`${this.tableName}.uuid`, uuid);
+    const knex = db("erp");
+    const query = this.buildJoinQuery(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
     const record = await query.first();
 
     if (!record) return null;
@@ -219,11 +256,21 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
         `${this.tableName}.*`,
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
-        knex.raw('to_jsonb(consumable_types.*) as "consumableType"')
+        knex.raw('to_jsonb(consumable_types.*) as "consumableType"'),
+        knex.raw("to_jsonb(colors.*) as color"),
       )
       .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
-      .leftJoin("manufacturers", `${this.tableName}.manufacturerId`, "manufacturers.id")
-      .leftJoin("consumable_types", `${this.tableName}.consumableTypeId`, "consumable_types.id");
+      .leftJoin(
+        "manufacturers",
+        `${this.tableName}.manufacturerId`,
+        "manufacturers.id",
+      )
+      .leftJoin(
+        "consumable_types",
+        `${this.tableName}.consumableTypeId`,
+        "consumable_types.id",
+      )
+      .leftJoin("colors", `${this.tableName}.colorId`, "colors.id");
   }
 
   private mapToInterface(record: any): IConsumableSupply {
@@ -236,6 +283,13 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
       manufacturerId: record.manufacturerId,
       consumableTypeId: record.consumableTypeId,
       companyId: record.companyId,
+      location: record.location,
+      expiry: record.expiry,
+      minimumStock:
+        record.minimumStock !== null && record.minimumStock !== undefined
+          ? parseFloat(record.minimumStock)
+          : null,
+      colorId: record.colorId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
@@ -255,6 +309,10 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
     if (record.consumableType) {
       const { id, ...consumableTypeWithoutId } = record.consumableType;
       mapped.consumableType = consumableTypeWithoutId;
+    }
+    if (record.color) {
+      const { id, ...colorWithoutId } = record.color;
+      mapped.color = colorWithoutId;
     }
 
     return mapped;

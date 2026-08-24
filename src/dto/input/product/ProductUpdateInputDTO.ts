@@ -1,6 +1,10 @@
 export class ProductUpdateInputDTO {
   code?: string;
   clientCode?: string;
+  technicalSheetFileUuid?: string | null;
+  blueprintFileUuid?: string | null;
+  sketchFileUuid?: string | null;
+  imageFileUuid?: string | null;
   description?: string;
   customerId?: number;
   revision?: number;
@@ -11,6 +15,10 @@ export class ProductUpdateInputDTO {
   constructor(data: any) {
     if (data.code !== undefined) this.code = data.code;
     if (data.clientCode !== undefined) this.clientCode = data.clientCode;
+    if (data.technicalSheetFileUuid !== undefined) this.technicalSheetFileUuid = data.technicalSheetFileUuid;
+    if (data.blueprintFileUuid !== undefined) this.blueprintFileUuid = data.blueprintFileUuid;
+    if (data.sketchFileUuid !== undefined) this.sketchFileUuid = data.sketchFileUuid;
+    if (data.imageFileUuid !== undefined) this.imageFileUuid = data.imageFileUuid;
     if (data.description !== undefined) this.description = data.description;
     if (data.customerId !== undefined)
       this.customerId =

@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IConsumableStock } from "../../interfaces/consumable-stock/consumable-stock.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScopeViaWarehouse } from "../../utils/daoScope";
 import { Request } from "express";
 
 const CONSUMABLE_STOCK_FILTERS: FilterConfigs = {
@@ -76,7 +77,7 @@ const CONSUMABLE_STOCK_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       column: "createdAt",
       order: "desc",
     },
-  }
+  },
 );
 
 export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
@@ -84,7 +85,7 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
   private queryConfig = CONSUMABLE_STOCK_QUERY_CONFIG;
 
   async create(item: IConsumableStock): Promise<IConsumableStock> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -103,35 +104,50 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
   }
 
   async getById(id: number): Promise<IConsumableStock | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IConsumableStock | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName).where("uuid", uuid).first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IConsumableStock | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    // SECURITY (C2): no direct companyId column — scope via warehouses.company_id.
+    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
-  async update(id: number, item: Partial<IConsumableStock>): Promise<IConsumableStock | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IConsumableStock>,
+  ): Promise<IConsumableStock | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
-    if (item.warehouseId !== undefined) updateData.warehouseId = item.warehouseId;
-    if (item.warehouseLocationId !== undefined) updateData.warehouseLocationId = item.warehouseLocationId;
+    if (item.warehouseId !== undefined)
+      updateData.warehouseId = item.warehouseId;
+    if (item.warehouseLocationId !== undefined)
+      updateData.warehouseLocationId = item.warehouseLocationId;
     if (item.supplierId !== undefined) updateData.supplierId = item.supplierId;
-    if (item.manufacturerId !== undefined) updateData.manufacturerId = item.manufacturerId;
-    if (item.consumableSupplyId !== undefined) updateData.consumableSupplyId = item.consumableSupplyId;
+    if (item.manufacturerId !== undefined)
+      updateData.manufacturerId = item.manufacturerId;
+    if (item.consumableSupplyId !== undefined)
+      updateData.consumableSupplyId = item.consumableSupplyId;
     if (item.comments !== undefined) updateData.comments = item.comments;
     if (item.price !== undefined) updateData.price = item.price;
     if (item.quantity !== undefined) updateData.quantity = item.quantity;
@@ -147,20 +163,26 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IConsumableStock>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IConsumableStock>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = this.buildJoinQuery(knex);
     const countQuery = knex(this.tableName);
 
     const [records, totalResult] = await Promise.all([
-      query.orderBy(`${this.tableName}.createdAt`, "desc").limit(limit).offset(offset),
+      query
+        .orderBy(`${this.tableName}.createdAt`, "desc")
+        .limit(limit)
+        .offset(offset),
       countQuery.count("* as count").first(),
     ]);
 
@@ -177,8 +199,10 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
     };
   }
 
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IConsumableStock>> {
-    const knex = KnexManager.getConnection();
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IConsumableStock>> {
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // companyId arrives as a UUID; resolve via warehouses → companies join (consumable_stock has
@@ -188,8 +212,11 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
 
     const dataQuery = this.buildJoinQuery(knex);
     // Count query must join warehouses too so the company-uuid filter resolves.
-    const countQuery = knex(this.tableName)
-      .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id");
+    const countQuery = knex(this.tableName).leftJoin(
+      "warehouses",
+      `${this.tableName}.warehouseId`,
+      "warehouses.id",
+    );
 
     if (companyUuid) {
       dataQuery
@@ -222,8 +249,11 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
   }
 
   async getWithDetails(uuid: string): Promise<IConsumableStock | null> {
-    const knex = KnexManager.getConnection();
-    const query = this.buildJoinQuery(knex).where(`${this.tableName}.uuid`, uuid);
+    const knex = db("erp");
+    const query = this.buildJoinQuery(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
     const record = await query.first();
 
     if (!record) return null;
@@ -231,7 +261,7 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
   }
 
   async getAllByWarehouseId(warehouseId: number): Promise<IConsumableStock[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const records = await this.buildJoinQuery(knex)
       .where(`${this.tableName}.warehouseId`, warehouseId)
       .orderBy(`${this.tableName}.createdAt`, "desc");
@@ -247,13 +277,25 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
         knex.raw('to_jsonb(warehouse_locations.*) as "warehouseLocation"'),
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
-        knex.raw('to_jsonb(consumable_supplies.*) as "consumableSupply"')
+        knex.raw('to_jsonb(consumable_supplies.*) as "consumableSupply"'),
       )
       .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id")
-      .leftJoin("warehouse_locations", `${this.tableName}.warehouseLocationId`, "warehouse_locations.id")
+      .leftJoin(
+        "warehouse_locations",
+        `${this.tableName}.warehouseLocationId`,
+        "warehouse_locations.id",
+      )
       .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
-      .leftJoin("manufacturers", `${this.tableName}.manufacturerId`, "manufacturers.id")
-      .leftJoin("consumable_supplies", `${this.tableName}.consumableSupplyId`, "consumable_supplies.id");
+      .leftJoin(
+        "manufacturers",
+        `${this.tableName}.manufacturerId`,
+        "manufacturers.id",
+      )
+      .leftJoin(
+        "consumable_supplies",
+        `${this.tableName}.consumableSupplyId`,
+        "consumable_supplies.id",
+      );
   }
 
   private mapToInterface(record: any): IConsumableStock {

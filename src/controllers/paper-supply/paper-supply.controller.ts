@@ -1,14 +1,13 @@
 import { Request, Response, NextFunction } from "express";
+import { AuditService } from "../../services/audit.service";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { PaperSupplyDAO } from "../../dao/paper-supply/paper-supply.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { ManufacturerDAO } from "../../dao/manufacturer/manufacturer.dao";
 import { SupplierDAO } from "../../dao/supplier/supplier.dao";
+import { PaperTypeDAO } from "../../dao/paper-type/paper-type.dao";
+import { FscTypeDAO } from "../../dao/fsc-type/fsc-type.dao";
 import { IPaperSupply } from "../../interfaces/paper-supply/paper-supply.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4 } from "uuid";
@@ -19,6 +18,17 @@ import {
 import { getCompanyFilterUuid } from "../../utils/companyScope";
 
 export class PaperSupplyController implements IBaseController {
+  private _audit = new AuditService();
+
+  /** Best-effort audit hook (audit_logs) — fire-and-forget. */
+  private recordAudit(
+    req: any,
+    op: "Alta" | "Baja" | "Modificacion",
+    entity: any,
+  ): void {
+    void this._audit.record(req, "Paper supply", op, entity ?? null);
+  }
+
   private _paperSupplyDAO: PaperSupplyDAO = new PaperSupplyDAO();
 
   public async getAll(
@@ -27,12 +37,10 @@ export class PaperSupplyController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const { page, limit } = paginationHelper(req);
-
       const companyId = getCompanyFilterUuid(req);
 
       const result: IDataPaginator<IPaperSupply> =
-        await this._paperSupplyDAO.getAll(page, limit, companyId);
+        await this._paperSupplyDAO.getAllWithFilters(req, companyId);
       res.status(200).json(result);
     } catch (err: any) {
       next(err);
@@ -152,6 +160,33 @@ export class PaperSupplyController implements IBaseController {
         }
         data.supplierId = supplierNumericId;
       }
+      if (data.paperTypeId && typeof data.paperTypeId === "string") {
+        const paperTypeDAO = new PaperTypeDAO();
+        const paperTypeNumericId = await paperTypeDAO.getIdByUuid(
+          data.paperTypeId,
+        );
+        if (!paperTypeNumericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid paper type",
+          });
+          return;
+        }
+        data.paperTypeId = paperTypeNumericId;
+      }
+
+      if (data.fscTypeId && typeof data.fscTypeId === "string") {
+        const fscTypeDAO = new FscTypeDAO();
+        const fscTypeNumericId = await fscTypeDAO.getIdByUuid(data.fscTypeId);
+        if (!fscTypeNumericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid FSC type",
+          });
+          return;
+        }
+        data.fscTypeId = fscTypeNumericId;
+      }
 
       const inputDTO = new PaperSupplyCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -169,10 +204,18 @@ export class PaperSupplyController implements IBaseController {
         name: inputDTO.name,
         manufacturerId: inputDTO.manufacturerId,
         supplierId: inputDTO.supplierId,
+        // Pre-existing gap fixed: paperTypeId/grammage/price were dropped on create.
+        paperTypeId: inputDTO.paperTypeId,
+        grammage: inputDTO.grammage,
+        price: inputDTO.price,
+        color: inputDTO.color,
+        fscTypeId: inputDTO.fscTypeId,
         minimumStock: inputDTO.minimumStock,
       };
 
       const result = await this._paperSupplyDAO.create(dataToCreate);
+
+      this.recordAudit(req, "Alta", result);
 
       res.status(201).json({
         success: true,
@@ -195,8 +238,12 @@ export class PaperSupplyController implements IBaseController {
       const companyId = getCompanyFilterUuid(req);
 
       // companyId filter doubles as ownership check (404 if not in user's company).
+      // mapToInterface strips the numeric id, so resolve it separately.
       const existing = await this._paperSupplyDAO.getByUuid(uuid, companyId);
-      if (!existing || !existing.id) {
+      const existingId = existing
+        ? await this._paperSupplyDAO.getIdByUuid(uuid)
+        : null;
+      if (!existing || !existingId) {
         res.status(404).json({
           success: false,
           message: "Paper supply not found",
@@ -233,6 +280,33 @@ export class PaperSupplyController implements IBaseController {
         }
         data.supplierId = supplierNumericId;
       }
+      if (data.paperTypeId && typeof data.paperTypeId === "string") {
+        const paperTypeDAO = new PaperTypeDAO();
+        const paperTypeNumericId = await paperTypeDAO.getIdByUuid(
+          data.paperTypeId,
+        );
+        if (!paperTypeNumericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid paper type",
+          });
+          return;
+        }
+        data.paperTypeId = paperTypeNumericId;
+      }
+
+      if (data.fscTypeId && typeof data.fscTypeId === "string") {
+        const fscTypeDAO = new FscTypeDAO();
+        const fscTypeNumericId = await fscTypeDAO.getIdByUuid(data.fscTypeId);
+        if (!fscTypeNumericId) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid FSC type",
+          });
+          return;
+        }
+        data.fscTypeId = fscTypeNumericId;
+      }
 
       const inputDTO = new PaperSupplyUpdateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -241,7 +315,9 @@ export class PaperSupplyController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      const result = await this._paperSupplyDAO.update(existing.id, inputDTO);
+      const result = await this._paperSupplyDAO.update(existingId, inputDTO);
+
+      this.recordAudit(req, "Modificacion", result);
 
       res.status(200).json({
         success: true,
@@ -263,8 +339,12 @@ export class PaperSupplyController implements IBaseController {
       const companyId = getCompanyFilterUuid(req);
 
       // companyId filter doubles as ownership check (404 if not in user's company).
+      // mapToInterface strips the numeric id, so resolve it separately.
       const existing = await this._paperSupplyDAO.getByUuid(uuid, companyId);
-      if (!existing || !existing.id) {
+      const existingId = existing
+        ? await this._paperSupplyDAO.getIdByUuid(uuid)
+        : null;
+      if (!existing || !existingId) {
         res.status(404).json({
           success: false,
           message: "Paper supply not found",
@@ -272,7 +352,10 @@ export class PaperSupplyController implements IBaseController {
         return;
       }
 
-      const result = await this._paperSupplyDAO.delete(existing.id);
+      const result = await this._paperSupplyDAO.delete(existingId);
+
+      if (result)
+        this.recordAudit(req, "Baja", existing ?? { uuid: req.params.uuid });
 
       if (result) {
         res.status(200).json({
@@ -312,10 +395,7 @@ export class PaperSupplyController implements IBaseController {
 
       const companyId = getCompanyFilterUuid(req);
 
-      const result = await this._paperSupplyDAO.getWithDetails(
-        uuid,
-        companyId,
-      );
+      const result = await this._paperSupplyDAO.getWithDetails(uuid, companyId);
 
       if (!result) {
         res.status(404).json({

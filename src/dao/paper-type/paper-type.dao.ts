@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IPaperType } from "../../interfaces/paper-type/paper-type.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -58,7 +59,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   private queryConfig = PAPER_TYPE_QUERY_CONFIG;
 
   async create(item: IPaperType): Promise<IPaperType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [paperType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -72,25 +73,32 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   }
 
   async getById(id: number): Promise<IPaperType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const paperType = await knex(this.tableName).where("id", id).first();
 
     return paperType ? this.mapToInterface(paperType) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IPaperType | null> {
-    const knex = KnexManager.getConnection();
-    const paperType = await knex(this.tableName).where("uuid", uuid).first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IPaperType | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const paperType = await query.select(`${this.tableName}.*`).first();
 
     return paperType ? this.mapToInterface(paperType) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
@@ -98,7 +106,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     id: number,
     item: Partial<IPaperType>,
   ): Promise<IPaperType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -116,7 +124,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -129,7 +137,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IPaperType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [paperTypes, totalResult] = await Promise.all([
@@ -155,7 +163,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPaperType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

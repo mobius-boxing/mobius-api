@@ -7,6 +7,8 @@ interface IJWTPayload {
   email: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: string;
+  // Enabled module slugs for the user's company (empty for superAdmin / no company).
+  modules?: string[];
   // Store customer tokens carry audience:'store'; internal tokens never set it.
   // Used purely so internal auth can reject store tokens (see authenticate).
   audience?: string;
@@ -38,18 +40,6 @@ export const authenticate = async (
     }
 
     const decoded = jwt.verify(token, jwtSecret) as IJWTPayload;
-
-    // SECURITY: defense-in-depth token isolation. Store-customer tokens carry
-    // audience:'store'; internal tokens never do. Reject store tokens here so that even
-    // under a shared-secret fallback (STORE_JWT_SECRET unset) a store token can never pass
-    // internal auth. This guard does not affect any existing internal token.
-    if (decoded.audience === "store") {
-      res.status(401).json({
-        success: false,
-        message: "Invalid token.",
-      });
-      return;
-    }
 
     // SECURITY: re-check existence + active flag on every request so revoked/disabled accounts
     // can't keep using a still-valid JWT.
@@ -127,6 +117,72 @@ export const optionalAuth = async (
     // Invalid token = continue unauthenticated, matching optional-auth contract.
     next();
   }
+};
+
+/**
+ * Data-driven permission gate (module 02 RBAC grid). Checks the caller's role
+ * grants for `code`; with allowReadOnly, the `.readonly` variant also passes
+ * (Procusto's SoloLectura pairing — use on GET routes).
+ *
+ * Transition semantics (02/08-migration-notes dual-read): superAdmin always
+ * passes; a user with NO roleId falls back to the legacy enum (admin passes,
+ * member is denied). Once every user carries a roleId the fallback dies with
+ * the enum column.
+ */
+export const requirePermission = (
+  code: string,
+  options?: { allowReadOnly?: boolean },
+) => {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+      return;
+    }
+
+    if (user.role === "superAdmin") {
+      next();
+      return;
+    }
+
+    try {
+      // Cache per request — several gates may run on one request.
+      let codes: string[] | undefined = req.permissionCodes;
+      let hasRole: boolean | undefined = req.permissionHasRole;
+      if (codes === undefined || hasRole === undefined) {
+        const { RbacService } = await import("../services/rbac.service");
+        // NOTE: UserDAO.getByUuid must not be used here — its mapToInterface
+        // drops roleId, which would silently disable the whole grid.
+        const authz = await RbacService.authzForUserUuid(user.userId);
+        hasRole = authz.hasRole;
+        codes = authz.codes;
+        req.permissionCodes = codes;
+        req.permissionHasRole = hasRole;
+      }
+
+      // Decision semantics live in ONE place (RbacService.isAllowed) — the
+      // superAdmin bypass above is only a fetch-skipping fast path.
+      const { RbacService } = await import("../services/rbac.service");
+      if (!RbacService.isAllowed(user.role, hasRole, codes, code, options)) {
+        res.status(403).json({
+          success: false,
+          message: `Insufficient permissions. Required: ${code}`,
+        });
+        return;
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
 };
 
 export const requireRole = (
@@ -212,7 +268,9 @@ export const generateToken = (user: {
   email: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: string;
+  modules?: string[];
 }): string => {
+  // SECURITY (H1): fail closed — never sign with an empty secret.
   const jwtSecret = process.env.JWT_SECRET;
   const jwtExpire = process.env.JWT_EXPIRE || "5h";
 
@@ -225,6 +283,7 @@ export const generateToken = (user: {
     email: user.email,
     role: user.role,
     companyId: user.companyId,
+    modules: user.modules ?? [],
   };
 
   return jwt.sign(payload, jwtSecret, {

@@ -23,6 +23,7 @@ import {
 // Store reference to mock functions
 const mockUserDAO = {
   getAll: jest.fn(),
+  getAllWithFilters: jest.fn(),
   getAllByCompany: jest.fn(),
   getByUuid: jest.fn(),
   getUserByEmail: jest.fn(),
@@ -69,6 +70,7 @@ jest.mock('../../../dao/user/user.dao', () => {
     UserDAO: function() {
       return {
         getAll: (...args) => mf.getAll(...args),
+        getAllWithFilters: (...args) => mf.getAllWithFilters(...args),
         getAllByCompany: (...args) => mf.getAllByCompany(...args),
         getByUuid: (...args) => mf.getByUuid(...args),
         getUserByEmail: (...args) => mf.getUserByEmail(...args),
@@ -150,6 +152,7 @@ describe('UsersController', () => {
 
     // Reset all mock functions
     mockUserDAO.getAll.mockReset();
+    mockUserDAO.getAllWithFilters.mockReset();
     mockUserDAO.getAllByCompany.mockReset();
     mockUserDAO.getByUuid.mockReset();
     mockUserDAO.getUserByEmail.mockReset();
@@ -178,7 +181,7 @@ describe('UsersController', () => {
       ];
       const paginatedResult = createPaginatedResponse(testData, 1, 10, 2);
 
-      mockUserDAO.getAll.mockResolvedValue(paginatedResult);
+      mockUserDAO.getAllWithFilters.mockResolvedValue(paginatedResult);
 
       const mockReq = {
         ...createPaginatedRequest(1, 10),
@@ -187,7 +190,7 @@ describe('UsersController', () => {
 
       await controller.getAll(mockReq, mockRes as Response, mockNext);
 
-      expect(mockUserDAO.getAll).toHaveBeenCalledWith(1, 10);
+      expect(mockUserDAO.getAllWithFilters).toHaveBeenCalledWith(mockReq);
       expect(mockRes.status).toHaveBeenCalledWith(200);
 
       // Verify password is removed from response
@@ -242,7 +245,10 @@ describe('UsersController', () => {
       const testData = createTestUser({ password: 'secret-password' });
       mockUserDAO.getByUuid.mockResolvedValue(testData);
 
-      const mockReq = createUuidParamRequest(testData.uuid) as Request;
+      // callerCanAccessUser requires an authenticated caller (tenant guard).
+      const mockReq = createUuidParamRequest(testData.uuid, {
+        user: { role: 'superAdmin', userId: 'caller-uuid' },
+      } as any) as Request;
 
       await controller.getByUuid(mockReq, mockRes as Response, mockNext);
 
@@ -267,7 +273,8 @@ describe('UsersController', () => {
     it('should create user with hashed password', async () => {
       const inputData = {
         email: 'new@test.com',
-        password: 'plainPassword',
+        // SECURITY (M4): must satisfy the password policy (>=12, upper, lower, digit).
+        password: 'PlainPassword1',
         firstName: 'John',
         lastName: 'Doe',
         role: 'member',
@@ -326,8 +333,10 @@ describe('UsersController', () => {
 
       const mockReq = {
         ...createUuidParamRequest('existing-uuid'),
+        // SECURITY (C3): update now requires an authenticated actor; superAdmin has full access.
+        user: { userId: 'admin-uuid', role: 'superAdmin' },
         body: { firstName: 'Updated', email: 'test@test.com' },
-      } as Request;
+      } as unknown as Request;
 
       await controller.update(mockReq, mockRes as Response, mockNext);
 
@@ -358,8 +367,10 @@ describe('UsersController', () => {
 
       const mockReq = {
         ...createUuidParamRequest('user-uuid'),
+        // SECURITY (C3): only superAdmins may reassign a user's company (UUID → id resolution).
+        user: { userId: 'admin-uuid', role: 'superAdmin' },
         body: { companyId: 'company-uuid', email: 'test@test.com' },
-      } as Request;
+      } as unknown as Request;
 
       await controller.update(mockReq, mockRes as Response, mockNext);
 
@@ -406,7 +417,10 @@ describe('UsersController', () => {
 
       mockUserDAO.getUserWithCompany.mockResolvedValue(userWithCompany);
 
-      const mockReq = createUuidParamRequest('test-uuid') as Request;
+      // callerCanAccessUser requires an authenticated caller (tenant guard).
+      const mockReq = createUuidParamRequest('test-uuid', {
+        user: { role: 'superAdmin', userId: 'caller-uuid' },
+      } as any) as Request;
 
       await controller.getWithCompany(mockReq, mockRes as Response, mockNext);
 

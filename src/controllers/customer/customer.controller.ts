@@ -1,10 +1,7 @@
 import { Request, Response, NextFunction } from "express";
+import { AuditService } from "../../services/audit.service";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { CustomerDAO } from "../../dao/customer/customer.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { UserDAO } from "../../dao/user/user.dao";
@@ -16,9 +13,23 @@ import {
   CustomerCreateInputDTO,
   CustomerUpdateInputDTO,
 } from "../../dto/input/customer";
-import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
+import {
+  enforceCompanyFilter,
+  getCompanyFilterUuid,
+} from "../../utils/companyScope";
 
 export class CustomerController implements IBaseController {
+  private _audit = new AuditService();
+
+  /** Best-effort audit hook (audit_logs) — fire-and-forget. */
+  private recordAudit(
+    req: any,
+    op: "Alta" | "Baja" | "Modificacion",
+    entity: any,
+  ): void {
+    void this._audit.record(req, "Customer", op, entity ?? null);
+  }
+
   private _customerDAO: CustomerDAO = new CustomerDAO();
 
   /**
@@ -173,6 +184,11 @@ export class CustomerController implements IBaseController {
         uuid: uuidv4(),
         companyId: inputDTO.companyId,
         name: inputDTO.name,
+        code: inputDTO.code,
+        dispatchable: inputDTO.dispatchable,
+        notes: inputDTO.notes,
+        excludeLogoOnLabels: inputDTO.excludeLogoOnLabels,
+        requiresQualityCertificate: inputDTO.requiresQualityCertificate,
         supplierCode: inputDTO.supplierCode,
         salesPersonId: inputDTO.salesPersonId,
         categoryId: inputDTO.categoryId,
@@ -182,11 +198,12 @@ export class CustomerController implements IBaseController {
         address: inputDTO.address,
         tradeName: inputDTO.tradeName,
         contacts: inputDTO.contacts || [],
-        deliveryLocations: inputDTO.deliveryLocations || [],
-        deliveryDays: inputDTO.deliveryDays || [],
+        // deliveryLocations/deliveryDays moved to real tables (20260720000008).
       };
 
       const result = await this._customerDAO.create(dataToCreate);
+
+      this.recordAudit(req, "Alta", result);
 
       res.status(201).json({
         success: true,
@@ -263,6 +280,8 @@ export class CustomerController implements IBaseController {
 
       const result = await this._customerDAO.update(existing.id, inputDTO);
 
+      this.recordAudit(req, "Modificacion", result);
+
       res.status(200).json({
         success: true,
         data: result,
@@ -295,6 +314,7 @@ export class CustomerController implements IBaseController {
       const result = await this._customerDAO.delete(existing.id);
 
       if (result) {
+        this.recordAudit(req, "Baja", existing);
         res.status(200).json({
           success: true,
           message: "Customer deleted successfully",

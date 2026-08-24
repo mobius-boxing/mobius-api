@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IFluteType } from "../../interfaces/flute-type/flute-type.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -62,7 +63,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   private queryConfig = FLUTE_TYPE_QUERY_CONFIG;
 
   async create(item: IFluteType): Promise<IFluteType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [fluteType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -80,15 +81,20 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   }
 
   async getById(id: number): Promise<IFluteType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const fluteType = await knex(this.tableName).where("id", id).first();
 
     return fluteType ? this.mapToInterface(fluteType) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IFluteType | null> {
-    const knex = KnexManager.getConnection();
-    const fluteType = await knex(this.tableName).where("uuid", uuid).first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IFluteType | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const fluteType = await query.select(`${this.tableName}.*`).first();
 
     return fluteType ? this.mapToInterface(fluteType) : null;
   }
@@ -97,7 +103,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     id: number,
     item: Partial<IFluteType>,
   ): Promise<IFluteType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -120,7 +126,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -133,7 +139,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IFluteType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [fluteTypes, totalResult] = await Promise.all([
@@ -159,7 +165,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IFluteType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

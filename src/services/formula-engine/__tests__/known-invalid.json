@@ -1,0 +1,10 @@
+{
+  "description": "Corpus strings that legitimately cannot validate (AC-20 escape hatch). Each entry must carry a reason and must actually fail validate() — real-corpus.spec.ts enforces both. No comma-decimal entry may ever land here (Q-F3: that requires escalation, not an exemption).",
+  "entries": [
+    {
+      "field": "boxSurfaceFormula",
+      "formula": "([Largo externo]+[Ancho externo])+[t]+[Chapeton])*([Altura externa]+[Ancho externo]+[t])/1000000",
+      "reason": "Stored live data has unbalanced parentheses (an extra ')' after [Chapeton] — the leading '(2*' of the sibling formula shape is missing). NCalc 1.3.8.0 cannot parse it either: Procusto's Testear rejects it and Evaluar silently returns 0 for this Modelo's SuperficieCaja. Rejecting it at design time is the correct Mobius behaviour (D-3)."
+    }
+  ]
+}

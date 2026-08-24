@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICorrugationClass } from "../../interfaces/corrugation-class/corrugation-class.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -58,7 +59,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   private queryConfig = CORRUGATION_CLASS_QUERY_CONFIG;
 
   async create(item: ICorrugationClass): Promise<ICorrugationClass> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [corrugationClass] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -72,17 +73,20 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   }
 
   async getById(id: number): Promise<ICorrugationClass | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const corrugationClass = await knex(this.tableName).where("id", id).first();
 
     return corrugationClass ? this.mapToInterface(corrugationClass) : null;
   }
 
-  async getByUuid(uuid: string): Promise<ICorrugationClass | null> {
-    const knex = KnexManager.getConnection();
-    const corrugationClass = await knex(this.tableName)
-      .where("uuid", uuid)
-      .first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ICorrugationClass | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const corrugationClass = await query.select(`${this.tableName}.*`).first();
 
     return corrugationClass ? this.mapToInterface(corrugationClass) : null;
   }
@@ -91,7 +95,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     id: number,
     item: Partial<ICorrugationClass>,
   ): Promise<ICorrugationClass | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -109,7 +113,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -122,7 +126,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<ICorrugationClass>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [corrugationClasses, totalResult] = await Promise.all([
@@ -150,7 +154,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<ICorrugationClass>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid rather than
@@ -218,12 +222,14 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     };
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 }

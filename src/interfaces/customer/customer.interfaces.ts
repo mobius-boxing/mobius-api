@@ -40,6 +40,11 @@ export interface ICustomer {
   uuid?: string;
   companyId: number;
   name: string;
+  code?: string | null;
+  dispatchable?: boolean;
+  notes?: string | null;
+  excludeLogoOnLabels?: boolean;
+  requiresQualityCertificate?: boolean;
   supplierCode?: string;
   salesPersonId?: number;
   categoryId?: number;
@@ -49,8 +54,6 @@ export interface ICustomer {
   address?: string;
   tradeName?: string;
   contacts?: IContactInfo[];
-  deliveryLocations?: IDeliveryLocation[];
-  deliveryDays?: IDeliveryDay[];
   createdAt?: Date;
   updatedAt?: Date;
   // Joined data

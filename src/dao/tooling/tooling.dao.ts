@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ITooling } from "../../interfaces/tooling/tooling.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is handled separately via a join because the client sends a UUID, not a numeric id.
@@ -53,31 +54,29 @@ const TOOLING_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-const TOOLING_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
-  "toolings",
-  {
-    filters: TOOLING_FILTERS,
-    sorting: TOOLING_SORTING,
-    search: {
-      columns: ["name", "description"],
-      operator: "ILIKE",
-    },
-    defaultSort: {
-      column: "name",
-      order: "asc",
-    },
+const TOOLING_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("toolings", {
+  filters: TOOLING_FILTERS,
+  sorting: TOOLING_SORTING,
+  search: {
+    columns: ["name", "description"],
+    operator: "ILIKE",
   },
-);
+  defaultSort: {
+    column: "name",
+    order: "asc",
+  },
+});
 
 export class ToolingDAO implements IBaseDAO<ITooling> {
   private tableName = "toolings";
   private queryConfig = TOOLING_QUERY_CONFIG;
 
   async create(item: ITooling): Promise<ITooling> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [tooling] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
+        code: item.code,
         name: item.name,
         description: item.description,
         manufacturerId: item.manufacturerId,
@@ -92,38 +91,51 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   }
 
   async getById(id: number): Promise<ITooling | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const tooling = await knex(this.tableName).where("id", id).first();
     return tooling ? this.mapToInterface(tooling) : null;
   }
 
-  async getByUuid(uuid: string): Promise<ITooling | null> {
-    const knex = KnexManager.getConnection();
-    const tooling = await this.buildJoinQuery(knex)
-      .where(`${this.tableName}.uuid`, uuid)
-      .first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ITooling | null> {
+    const knex = db("erp");
+    const query = this.buildJoinQuery(knex).where(
+      `${this.tableName}.uuid`,
+      uuid,
+    );
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const tooling = await query.first();
     return tooling ? this.mapWithRelations(tooling) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const record = await knex(this.tableName)
-      .select("id")
-      .where("uuid", uuid)
-      .first();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
 
   async update(id: number, item: Partial<ITooling>): Promise<ITooling | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
+    if (item.code !== undefined) updateData.code = item.code;
     if (item.name !== undefined) updateData.name = item.name;
-    if (item.description !== undefined) updateData.description = item.description;
-    if (item.manufacturerId !== undefined) updateData.manufacturerId = item.manufacturerId;
+    if (item.description !== undefined)
+      updateData.description = item.description;
+    if (item.manufacturerId !== undefined)
+      updateData.manufacturerId = item.manufacturerId;
     if (item.supplierId !== undefined) updateData.supplierId = item.supplierId;
-    if (item.minimumStock !== undefined) updateData.minimumStock = item.minimumStock;
-    if (item.toolingTypeId !== undefined) updateData.toolingTypeId = item.toolingTypeId;
+    if (item.minimumStock !== undefined)
+      updateData.minimumStock = item.minimumStock;
+    if (item.toolingTypeId !== undefined)
+      updateData.toolingTypeId = item.toolingTypeId;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -136,20 +148,23 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   async getAll(page: number, limit: number): Promise<IDataPaginator<ITooling>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = this.buildJoinQuery(knex);
     const countQuery = knex(this.tableName);
 
     const [toolings, totalResult] = await Promise.all([
-      query.orderBy(`${this.tableName}.name`, "asc").limit(limit).offset(offset),
+      query
+        .orderBy(`${this.tableName}.name`, "asc")
+        .limit(limit)
+        .offset(offset),
       countQuery.count("* as count").first(),
     ]);
 
@@ -167,7 +182,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ITooling>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
@@ -215,14 +230,23 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
         knex.raw("to_jsonb(suppliers.*) as supplier"),
         knex.raw('to_jsonb(tooling_types.*) as "toolingType"'),
       )
-      .leftJoin("manufacturers", `${this.tableName}.manufacturerId`, "manufacturers.id")
+      .leftJoin(
+        "manufacturers",
+        `${this.tableName}.manufacturerId`,
+        "manufacturers.id",
+      )
       .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
-      .leftJoin("tooling_types", `${this.tableName}.toolingTypeId`, "tooling_types.id");
+      .leftJoin(
+        "tooling_types",
+        `${this.tableName}.toolingTypeId`,
+        "tooling_types.id",
+      );
   }
 
   private mapToInterface(record: any): ITooling {
     return {
       uuid: record.uuid,
+      code: record.code,
       name: record.name,
       description: record.description,
       minimumStock: record.minimumStock,

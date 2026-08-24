@@ -6,6 +6,8 @@ export interface ITooling {
   id?: number;
   uuid?: string;
   companyId?: number;
+  /** Procusto Herramental.Codigo (autonumber wiring lands with module numbering). */
+  code?: string;
   name: string;
   description?: string;
   manufacturerId?: number;

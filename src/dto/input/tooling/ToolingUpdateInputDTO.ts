@@ -1,4 +1,5 @@
 export class ToolingUpdateInputDTO {
+  code?: string;
   name?: string;
   description?: string;
   manufacturerUuid?: string;
@@ -7,6 +8,7 @@ export class ToolingUpdateInputDTO {
   toolingTypeUuid?: string;
 
   constructor(data: any) {
+    if (data.code !== undefined) this.code = data.code;
     if (data.name !== undefined) this.name = data.name;
     if (data.description !== undefined) this.description = data.description;
     if (data.manufacturerUuid !== undefined) this.manufacturerUuid = data.manufacturerUuid;

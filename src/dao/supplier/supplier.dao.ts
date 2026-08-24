@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ISupplier } from "../../interfaces/supplier/supplier.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -57,25 +58,28 @@ const SUPPLIER_SORTING: SortConfigs = {
   updatedAt: { column: "updatedAt" },
 };
 
-const SUPPLIER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("suppliers", {
-  filters: SUPPLIER_FILTERS,
-  sorting: SUPPLIER_SORTING,
-  search: {
-    columns: ["code"],
-    operator: "ILIKE",
+const SUPPLIER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
+  "suppliers",
+  {
+    filters: SUPPLIER_FILTERS,
+    sorting: SUPPLIER_SORTING,
+    search: {
+      columns: ["code"],
+      operator: "ILIKE",
+    },
+    defaultSort: {
+      column: "code",
+      order: "asc",
+    },
   },
-  defaultSort: {
-    column: "code",
-    order: "asc",
-  },
-});
+);
 
 export class SupplierDAO implements IBaseDAO<ISupplier> {
   private tableName = "suppliers";
   private queryConfig = SUPPLIER_QUERY_CONFIG;
 
   async create(item: ISupplier): Promise<ISupplier> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [supplier] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -93,25 +97,32 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
   }
 
   async getById(id: number): Promise<ISupplier | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const supplier = await knex(this.tableName).where("id", id).first();
 
     return supplier ? this.mapToInterface(supplier) : null;
   }
 
-  async getByUuid(uuid: string): Promise<ISupplier | null> {
-    const knex = KnexManager.getConnection();
-    const supplier = await knex(this.tableName).where("uuid", uuid).first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<ISupplier | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const supplier = await query.select(`${this.tableName}.*`).first();
 
     return supplier ? this.mapToInterface(supplier) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const supplier = await knex(this.tableName)
-      .where("uuid", uuid)
-      .select("id")
-      .first();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const supplier = await query.select(`${this.tableName}.id`).first();
 
     return supplier ? supplier.id : null;
   }
@@ -120,7 +131,7 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     id: number,
     item: Partial<ISupplier>,
   ): Promise<ISupplier | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -146,7 +157,7 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -159,7 +170,7 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<ISupplier>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [suppliers, totalResult] = await Promise.all([
@@ -185,7 +196,7 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ISupplier>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

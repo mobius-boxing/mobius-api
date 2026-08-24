@@ -1,0 +1,431 @@
+{
+  "description": "NCalc 1.3.8.0 parity goldens — specs/replication/modules/08-modelos-and-formula-engine/golden-tests.md. Consumed by golden.spec.ts (unit) and repos/tests/parity/08-formula-engine (API replay). Expected values are Procusto-runtime doubles; do not 'fix' the quirks (L-010).",
+  "fixtures": {
+    "A": {
+      "Largo": 500,
+      "Base": 400,
+      "Ancho": 400,
+      "Altura": 300,
+      "Largo adicional": 0,
+      "Largo externo": 504,
+      "Base externa": 404,
+      "Ancho externo": 404,
+      "Altura externa": 304,
+      "Aleta inferior": 104,
+      "Aleta superior": 104,
+      "Chapeton": 30,
+      "Superposicion aletas": 10,
+      "t": 0.4,
+      "Gramaje teorico": 450,
+      "tr1": 2,
+      "tr2": 2,
+      "tr3": 2,
+      "tr4": 2,
+      "tr5": 2,
+      "tr6": 2,
+      "tr7": 2,
+      "tr8": 2,
+      "tr9": 2,
+      "tr10": 2,
+      "tr11": 2,
+      "tr12": 2,
+      "tr13": 2,
+      "tr14": 2,
+      "tr15": 2,
+      "tr16": 2,
+      "Rotacion obligatoria": 0,
+      "Repeticiones ancho": 1,
+      "Repeticiones largo": 1
+    },
+    "A_ROT": {
+      "Largo": 500,
+      "Base": 400,
+      "Ancho": 400,
+      "Altura": 300,
+      "Largo adicional": 0,
+      "Largo externo": 504,
+      "Base externa": 404,
+      "Ancho externo": 404,
+      "Altura externa": 304,
+      "Aleta inferior": 104,
+      "Aleta superior": 104,
+      "Chapeton": 30,
+      "Superposicion aletas": 10,
+      "t": 0.4,
+      "Gramaje teorico": 450,
+      "tr1": 2,
+      "tr2": 2,
+      "tr3": 2,
+      "tr4": 2,
+      "tr5": 2,
+      "tr6": 2,
+      "tr7": 2,
+      "tr8": 2,
+      "tr9": 2,
+      "tr10": 2,
+      "tr11": 2,
+      "tr12": 2,
+      "tr13": 2,
+      "tr14": 2,
+      "tr15": 2,
+      "tr16": 2,
+      "Rotacion obligatoria": 1,
+      "Repeticiones ancho": 1,
+      "Repeticiones largo": 1
+    },
+    "A_ODD": {
+      "Largo": 500,
+      "Base": 400,
+      "Ancho": 400,
+      "Altura": 300,
+      "Largo adicional": 0,
+      "Largo externo": 504,
+      "Base externa": 404,
+      "Ancho externo": 405,
+      "Altura externa": 304,
+      "Aleta inferior": 104,
+      "Aleta superior": 104,
+      "Chapeton": 30,
+      "Superposicion aletas": 10,
+      "t": 0.4,
+      "Gramaje teorico": 450,
+      "tr1": 2,
+      "tr2": 2,
+      "tr3": 2,
+      "tr4": 2,
+      "tr5": 2,
+      "tr6": 2,
+      "tr7": 2,
+      "tr8": 2,
+      "tr9": 2,
+      "tr10": 2,
+      "tr11": 2,
+      "tr12": 2,
+      "tr13": 2,
+      "tr14": 2,
+      "tr15": 2,
+      "tr16": 2,
+      "Rotacion obligatoria": 0,
+      "Repeticiones ancho": 1,
+      "Repeticiones largo": 1
+    }
+  },
+  "cases": [
+    {
+      "id": "G-1",
+      "formula": "[Largo] + [Ancho] + [Largo] + [Ancho] + [Aleta inferior]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 1904
+    },
+    {
+      "id": "G-2",
+      "formula": "[Altura] + [Aleta inferior] + [Aleta superior]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 508
+    },
+    {
+      "id": "G-3",
+      "formula": "2*t",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0.8
+    },
+    {
+      "id": "G-4",
+      "formula": "[Aleta inferior]+(t/2)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 104.2
+    },
+    {
+      "id": "G-5",
+      "formula": "[Ancho]/2 + [Superposicion aletas]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 210
+    },
+    {
+      "id": "G-6",
+      "formula": "([Largo externo]*[Ancho externo] + [Largo externo]*[Altura externa]*2 + [Ancho externo]*[Altura externa]*2 + [Largo externo]*([Aleta inferior]+[Aleta superior])) / 1000000",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0.860512
+    },
+    {
+      "id": "G-7",
+      "formula": "if([Rotacion obligatoria] == 1, [Ancho]+10, [Largo]+10)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 510
+    },
+    {
+      "id": "G-8",
+      "formula": "if([Rotacion obligatoria] == 1, [Ancho]+10, [Largo]+10)",
+      "fixture": "A_ROT",
+      "kind": "scalar",
+      "expected": 410
+    },
+    {
+      "id": "G-9",
+      "formula": "[Largo] + 2*t + tr1",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 502.8
+    },
+    {
+      "id": "G-10",
+      "formula": "[Largo] + tr3 + tr16",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 504
+    },
+    {
+      "id": "G-11",
+      "formula": "",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-12",
+      "formula": "[Largo] / [Nonexistent]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-13",
+      "formula": "[Largo] / 0",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": "Infinity"
+    },
+    {
+      "id": "R-1",
+      "formula": "2*([Largo externo]+[Base externa]+[t])+[Chapeton]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 1846.8
+    },
+    {
+      "id": "R-2",
+      "formula": "2*([Largo]+[Base]+[t])+[Chapeton]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 1830.8
+    },
+    {
+      "id": "R-3",
+      "formula": "2*Truncate([Altura externa]*69/100)+[Altura externa]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 722
+    },
+    {
+      "id": "R-4",
+      "formula": "2*([Base externa]*90/100)+[Altura externa]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 1031.2
+    },
+    {
+      "id": "R-5",
+      "formula": "(2*([Largo externo]+[Base externa]+[t])+[Chapeton])*([Base externa]+[Altura externa]+[t])/1000000",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 1.30827312
+    },
+    {
+      "id": "R-6",
+      "formula": "[Chapeton]|[Base externa]|[Largo externo]|[Base externa]|[Largo externo]",
+      "fixture": "A",
+      "kind": "list",
+      "expected": [30, 404, 504, 404, 504]
+    },
+    {
+      "id": "R-7",
+      "formula": "Truncate([Base externa]*57.21/100)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 231
+    },
+    {
+      "id": "R-8",
+      "formula": "2*Truncate([Base externa]*56.079/100)+[Altura externa]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 756
+    },
+    {
+      "id": "R-9",
+      "formula": "Truncate([Ancho externo]/2)|[Altura externa]|Ceiling([Ancho externo]/2)",
+      "fixture": "A",
+      "kind": "list",
+      "expected": [202, 304, 202]
+    },
+    {
+      "id": "R-9-odd",
+      "formula": "Truncate([Ancho externo]/2)|[Altura externa]|Ceiling([Ancho externo]/2)",
+      "fixture": "A_ODD",
+      "kind": "list",
+      "expected": [202, 304, 203]
+    },
+    {
+      "id": "G-R0",
+      "formula": "Round(2.5)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-R1",
+      "formula": "Round(2.5, 0)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 2
+    },
+    {
+      "id": "G-R2",
+      "formula": "Round(0.5, 0)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-R3",
+      "formula": "Round(3.5, 0)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 4
+    },
+    {
+      "id": "G-R4",
+      "formula": "3 ^ 2",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 1
+    },
+    {
+      "id": "G-R5",
+      "formula": "Pow(3, 2)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 9
+    },
+    {
+      "id": "G-R6",
+      "formula": "5 / 2",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 2.5
+    },
+    {
+      "id": "G-R7",
+      "formula": "[Largo] / 2",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 250
+    },
+    {
+      "id": "G-R8",
+      "formula": "Abs(-7) + Sqrt(16)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-R8b",
+      "formula": "Abs(-7)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 7
+    },
+    {
+      "id": "G-R10",
+      "formula": "abs(-7)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-R11",
+      "formula": "Ln(10)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-R12",
+      "formula": "Log(10)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-R13",
+      "formula": "Log(8, 2)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 3,
+      "close": true
+    },
+    {
+      "id": "G-R14",
+      "formula": "If([Rotacion obligatoria] == 1, [Ancho]+10, [Largo]+10)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-R16",
+      "formula": "Truncate(-1.9)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": -1
+    },
+    {
+      "id": "G-R17",
+      "formula": "Floor(-1.9)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": -2
+    },
+    {
+      "id": "G-R18",
+      "formula": "Truncate(209.76)",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 209
+    },
+    {
+      "id": "G-R19",
+      "formula": "[largo]",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    },
+    {
+      "id": "G-R20",
+      "formula": "2035",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 2035
+    },
+    {
+      "id": "G-R21",
+      "formula": "0.861",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0.861
+    },
+    {
+      "id": "G-R22",
+      "formula": "[Largo]+1,5",
+      "fixture": "A",
+      "kind": "scalar",
+      "expected": 0
+    }
+  ]
+}

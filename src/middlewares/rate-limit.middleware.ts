@@ -1,46 +1,53 @@
-import { Request, Response, NextFunction } from "express";
-
-interface IRateLimitRecord {
-  count: number;
-  resetTime: number;
-}
-
-// In-memory store keyed by IP address or authenticated user id. Not shared across processes —
-// behind a load balancer each instance enforces its own limit (tradeoff: simpler, less accurate).
-const rateLimitStore = new Map<string, IRateLimitRecord>();
-
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, record] of rateLimitStore.entries()) {
-      if (record.resetTime < now) {
-        rateLimitStore.delete(key);
-      }
-    }
-  },
-  5 * 60 * 1000,
-);
+import { Request, Response } from "express";
+import { rateLimit, ipKeyGenerator, type Options } from "express-rate-limit";
 
 /**
- * Authenticated requests key on user id, anonymous requests on IP. `routeKey` lets one
- * client hit different routes without exhausting a shared bucket.
+ * SECURITY (H3): rate limiting backed by `express-rate-limit`.
+ *
+ * Why this replaced the hand-rolled limiter:
+ *  - The old limiter caught its own errors and called next() — i.e. it FAILED OPEN, so any internal
+ *    error silently disabled rate limiting. express-rate-limit fails closed.
+ *  - The old limiter trusted client-supplied `x-forwarded-for` / `x-real-ip` headers, which are
+ *    trivially spoofable. We now set `app.set("trust proxy", 1)` in app.ts (the API sits behind a
+ *    single CloudFront proxy) and let the library derive the client IP from `req.ip`.
+ *
+ * NOTE (scaling): this uses the library's default in-memory store, so each process keeps its own
+ * counters. If the API is ever scaled to multiple instances, swap in a shared store (e.g.
+ * `rate-limit-redis`) so limits are enforced globally.
  */
-const getClientIdentifier = (req: Request, routeKey?: string): string => {
-  let baseIdentifier: string;
 
-  if (req.user && req.user.userId) {
-    baseIdentifier = `user:${req.user.userId}`;
-  } else {
-    const ip =
-      req.ip ||
-      req.headers["x-forwarded-for"] ||
-      req.headers["x-real-ip"] ||
-      req.socket.remoteAddress ||
-      "unknown";
-    baseIdentifier = `ip:${ip}`;
-  }
+/**
+ * Key by authenticated user id when present, otherwise by the (trusted) client IP.
+ * `routeKey` namespaces a client across distinct routes so one bucket isn't shared.
+ * For IP keys we use `ipKeyGenerator` so IPv6 addresses are normalized to a subnet.
+ */
+const makeKeyGenerator = (routeKey?: string) => {
+  return (req: Request): string => {
+    const base = req.user?.userId
+      ? `user:${req.user.userId}`
+      : `ip:${ipKeyGenerator(req.ip ?? "")}`;
+    return routeKey ? `${base}:${routeKey}` : base;
+  };
+};
 
-  return routeKey ? `${baseIdentifier}:${routeKey}` : baseIdentifier;
+const jsonHandler = (message: string) => {
+  return (_req: Request, res: Response): void => {
+    res.status(429).json({
+      success: false,
+      message,
+    });
+  };
+};
+
+/**
+ * Factory mirroring the previous signature so existing call sites keep working:
+ * createRateLimiter(max, windowMinutes, message?, routeKey?).
+ */
+/** Env-overridable limit: RATE_LIMIT_<KEY>_MAX, falling back to the default. */
+const envMax = (key: string, fallback: number): number => {
+  const raw = process.env[`RATE_LIMIT_${key}_MAX`];
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
 export const createRateLimiter = (
@@ -49,96 +56,56 @@ export const createRateLimiter = (
   message?: string,
   routeKey?: string,
 ) => {
-  const windowMs = windowMinutes * 60 * 1000;
+  const resolvedMessage =
+    message || "Too many requests. Please try again later.";
 
-  return (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const identifier = getClientIdentifier(req, routeKey);
-      const now = Date.now();
-
-      let record = rateLimitStore.get(identifier);
-
-      if (!record || record.resetTime < now) {
-        record = {
-          count: 1,
-          resetTime: now + windowMs,
-        };
-        rateLimitStore.set(identifier, record);
-
-        res.setHeader("X-RateLimit-Limit", max.toString());
-        res.setHeader("X-RateLimit-Remaining", (max - 1).toString());
-        res.setHeader(
-          "X-RateLimit-Reset",
-          new Date(record.resetTime).toISOString(),
-        );
-
-        next();
-        return;
-      }
-
-      record.count++;
-
-      if (record.count > max) {
-        const retryAfter = Math.ceil((record.resetTime - now) / 1000);
-
-        res.setHeader("X-RateLimit-Limit", max.toString());
-        res.setHeader("X-RateLimit-Remaining", "0");
-        res.setHeader(
-          "X-RateLimit-Reset",
-          new Date(record.resetTime).toISOString(),
-        );
-        res.setHeader("Retry-After", retryAfter.toString());
-
-        res.status(429).json({
-          success: false,
-          message:
-            message ||
-            `Too many requests. Please try again after ${retryAfter} seconds.`,
-          retryAfter,
-        });
-        return;
-      }
-
-      res.setHeader("X-RateLimit-Limit", max.toString());
-      res.setHeader("X-RateLimit-Remaining", (max - record.count).toString());
-      res.setHeader(
-        "X-RateLimit-Reset",
-        new Date(record.resetTime).toISOString(),
-      );
-
-      next();
-    } catch (error: any) {
-      // Never block requests because the limiter itself failed — fail open.
-      console.error("Rate limit error:", error);
-      next();
-    }
+  const options: Partial<Options> = {
+    windowMs: windowMinutes * 60 * 1000,
+    // express-rate-limit v8 renamed `max` → `limit`.
+    limit: max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // SECURITY (H3): do NOT skip on errors — fail closed.
+    keyGenerator: makeKeyGenerator(routeKey),
+    handler: jsonHandler(resolvedMessage),
   };
+
+  return rateLimit(options);
 };
 
+// SECURITY (H3): strict auth limiter for login / password-reset.
 export const authRateLimiter = createRateLimiter(
   5,
   1,
   "Too many authentication attempts. Please try again later.",
+  "auth",
 );
 
 export const apiRateLimiter = createRateLimiter(
-  100,
+  envMax("API", 600),
   15,
   "API rate limit exceeded. Please try again later.",
 );
 
 export const publicRateLimiter = createRateLimiter(
-  200,
+  envMax("PUBLIC", 400),
   15,
   "Rate limit exceeded. Please try again later.",
 );
 
-// Global limiter (no routeKey) — every "sensitive" call by a user shares this bucket. Most callers
-// should use one of the route-specific limiters below instead.
+// Global default limiter mounted in app.ts.
+export const globalRateLimiter = createRateLimiter(
+  envMax("GLOBAL", 2000),
+  15,
+  "Rate limit exceeded. Please try again later.",
+  "global",
+);
+
 export const sensitiveRateLimiter = createRateLimiter(
   3,
   5,
   "Too many requests for this sensitive operation. Please try again later.",
+  "sensitive",
 );
 
 export const sensitiveUserDeletionRateLimiter = createRateLimiter(
@@ -204,16 +171,54 @@ export const sensitiveTraceTypeDeletionRateLimiter = createRateLimiter(
   "trace-types:delete",
 );
 
-export const clearRateLimit = (identifier: string): void => {
-  rateLimitStore.delete(identifier);
+// Countdown deletions get their own bucket like every other entity. Sharing the
+// generic `sensitive` bucket (3 per 5 min for ALL sensitive routes combined) put
+// document/rubro/grupo deletes in competition with the reminder trigger, so an
+// admin tidying up a rubro ran out of budget mid-cleanup.
+export const sensitiveCountdownDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many countdown deletion requests. Please try again later.",
+  "countdown:delete",
+);
+
+// Anulación of a pedido is its soft delete, so it gets a deletion-shaped bucket
+// of its own rather than the generic `sensitive` one (3 per 5 min shared by
+// EVERY sensitive route). It is a reversible operational PATCH — it ships its
+// own `cancel` action — and a clerk voiding a fourth pedido in five minutes
+// must not be 429'd; that is the trap documented above for countdown.
+export const sensitiveSalesOrderVoidRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many sales order void requests. Please try again later.",
+  "sales-orders:void",
+);
+
+// Órdenes de producción are high-volume operational rows, so the generic
+// `sensitive` bucket (3 per 5 min shared by EVERY sensitive route) would make
+// routine cleanup — and test teardown — unusable. They still get a destructive
+// verb's own bucket rather than the plain API limiter, which is what every
+// other entity's DELETE does.
+export const sensitiveProductionOrderDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many production order deletion requests. Please try again later.",
+  "production-orders:delete",
+);
+
+/**
+ * No-op shims kept for backward compatibility. The library owns its in-memory store, so manual
+ * clearing/inspection by identifier is no longer applicable. These are retained so existing
+ * imports (e.g. in tests/tooling) don't break.
+ */
+export const clearRateLimit = (_identifier: string): void => {
+  /* no-op: store is managed internally by express-rate-limit */
 };
 
-export const getRateLimitStatus = (
-  identifier: string,
-): IRateLimitRecord | null => {
-  return rateLimitStore.get(identifier) || null;
+export const getRateLimitStatus = (_identifier: string): null => {
+  return null;
 };
 
 export const clearAllRateLimits = (): void => {
-  rateLimitStore.clear();
+  /* no-op: store is managed internally by express-rate-limit */
 };

@@ -1,10 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { IBaseController } from "../../types.d";
-import {
-  paginationHelper,
-  inputValidator,
-  IInputValidator,
-} from "@sundaysf/utils";
+import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { CustomerCategoryDAO } from "../../dao/customer-category/customer-category.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { ICustomerCategory } from "../../interfaces/customer-category/customer-category.interfaces";
@@ -14,7 +10,10 @@ import {
   CustomerCategoryCreateInputDTO,
   CustomerCategoryUpdateInputDTO,
 } from "../../dto/input/customerCategory";
-import { enforceCompanyFilter, getCompanyFilterUuid } from "../../utils/companyScope";
+import {
+  enforceCompanyFilter,
+  getCompanyFilterUuid,
+} from "../../utils/companyScope";
 
 export class CustomerCategoryController implements IBaseController {
   private _customerCategoryDAO: CustomerCategoryDAO = new CustomerCategoryDAO();
@@ -105,7 +104,8 @@ export class CustomerCategoryController implements IBaseController {
         if (!user.companyId) {
           res.status(400).json({
             success: false,
-            message: "User must belong to a company to create customer categories",
+            message:
+              "User must belong to a company to create customer categories",
           });
           return;
         }

@@ -3,12 +3,10 @@ import { CompaniesController } from "../../controllers/companies/companies.contr
 import { CompanyModulesController } from "../../controllers/companies/company-modules.controller";
 import {
   authenticate,
-  requireAdmin,
   requireSuperAdmin,
   validateUUID,
   validatePagination,
   apiRateLimiter,
-  sensitiveRateLimiter,
 } from "../../middlewares";
 
 export class CompaniesRouter {
@@ -65,6 +63,28 @@ export class CompaniesRouter {
       validateUUID(),
       apiRateLimiter,
       this.companyModulesController.enable.bind(this.companyModulesController),
+    );
+    // Whitelabel branding write (modules.md §3). SuperAdmin only, like every
+    // other company↔module route.
+    this.router.put(
+      "/:uuid/modules/:slug/config",
+      authenticate,
+      requireSuperAdmin(),
+      validateUUID(),
+      apiRateLimiter,
+      this.companyModulesController.updateConfig.bind(
+        this.companyModulesController,
+      ),
+    );
+    // Company-level whitelabel branding (D-2): one identity per client, shared
+    // by every module it has. SuperAdmin only, like every other company route.
+    this.router.put(
+      "/:uuid/branding",
+      authenticate,
+      requireSuperAdmin(),
+      validateUUID(),
+      apiRateLimiter,
+      this.companiesController.updateBranding.bind(this.companiesController),
     );
     this.router.delete(
       "/:uuid/modules/:slug",

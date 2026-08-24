@@ -1,0 +1,21 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "project": "./tsconfig.json",
+    "sourceType": "module"
+  },
+  "plugins": ["@typescript-eslint"],
+  "ignorePatterns": ["dist/", "migrations/", "seeds/", "knexfile.ts", "*.js"],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "ignoreRestSiblings": true }],
+    "@typescript-eslint/await-thenable": "error",
+    "eqeqeq": ["error", "smart"],
+    "no-restricted-imports": ["error", {
+      "patterns": [{
+        "group": ["**/database/KnexConnection"],
+        "message": "KnexManager is gone. Import { db } from src/database/registry and name the database key: db(\"core\" | \"erp\" | \"countdown\" | \"store\")."
+      }]
+    }]
+  }
+}

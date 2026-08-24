@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IStrappingType } from "../../interfaces/strapping-type/strapping-type.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -58,7 +59,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
   private queryConfig = STRAPPING_TYPE_QUERY_CONFIG;
 
   async create(item: IStrappingType): Promise<IStrappingType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [strappingType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -72,25 +73,34 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
   }
 
   async getById(id: number): Promise<IStrappingType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const strappingType = await knex(this.tableName).where("id", id).first();
 
     return strappingType ? this.mapToInterface(strappingType) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IStrappingType | null> {
-    const knex = KnexManager.getConnection();
-    const strappingType = await knex(this.tableName).where("uuid", uuid).first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IStrappingType | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const strappingType = await query.select(`${this.tableName}.*`).first();
 
     return strappingType ? this.mapToInterface(strappingType) : null;
   }
 
-  async update(id: number, item: Partial<IStrappingType>): Promise<IStrappingType | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IStrappingType>,
+  ): Promise<IStrappingType | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -103,7 +113,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -112,8 +122,11 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
   /**
    * @deprecated Use getAllWithFilters for advanced querying.
    */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IStrappingType>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IStrappingType>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [strappingTypes, totalResult] = await Promise.all([
@@ -129,7 +142,9 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
 
     return {
       success: true,
-      data: strappingTypes.map((strappingType) => this.mapToInterface(strappingType)),
+      data: strappingTypes.map((strappingType) =>
+        this.mapToInterface(strappingType),
+      ),
       page,
       limit,
       count: strappingTypes.length,
@@ -138,8 +153,10 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
     };
   }
 
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IStrappingType>> {
-    const knex = KnexManager.getConnection();
+  async getAllWithFilters(
+    req: Request,
+  ): Promise<IDataPaginator<IStrappingType>> {
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
@@ -175,7 +192,9 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
 
     return {
       success: true,
-      data: strappingTypes.map((strappingType) => this.mapToInterface(strappingType)),
+      data: strappingTypes.map((strappingType) =>
+        this.mapToInterface(strappingType),
+      ),
       page: parsedQuery.page,
       limit: parsedQuery.limit,
       count: strappingTypes.length,

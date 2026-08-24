@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import {
@@ -73,12 +73,17 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   private queryConfig = CUSTOMER_QUERY_CONFIG;
 
   async create(item: ICustomer): Promise<ICustomer> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [customer] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
         companyId: item.companyId,
         name: item.name,
+        code: item.code,
+        dispatchable: item.dispatchable ?? true,
+        notes: item.notes,
+        excludeLogoOnLabels: item.excludeLogoOnLabels ?? false,
+        requiresQualityCertificate: item.requiresQualityCertificate ?? false,
         supplier_code: item.supplierCode,
         salesPersonId: item.salesPersonId,
         categoryId: item.categoryId,
@@ -88,8 +93,8 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
         address: item.address,
         tradeName: item.tradeName,
         contacts: JSON.stringify(item.contacts || []),
-        deliveryLocations: JSON.stringify(item.deliveryLocations || []),
-        deliveryDays: JSON.stringify(item.deliveryDays || []),
+        // deliveryLocations/deliveryDays live in delivery_locations /
+        // delivery_schedules since 20260720000008 (§L.6).
       })
       .returning("*");
 
@@ -97,7 +102,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   }
 
   async getById(id: number): Promise<ICustomer | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const customer = await knex(this.tableName).where("id", id).first();
 
     return customer ? this.mapToInterface(customer) : null;
@@ -108,7 +113,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     uuid: string,
     companyUuid?: string,
   ): Promise<ICustomer | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
     if (companyUuid) {
@@ -123,7 +128,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const customer = await knex(this.tableName)
       .where("uuid", uuid)
       .select("id")
@@ -136,10 +141,18 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     id: number,
     item: Partial<ICustomer>,
   ): Promise<ICustomer | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.name !== undefined) updateData.name = item.name;
+    if (item.code !== undefined) updateData.code = item.code;
+    if (item.dispatchable !== undefined)
+      updateData.dispatchable = item.dispatchable;
+    if (item.notes !== undefined) updateData.notes = item.notes;
+    if (item.excludeLogoOnLabels !== undefined)
+      updateData.excludeLogoOnLabels = item.excludeLogoOnLabels;
+    if (item.requiresQualityCertificate !== undefined)
+      updateData.requiresQualityCertificate = item.requiresQualityCertificate;
     if (item.supplierCode !== undefined)
       updateData.supplier_code = item.supplierCode;
     if (item.salesPersonId !== undefined)
@@ -152,10 +165,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     if (item.tradeName !== undefined) updateData.tradeName = item.tradeName;
     if (item.contacts !== undefined)
       updateData.contacts = JSON.stringify(item.contacts);
-    if (item.deliveryLocations !== undefined)
-      updateData.deliveryLocations = JSON.stringify(item.deliveryLocations);
-    if (item.deliveryDays !== undefined)
-      updateData.deliveryDays = JSON.stringify(item.deliveryDays);
+    // deliveryLocations/deliveryDays moved to real tables (20260720000008).
 
     updateData.updatedAt = knex.fn.now();
 
@@ -168,7 +178,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -179,7 +189,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     limit: number,
     companyUuid?: string,
   ): Promise<IDataPaginator<ICustomer>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const query = knex(this.tableName);
@@ -217,7 +227,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ICustomer>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.
@@ -266,7 +276,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     uuid: string,
     companyUuid?: string,
   ): Promise<ICustomer | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     const query = knex(this.tableName)
       .select(
@@ -304,8 +314,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
   private mapToInterface(record: any): ICustomer {
     let contacts = [];
-    let deliveryLocations = [];
-    let deliveryDays = [];
 
     try {
       if (record.contacts) {
@@ -313,18 +321,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
           typeof record.contacts === "string"
             ? JSON.parse(record.contacts)
             : record.contacts;
-      }
-      if (record.deliveryLocations) {
-        deliveryLocations =
-          typeof record.deliveryLocations === "string"
-            ? JSON.parse(record.deliveryLocations)
-            : record.deliveryLocations;
-      }
-      if (record.deliveryDays) {
-        deliveryDays =
-          typeof record.deliveryDays === "string"
-            ? JSON.parse(record.deliveryDays)
-            : record.deliveryDays;
       }
     } catch (error) {
       console.error("Error parsing customer JSON fields:", error);
@@ -335,6 +331,11 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       uuid: record.uuid,
       companyId: record.companyId,
       name: record.name,
+      code: record.code,
+      dispatchable: record.dispatchable ?? true,
+      notes: record.notes,
+      excludeLogoOnLabels: record.excludeLogoOnLabels ?? false,
+      requiresQualityCertificate: record.requiresQualityCertificate ?? false,
       supplierCode: record.supplier_code,
       salesPersonId: record.salesPersonId,
       categoryId: record.categoryId,
@@ -344,8 +345,6 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       address: record.address,
       tradeName: record.tradeName,
       contacts,
-      deliveryLocations,
-      deliveryDays,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

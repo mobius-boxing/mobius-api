@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import {
   ICompanyModuleWithModule,
   SubscriptionStatus,
@@ -16,7 +16,7 @@ export class CompanyModuleDAO {
    * Single round trip — no N+1.
    */
   async getByCompany(companyId: number): Promise<ICompanyModuleWithModule[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const records = await knex("modules as m")
       .leftJoin("company_modules as cm", function () {
         this.on("cm.moduleId", "=", "m.id").andOnVal(
@@ -32,6 +32,7 @@ export class CompanyModuleDAO {
         "m.name",
         "m.description",
         "m.isCore",
+        "m.publicDomainLabel",
         "cm.id as companyModuleId",
         "cm.enabled",
         "cm.enabledAt",
@@ -56,7 +57,7 @@ export class CompanyModuleDAO {
    * Used by JWT issuance and /api/auth/me. Single round trip.
    */
   async getEnabledSlugsByCompany(companyId: number): Promise<string[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const slugs = await knex("company_modules as cm")
       .join("modules as m", "m.id", "cm.moduleId")
       .where("cm.companyId", companyId)
@@ -79,7 +80,7 @@ export class CompanyModuleDAO {
     moduleId: number,
     userId: number | null,
   ): Promise<ICompanyModuleWithModule> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const result = await knex.raw(
       `INSERT INTO company_modules
          ("companyId", "moduleId", enabled, "enabledAt", "enabledBy", "subscriptionStatus")
@@ -112,7 +113,7 @@ export class CompanyModuleDAO {
     moduleId: number,
     userId: number | null,
   ): Promise<ICompanyModuleWithModule | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const updated = await knex(this.tableName)
       .where({ companyId, moduleId })
       .update({
@@ -131,7 +132,7 @@ export class CompanyModuleDAO {
    * Single round trip — JOIN on modules to filter by slug.
    */
   async isEnabled(companyId: number, slug: string): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const row = await knex("company_modules as cm")
       .join("modules as m", "m.id", "cm.moduleId")
       .where("cm.companyId", companyId)
@@ -144,6 +145,87 @@ export class CompanyModuleDAO {
   }
 
   /**
+   * The config of a module that is enabled AND in a usable subscription state
+   * for this company — i.e. `isEnabled` semantics, returning the payload instead
+   * of a boolean, in the same single round trip.
+   *
+   * Returns null for "no link row", "disabled" and "blocked subscription"
+   * alike: the public whitelabel endpoint answers a generic 404 for all three
+   * and must not be able to tell them apart.
+   */
+  async getEnabledConfig(
+    companyId: number,
+    slug: string,
+  ): Promise<Record<string, unknown> | null> {
+    const knex = db("core");
+    const row = await knex("company_modules as cm")
+      .join("modules as m", "m.id", "cm.moduleId")
+      .where("cm.companyId", companyId)
+      .andWhere("m.slug", slug)
+      .andWhere("cm.enabled", true)
+      .whereNotIn("cm.subscriptionStatus", BLOCKED_SUB_STATUSES)
+      .select("cm.config")
+      .first();
+    if (!row) return null;
+    return (row.config ?? {}) as Record<string, unknown>;
+  }
+
+  /**
+   * Merge `section` into this company's config for one module, under that
+   * module's own namespace: `config[moduleSlug] = {...previous, ...section}`.
+   *
+   * Two namespaces are respected on purpose. Other modules' top-level keys are
+   * never touched (one module's config survives another's branding save), and
+   * sibling keys inside the module's own namespace survive too (`storeOrderLimits`
+   * survives a `branding` save).
+   *
+   * Runs inside a transaction with SELECT ... FOR UPDATE because this is a
+   * read-modify-write on a JSONB blob: two concurrent saves would otherwise
+   * lose one of them.
+   *
+   * Returns null when the company has no link row for the module — the caller
+   * turns that into a 404 (you cannot configure a module that was never enabled).
+   */
+  async updateConfig(
+    companyId: number,
+    moduleId: number,
+    moduleSlug: string,
+    section: Record<string, unknown>,
+  ): Promise<ICompanyModuleWithModule | null> {
+    const knex = db("core");
+
+    const companyModulesId = await knex.transaction(async (trx) => {
+      const existing = await trx(this.tableName)
+        .where({ companyId, moduleId })
+        .select("id", "config")
+        .forUpdate()
+        .first();
+      if (!existing) return null;
+
+      const config = (existing.config ?? {}) as Record<string, unknown>;
+      const previousSection = (config[moduleSlug] ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const merged: Record<string, unknown> = {
+        ...config,
+        [moduleSlug]: { ...previousSection, ...section },
+      };
+
+      await trx(this.tableName)
+        .where("id", existing.id)
+        // Explicit stringify for the jsonb column (same as AuditLogDAO.snapshot) —
+        // never rely on the driver guessing the parameter type.
+        .update({ config: JSON.stringify(merged), updatedAt: trx.fn.now() });
+
+      return existing.id as number;
+    });
+
+    if (companyModulesId === null) return null;
+    return this.getJoinedRow(companyModulesId);
+  }
+
+  /**
    * Private helper to fetch a fully-joined row by company_modules.id.
    * Used by enable() and disable() to build their return value without a second round trip
    * to construct the joined shape from scratch.
@@ -151,7 +233,7 @@ export class CompanyModuleDAO {
   private async getJoinedRow(
     companyModulesId: number,
   ): Promise<ICompanyModuleWithModule> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const record = await knex("company_modules as cm")
       .join("modules as m", "m.id", "cm.moduleId")
       .where("cm.id", companyModulesId)
@@ -162,6 +244,7 @@ export class CompanyModuleDAO {
         "m.name",
         "m.description",
         "m.isCore",
+        "m.publicDomainLabel",
         "cm.id as companyModuleId",
         "cm.enabled",
         "cm.enabledAt",
@@ -190,6 +273,7 @@ export class CompanyModuleDAO {
       name: record.name,
       description: record.description ?? null,
       isCore: record.isCore,
+      publicDomainLabel: record.publicDomainLabel ?? null,
 
       companyModuleId: record.companyModuleId ?? null,
       enabled: record.enabled ?? false,

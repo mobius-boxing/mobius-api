@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IGlueType } from "../../interfaces/glue-type/glue-type.interfaces";
 import {
@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -58,7 +59,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   private queryConfig = GLUE_TYPE_QUERY_CONFIG;
 
   async create(item: IGlueType): Promise<IGlueType> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const [glueType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -72,25 +73,34 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   }
 
   async getById(id: number): Promise<IGlueType | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const glueType = await knex(this.tableName).where("id", id).first();
 
     return glueType ? this.mapToInterface(glueType) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IGlueType | null> {
-    const knex = KnexManager.getConnection();
-    const glueType = await knex(this.tableName).where("uuid", uuid).first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IGlueType | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    const glueType = await query.select(`${this.tableName}.*`).first();
 
     return glueType ? this.mapToInterface(glueType) : null;
   }
 
-  async update(id: number, item: Partial<IGlueType>): Promise<IGlueType | null> {
-    const knex = KnexManager.getConnection();
+  async update(
+    id: number,
+    item: Partial<IGlueType>,
+  ): Promise<IGlueType | null> {
+    const knex = db("erp");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
-    if (item.description !== undefined) updateData.description = item.description;
+    if (item.description !== undefined)
+      updateData.description = item.description;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -103,7 +113,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -112,8 +122,11 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   /**
    * @deprecated Use getAllWithFilters for advanced querying.
    */
-  async getAll(page: number, limit: number): Promise<IDataPaginator<IGlueType>> {
-    const knex = KnexManager.getConnection();
+  async getAll(
+    page: number,
+    limit: number,
+  ): Promise<IDataPaginator<IGlueType>> {
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [glueTypes, totalResult] = await Promise.all([
@@ -139,7 +152,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IGlueType>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

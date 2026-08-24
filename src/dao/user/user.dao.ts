@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IUser, IUserWithCompany } from "../../interfaces/user/user.interfaces";
 import {
@@ -76,7 +76,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   private queryConfig = USER_QUERY_CONFIG;
 
   async create(item: IUser): Promise<IUser> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const [user] = await knex(this.tableName)
       .insert({
         email: item.email,
@@ -94,21 +94,21 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   async getById(id: number): Promise<IUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const user = await knex(this.tableName).where("id", id).first();
 
     return user ? this.mapToInterface(user) : null;
   }
 
   async getByUuid(uuid: string): Promise<IUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const user = await knex(this.tableName).where("uuid", uuid).first();
 
     return user ? this.mapToInterface(user) : null;
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const user = await knex(this.tableName)
       .where("uuid", uuid)
       .select("id")
@@ -118,7 +118,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   async update(id: number, item: Partial<IUser>): Promise<IUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const updateData: any = {};
 
     if (item.email !== undefined) updateData.email = item.email;
@@ -142,7 +142,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -152,12 +152,16 @@ export class UserDAO implements IBaseDAO<IUser> {
    * @deprecated Use getAllWithFilters for advanced querying.
    */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IUser>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const offset = (page - 1) * limit;
 
     const [users, totalResult] = await Promise.all([
       knex(this.tableName)
-        .select(`${this.tableName}.*`, "companies.name as companyName")
+        .select(
+          `${this.tableName}.*`,
+          "companies.name as companyName",
+          "companies.uuid as companyUuid",
+        )
         .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
         .orderBy(`${this.tableName}.createdAt`, "desc")
         .limit(limit)
@@ -181,7 +185,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IUser & { companyName?: string }>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid rather than
@@ -232,12 +236,16 @@ export class UserDAO implements IBaseDAO<IUser> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IUser>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const offset = (page - 1) * limit;
 
     const [users, totalResult] = await Promise.all([
       knex(this.tableName)
-        .select(`${this.tableName}.*`, "companies.name as companyName")
+        .select(
+          `${this.tableName}.*`,
+          "companies.name as companyName",
+          "companies.uuid as companyUuid",
+        )
         .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
         .where(`${this.tableName}.companyId`, companyId)
         .orderBy(`${this.tableName}.createdAt`, "desc")
@@ -263,7 +271,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   async getUserByEmail(email: string): Promise<IUser | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const user = await knex(this.tableName).where("email", email).first();
 
     return user ? this.mapToInterface(user) : null;
@@ -273,7 +281,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   // notification. superAdmins have no companyId so the companyId filter excludes
   // them by construction. Single column-projection query; returns a flat string[].
   async getActiveAdminEmailsByCompany(companyId: number): Promise<string[]> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const rows = await knex(this.tableName)
       .where("companyId", companyId)
       .andWhere("role", "admin")
@@ -290,7 +298,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   async getUserByEmailWithCompany(
     email: string,
   ): Promise<IUserWithCompany | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
 
     const user = await knex(this.tableName)
       .select("users.*", knex.raw("to_jsonb(companies.*) as company"))
@@ -311,7 +319,7 @@ export class UserDAO implements IBaseDAO<IUser> {
   }
 
   async getUserWithCompany(uuid: string): Promise<IUserWithCompany | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
 
     const user = await knex(this.tableName)
       .select("users.*", knex.raw("to_jsonb(companies.*) as company"))
@@ -353,6 +361,8 @@ export class UserDAO implements IBaseDAO<IUser> {
   ): IUser & { companyName?: string } {
     return {
       ...this.mapToInterface(record),
+      // SECURITY (M3): expose the company as its UUID, never the internal numeric id.
+      companyId: record.companyUuid || undefined,
       companyName: record.companyName || undefined,
     };
   }

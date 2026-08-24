@@ -1,8 +1,6 @@
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import {
   invitationEmailTemplate,
-  storeInvitationEmailTemplate,
-  storeOrderNotificationEmailTemplate,
   welcomeEmailTemplate,
   passwordResetEmailTemplate,
   emailVerificationTemplate,
@@ -14,7 +12,6 @@ export class EmailService {
   private fromEmail: string;
   private fromName: string;
   private frontendUrl: string;
-  private storeAppUrl: string | undefined;
 
   constructor() {
     // SES authenticates via the ambient AWS credential chain: the EC2 instance role
@@ -34,11 +31,6 @@ export class EmailService {
     this.fromEmail = process.env.EMAIL_FROM || "noreply@mobius-tms.com";
     this.fromName = process.env.EMAIL_FROM_NAME || "Mobius";
     this.frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    // STORE_APP_URL points at the customer-facing store app. It may be unset:
-    // mobius-store-app does not exist yet, so the invite link will not resolve
-    // until that app is built. Invite creation still succeeds (token persisted);
-    // the email send is fail-soft at the caller. Primary v1 path is admin-set-password.
-    this.storeAppUrl = process.env.STORE_APP_URL;
   }
 
   // If SES is not configured (no region) we degrade gracefully by logging the email
@@ -58,7 +50,10 @@ export class EmailService {
         );
         console.log(`✓ Email sent to ${to}: ${subject}`);
       } catch (error: any) {
-        console.error("✗ Error sending email via SES:", error?.message || error);
+        console.error(
+          "✗ Error sending email via SES:",
+          error?.message || error,
+        );
         throw new Error("Failed to send email");
       }
     } else {
@@ -99,72 +94,6 @@ export class EmailService {
     }
   }
 
-  /**
-   * Store-user invitation. Links to STORE_APP_URL (customer-facing store app).
-   *
-   * ⚠ FLAG: mobius-store-app does not exist yet, so STORE_APP_URL may be unset and
-   * the invite link will not resolve until that app is built. We fall back to
-   * FRONTEND_URL only so the email is well-formed; the link is effectively dormant.
-   * Callers MUST invoke this fail-soft (try/catch → console.error) — the store user
-   * and token are already persisted, and the primary v1 path is admin-set-password.
-   */
-  public async sendStoreInvitationEmail(
-    email: string,
-    token: string,
-    name?: string,
-  ): Promise<void> {
-    try {
-      const baseUrl = this.storeAppUrl || this.frontendUrl;
-      const actionUrl = `${baseUrl}/accept-invitation/${token}`;
-
-      const html = storeInvitationEmailTemplate({
-        firstName: name,
-        actionUrl,
-      });
-
-      const subject = "Has sido invitado a la tienda en Mobius";
-
-      await this.send(email, subject, html);
-    } catch (error) {
-      console.error("Error sending store invitation email:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * New-order notification to company admins. No price; the short uuid ref, the
-   * buyer email and the item count only. Multi-recipient: send to each admin in a
-   * loop (the private `send` takes a single `to`) so one bad address can't drop the
-   * rest. Caller invokes this fail-soft — an email failure must NOT fail the order.
-   */
-  public async sendStoreOrderNotificationEmail(
-    toEmails: string[],
-    data: {
-      orderRef: string;
-      buyerEmail: string;
-      itemCount: number;
-      companyName: string;
-    },
-  ): Promise<void> {
-    try {
-      const html = storeOrderNotificationEmailTemplate({
-        orderRef: data.orderRef,
-        buyerEmail: data.buyerEmail,
-        itemCount: data.itemCount,
-        companyName: data.companyName,
-        actionUrl: `${this.frontendUrl}/store-orders`,
-      });
-      const subject = `Nuevo pedido de tienda — ${data.companyName} (#${data.orderRef})`;
-
-      for (const to of toEmails) {
-        await this.send(to, subject, html);
-      }
-    } catch (error) {
-      console.error("Error sending store order notification email:", error);
-      throw error; // caller is fail-soft
-    }
-  }
-
   public async sendWelcomeEmail(
     email: string,
     firstName: string,
@@ -187,9 +116,13 @@ export class EmailService {
     email: string,
     token: string,
     firstName?: string,
+    baseUrl?: string,
   ): Promise<void> {
     try {
-      const actionUrl = `${this.frontendUrl}/reset-password?token=${token}`;
+      // baseUrl returns the link to the app that requested the reset (web app vs backoffice).
+      // The caller passes only origins it has validated against the allowlist; never an
+      // arbitrary client-supplied URL (open-redirect). Falls back to the web app URL.
+      const actionUrl = `${baseUrl || this.frontendUrl}/reset-password?token=${token}`;
 
       const html = passwordResetEmailTemplate({
         firstName,

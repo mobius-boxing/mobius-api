@@ -2,6 +2,11 @@ export class CustomerUpdateInputDTO {
   companyId?: number;
   customerUuid?: string;
   name?: string;
+  code?: string;
+  dispatchable?: boolean;
+  notes?: string;
+  excludeLogoOnLabels?: boolean;
+  requiresQualityCertificate?: boolean;
   supplierCode?: string;
   salesPersonId?: number;
   categoryId?: number;
@@ -10,8 +15,6 @@ export class CustomerUpdateInputDTO {
   address?: string;
   tradeName?: string;
   contacts?: any;
-  deliveryLocations?: any;
-  deliveryDays?: any;
 
   constructor(data: any) {
     if (data.companyId !== undefined)
@@ -21,6 +24,11 @@ export class CustomerUpdateInputDTO {
           : data.companyId;
     if (data.customerUuid !== undefined) this.customerUuid = data.customerUuid;
     if (data.name !== undefined) this.name = data.name;
+    if (data.code !== undefined) this.code = data.code;
+    if (data.dispatchable !== undefined) this.dispatchable = data.dispatchable === true;
+    if (data.notes !== undefined) this.notes = data.notes;
+    if (data.excludeLogoOnLabels !== undefined) this.excludeLogoOnLabels = data.excludeLogoOnLabels === true;
+    if (data.requiresQualityCertificate !== undefined) this.requiresQualityCertificate = data.requiresQualityCertificate === true;
     if (data.supplierCode !== undefined) this.supplierCode = data.supplierCode;
     if (data.salesPersonId !== undefined)
       this.salesPersonId =
@@ -37,9 +45,6 @@ export class CustomerUpdateInputDTO {
     if (data.address !== undefined) this.address = data.address;
     if (data.tradeName !== undefined) this.tradeName = data.tradeName;
     if (data.contacts !== undefined) this.contacts = data.contacts;
-    if (data.deliveryLocations !== undefined)
-      this.deliveryLocations = data.deliveryLocations;
-    if (data.deliveryDays !== undefined) this.deliveryDays = data.deliveryDays;
   }
 
   public build(): this {

@@ -1,17 +1,19 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IEmailToken } from "../../interfaces/email-token/email-token.interfaces";
+import { hashToken } from "../../utils/tokenHash";
 
 export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
   private tableName = "emailTokens";
 
   async create(item: IEmailToken): Promise<IEmailToken> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const [token] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
         userId: item.userId,
-        token: item.token,
+        // SECURITY (M5): store only the hash; the raw token lives in the email link.
+        token: hashToken(item.token),
         type: item.type,
         expiresAt: item.expiresAt,
         isUsed: item.isUsed ?? false,
@@ -22,14 +24,14 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
   }
 
   async getById(id: number): Promise<IEmailToken | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const token = await knex(this.tableName).where("id", id).first();
 
     return token ? this.mapToInterface(token) : null;
   }
 
   async getByUuid(uuid: string): Promise<IEmailToken | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const token = await knex(this.tableName).where("uuid", uuid).first();
 
     return token ? this.mapToInterface(token) : null;
@@ -39,11 +41,12 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
     id: number,
     item: Partial<IEmailToken>,
   ): Promise<IEmailToken | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const updateData: any = {};
 
     if (item.userId !== undefined) updateData.userId = item.userId;
-    if (item.token !== undefined) updateData.token = item.token;
+    // SECURITY (M5): if a token is ever rotated, store the hash, not the raw value.
+    if (item.token !== undefined) updateData.token = hashToken(item.token);
     if (item.type !== undefined) updateData.type = item.type;
     if (item.expiresAt !== undefined) updateData.expiresAt = item.expiresAt;
     if (item.isUsed !== undefined) updateData.isUsed = item.isUsed;
@@ -59,7 +62,7 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -69,7 +72,7 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IEmailToken>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const offset = (page - 1) * limit;
 
     const [tokens, totalResult] = await Promise.all([
@@ -94,9 +97,24 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
     };
   }
 
-  async getByToken(token: string): Promise<IEmailToken | null> {
-    const knex = KnexManager.getConnection();
-    const emailToken = await knex(this.tableName).where("token", token).first();
+  // SECURITY (M5): the caller passes the RAW token; hash it to match the stored hash.
+  async getByToken(rawToken: string): Promise<IEmailToken | null> {
+    const knex = db("core");
+    const hashed = hashToken(rawToken);
+    let emailToken = await knex(this.tableName).where("token", hashed).first();
+
+    // TRANSITION (hash cutover): tokens issued before hashing shipped are
+    // stored in plaintext. Fall back to a plaintext match and upgrade the row
+    // in place so the legacy form disappears over time. Remove once all
+    // pre-cutover tokens have expired.
+    if (!emailToken) {
+      emailToken = await knex(this.tableName).where("token", rawToken).first();
+      if (emailToken) {
+        await knex(this.tableName)
+          .where("id", emailToken.id)
+          .update({ token: hashed });
+      }
+    }
 
     return emailToken ? this.mapToInterface(emailToken) : null;
   }
@@ -106,7 +124,7 @@ export class EmailTokenDAO implements IBaseDAO<IEmailToken> {
     userId: number,
     type: "email_verification" | "password_reset",
   ): Promise<IEmailToken | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("core");
     const token = await knex(this.tableName)
       .where("userId", userId)
       .where("type", type)

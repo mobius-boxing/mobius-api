@@ -4,7 +4,6 @@ import {
   authenticate,
   requireAdmin,
   requireSuperAdmin,
-  requireSameCompany,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -75,9 +74,12 @@ export class UsersRouter {
     );
     this.router.put(
       "/:uuid",
+      // C3: authorization (admin + company-ownership + role-gated fields) is enforced in the
+      // controller; requireSameCompany is intentionally NOT used here (it required a companyId in
+      // the request, which the controller now forbids for admins).
       authenticate,
+      requireAdmin(),
       validateUUID(),
-      requireSameCompany,
       apiRateLimiter,
       this.usersController.update.bind(this.usersController),
     );

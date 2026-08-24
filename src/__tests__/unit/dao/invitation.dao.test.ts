@@ -4,28 +4,30 @@
  * Tests for the Invitation data access layer
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import {
-  createTestInvitation,
-  resetIdCounter,
-} from '../../mocks/factories';
-import { createMockQueryBuilder, MockQueryBuilder } from '../../mocks/knex.mock';
+  jest,
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+} from "@jest/globals";
+import { createTestInvitation, resetIdCounter } from "../../mocks/factories";
+import { createMockQueryBuilder } from "../../mocks/knex.mock";
 
 // We need to create fresh mocks that persist across beforeEach
 let mockQueryBuilder: any;
 let mockKnex: jest.Mock<any>;
 
-jest.mock('../../../database/KnexConnection', () => ({
+jest.mock("../../../database/registry", () => ({
   __esModule: true,
-  default: {
-    getConnection: () => mockKnex,
-  },
+  db: () => mockKnex,
 }));
 
 // Import DAO after mocking
-import { InvitationDAO } from '../../../dao/invitation/invitation.dao';
+import { InvitationDAO } from "../../../dao/invitation/invitation.dao";
 
-describe('InvitationDAO', () => {
+describe("InvitationDAO", () => {
   let dao: InvitationDAO;
 
   beforeEach(() => {
@@ -34,7 +36,9 @@ describe('InvitationDAO', () => {
     // Create fresh mocks for each test
     mockQueryBuilder = createMockQueryBuilder();
     mockKnex = jest.fn().mockReturnValue(mockQueryBuilder);
-    (mockKnex as any).fn = { now: jest.fn().mockReturnValue(new Date().toISOString()) };
+    (mockKnex as any).fn = {
+      now: jest.fn().mockReturnValue(new Date().toISOString()),
+    };
 
     dao = new InvitationDAO();
   });
@@ -43,8 +47,8 @@ describe('InvitationDAO', () => {
     jest.resetAllMocks();
   });
 
-  describe('create', () => {
-    it('should create a new invitation and return it', async () => {
+  describe("create", () => {
+    it("should create a new invitation and return it", async () => {
       const testData = createTestInvitation();
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
@@ -59,22 +63,33 @@ describe('InvitationDAO', () => {
         isUsed: testData.isUsed,
       } as any);
 
-      expect(mockKnex).toHaveBeenCalledWith('invitations');
+      const crypto = require("crypto");
+      const expectedHash = crypto
+        .createHash("sha256")
+        .update(testData.token)
+        .digest("hex");
+
+      expect(mockKnex).toHaveBeenCalledWith("invitations");
+      // SECURITY (M5): the stored token is the SHA-256 hash, not the raw value.
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           uuid: testData.uuid,
           email: testData.email,
-          token: testData.token,
+          token: expectedHash,
           role: testData.role,
-        })
+        }),
       );
       expect(result.email).toBe(testData.email);
       expect(result.uuid).toBe(testData.uuid);
+      // SECURITY (C4): create returns the token-less shape.
+      expect(result.token).toBeUndefined();
     });
 
-    it('should set default value for isUsed to false', async () => {
+    it("should set default value for isUsed to false", async () => {
       const testData = createTestInvitation({ isUsed: undefined });
-      mockQueryBuilder.returning.mockResolvedValue([{ ...testData, isUsed: false }]);
+      mockQueryBuilder.returning.mockResolvedValue([
+        { ...testData, isUsed: false },
+      ]);
 
       await dao.create({
         uuid: testData.uuid,
@@ -89,24 +104,24 @@ describe('InvitationDAO', () => {
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           isUsed: false,
-        })
+        }),
       );
     });
   });
 
-  describe('getById', () => {
-    it('should return invitation by numeric ID', async () => {
+  describe("getById", () => {
+    it("should return invitation by numeric ID", async () => {
       const testData = createTestInvitation();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getById(testData.id);
 
-      expect(mockKnex).toHaveBeenCalledWith('invitations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', testData.id);
+      expect(mockKnex).toHaveBeenCalledWith("invitations");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", testData.id);
       expect(result?.email).toBe(testData.email);
     });
 
-    it('should return null when invitation not found', async () => {
+    it("should return null when invitation not found", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
       const result = await dao.getById(999);
@@ -115,30 +130,40 @@ describe('InvitationDAO', () => {
     });
   });
 
-  describe('getByUuid', () => {
-    it('should return invitation by UUID', async () => {
+  describe("getByUuid", () => {
+    it("should return invitation by UUID", async () => {
       const testData = createTestInvitation();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getByUuid(testData.uuid);
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('uuid', testData.uuid);
+      // SECURITY (C4): column is now table-qualified to support the optional company join.
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "invitations.uuid",
+        testData.uuid,
+      );
       expect(result?.email).toBe(testData.email);
+      // SECURITY (C4): token must never be returned in single-record responses.
+      expect(result?.token).toBeUndefined();
     });
 
-    it('should return null when invitation not found by UUID', async () => {
+    it("should return null when invitation not found by UUID", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
-      const result = await dao.getByUuid('non-existent-uuid');
+      const result = await dao.getByUuid("non-existent-uuid");
 
       expect(result).toBeNull();
     });
   });
 
-  describe('update', () => {
-    it('should update invitation by numeric ID', async () => {
+  describe("update", () => {
+    it("should update invitation by numeric ID", async () => {
       const testData = createTestInvitation();
-      const updatedData = { ...testData, isUsed: true, acceptedAt: new Date().toISOString() };
+      const updatedData = {
+        ...testData,
+        isUsed: true,
+        acceptedAt: new Date().toISOString(),
+      };
       mockQueryBuilder.returning.mockResolvedValue([updatedData]);
 
       const result = await dao.update(testData.id, {
@@ -146,29 +171,30 @@ describe('InvitationDAO', () => {
         acceptedAt: updatedData.acceptedAt,
       });
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', testData.id);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", testData.id);
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
         expect.objectContaining({
           isUsed: true,
           acceptedAt: updatedData.acceptedAt,
-        })
+        }),
       );
       expect(result?.isUsed).toBe(true);
     });
 
-    it('should only update provided fields', async () => {
+    it("should only update provided fields", async () => {
       const testData = createTestInvitation();
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
       await dao.update(testData.id, { isUsed: true });
 
-      const updateCall = (mockQueryBuilder.update as jest.Mock).mock.calls[0][0];
-      expect(updateCall).toHaveProperty('isUsed', true);
-      expect(updateCall).not.toHaveProperty('email');
-      expect(updateCall).not.toHaveProperty('token');
+      const updateCall = (mockQueryBuilder.update as jest.Mock).mock
+        .calls[0][0];
+      expect(updateCall).toHaveProperty("isUsed", true);
+      expect(updateCall).not.toHaveProperty("email");
+      expect(updateCall).not.toHaveProperty("token");
     });
 
-    it('should return null when updating non-existent invitation', async () => {
+    it("should return null when updating non-existent invitation", async () => {
       mockQueryBuilder.returning.mockResolvedValue([]);
 
       const result = await dao.update(999, { isUsed: true });
@@ -177,18 +203,18 @@ describe('InvitationDAO', () => {
     });
   });
 
-  describe('delete', () => {
-    it('should delete invitation by numeric ID and return true', async () => {
+  describe("delete", () => {
+    it("should delete invitation by numeric ID and return true", async () => {
       mockQueryBuilder.delete.mockResolvedValue(1);
 
       const result = await dao.delete(1);
 
-      expect(mockKnex).toHaveBeenCalledWith('invitations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 1);
+      expect(mockKnex).toHaveBeenCalledWith("invitations");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", 1);
       expect(result).toBe(true);
     });
 
-    it('should return false when invitation not found', async () => {
+    it("should return false when invitation not found", async () => {
       mockQueryBuilder.delete.mockResolvedValue(0);
 
       const result = await dao.delete(999);
@@ -197,15 +223,15 @@ describe('InvitationDAO', () => {
     });
   });
 
-  describe('getAll', () => {
-    it('should return paginated invitations', async () => {
+  describe("getAll", () => {
+    it("should return paginated invitations", async () => {
       const testData = [
         createTestInvitation({ id: 1 }),
         createTestInvitation({ id: 2 }),
       ];
 
       mockQueryBuilder.offset.mockResolvedValue(testData);
-      mockQueryBuilder.first.mockResolvedValue({ count: '2' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "2" });
 
       const result = await dao.getAll(1, 10);
 
@@ -215,18 +241,21 @@ describe('InvitationDAO', () => {
       expect(result.limit).toBe(10);
     });
 
-    it('should order by created_at descending', async () => {
+    it("should order by created_at descending", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '0' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('created_at', 'desc');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        "invitations.created_at",
+        "desc",
+      );
     });
 
-    it('should calculate correct pagination', async () => {
+    it("should calculate correct pagination", async () => {
       mockQueryBuilder.offset.mockResolvedValue([createTestInvitation()]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '25' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "25" });
 
       const result = await dao.getAll(2, 10);
 
@@ -237,29 +266,42 @@ describe('InvitationDAO', () => {
     });
   });
 
-  describe('getByToken', () => {
-    it('should return invitation by token', async () => {
+  describe("getByToken", () => {
+    it("should look up by the SHA-256 hash of the raw token", async () => {
+      const crypto = require("crypto");
       const testData = createTestInvitation();
-      mockQueryBuilder.first.mockResolvedValue(testData);
+      const expectedHash = crypto
+        .createHash("sha256")
+        .update(testData.token)
+        .digest("hex");
+      // The stored row carries the hash, not the raw token.
+      mockQueryBuilder.first.mockResolvedValue({
+        ...testData,
+        token: expectedHash,
+      });
 
       const result = await dao.getByToken(testData.token);
 
-      expect(mockKnex).toHaveBeenCalledWith('invitations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('token', testData.token);
-      expect(result?.token).toBe(testData.token);
+      expect(mockKnex).toHaveBeenCalledWith("invitations");
+      // SECURITY (M5): lookup is by hash of the raw token, never the raw token.
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "token",
+        expectedHash,
+      );
+      expect(result?.email).toBe(testData.email);
     });
 
-    it('should return null when token not found', async () => {
+    it("should return null when token not found", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
-      const result = await dao.getByToken('invalid-token');
+      const result = await dao.getByToken("invalid-token");
 
       expect(result).toBeNull();
     });
   });
 
-  describe('getActiveInvitations', () => {
-    it('should return active invitations for a company', async () => {
+  describe("getActiveInvitations", () => {
+    it("should return active invitations (token stripped)", async () => {
       const testData = [
         createTestInvitation({ companyId: 1, isUsed: false }),
         createTestInvitation({ companyId: 1, isUsed: false }),
@@ -267,75 +309,93 @@ describe('InvitationDAO', () => {
 
       mockQueryBuilder.orderBy.mockResolvedValue(testData);
 
-      const result = await dao.getActiveInvitations(1);
+      // SECURITY (C4): now scoped by company UUID (or undefined for all).
+      const result = await dao.getActiveInvitations();
 
-      expect(mockKnex).toHaveBeenCalledWith('invitations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('companyId', 1);
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('isUsed', false);
+      expect(mockKnex).toHaveBeenCalledWith("invitations");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "invitations.isUsed",
+        false,
+      );
       expect(result).toHaveLength(2);
+      // SECURITY (C4): token stripped from active-list responses.
+      expect(result.every((i: any) => i.token === undefined)).toBe(true);
     });
 
-    it('should filter out used invitations', async () => {
+    it("should filter out used invitations", async () => {
       mockQueryBuilder.orderBy.mockResolvedValue([]);
 
-      const result = await dao.getActiveInvitations(1);
+      const result = await dao.getActiveInvitations();
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('isUsed', false);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "invitations.isUsed",
+        false,
+      );
       expect(result).toHaveLength(0);
     });
 
-    it('should order by created_at descending', async () => {
+    it("should order by created_at descending", async () => {
       mockQueryBuilder.orderBy.mockResolvedValue([]);
 
-      await dao.getActiveInvitations(1);
+      await dao.getActiveInvitations();
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('created_at', 'desc');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        "invitations.created_at",
+        "desc",
+      );
     });
   });
 
-  describe('Role validation', () => {
-    it('should handle member role', async () => {
-      const testData = createTestInvitation({ role: 'member' });
+  describe("Role validation", () => {
+    it("should handle member role", async () => {
+      const testData = createTestInvitation({ role: "member" });
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getById(testData.id);
 
-      expect(result?.role).toBe('member');
+      expect(result?.role).toBe("member");
     });
 
-    it('should handle admin role', async () => {
-      const testData = createTestInvitation({ role: 'admin' });
+    it("should handle admin role", async () => {
+      const testData = createTestInvitation({ role: "admin" });
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getById(testData.id);
 
-      expect(result?.role).toBe('admin');
+      expect(result?.role).toBe("admin");
     });
   });
 
-  describe('Expiration handling', () => {
-    it('should create invitation with expiration date', async () => {
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  describe("Expiration handling", () => {
+    it("should create invitation with expiration date", async () => {
+      const expiresAt = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000,
+      ).toISOString();
       const testData = createTestInvitation({ expiresAt });
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
       const result = await dao.create(testData as any);
 
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
-        expect.objectContaining({ expiresAt })
+        expect.objectContaining({ expiresAt }),
       );
       expect(result.expiresAt).toBe(expiresAt);
     });
 
-    it('should update acceptedAt when invitation is accepted', async () => {
+    it("should update acceptedAt when invitation is accepted", async () => {
       const testData = createTestInvitation();
       const acceptedAt = new Date();
-      mockQueryBuilder.returning.mockResolvedValue([{ ...testData, acceptedAt, isUsed: true }]);
+      mockQueryBuilder.returning.mockResolvedValue([
+        { ...testData, acceptedAt, isUsed: true },
+      ]);
 
-      const result = await dao.update(testData.id, { acceptedAt, isUsed: true });
+      const result = await dao.update(testData.id, {
+        acceptedAt,
+        isUsed: true,
+      });
 
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
-        expect.objectContaining({ acceptedAt, isUsed: true })
+        expect.objectContaining({ acceptedAt, isUsed: true }),
       );
       expect(result?.acceptedAt).toBe(acceptedAt);
     });

@@ -55,6 +55,11 @@ export class AuthRouter {
       apiRateLimiter,
       this.authController.getProfile.bind(this.authController),
     );
+    // Stateless JWT logout — exists so the client's POST doesn't 404; becomes
+    // meaningful if/when server-side token revocation lands.
+    this.router.post("/logout", authenticate, apiRateLimiter, (_req, res) => {
+      res.status(200).json({ success: true, message: "Logged out" });
+    });
     this.router.post(
       "/change-password",
       authenticate,

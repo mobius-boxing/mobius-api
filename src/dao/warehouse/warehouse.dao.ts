@@ -1,4 +1,4 @@
-import KnexManager from "../../database/KnexConnection";
+import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IWarehouse } from "../../interfaces/warehouse/warehouse.interfaces";
 import {
@@ -18,6 +18,7 @@ import {
 } from "../warehouseLocation/warehouseLocation.dao";
 import { v4 as uuidv4 } from "uuid";
 
+import { applyCompanyUuidScope } from "../../utils/daoScope";
 // companyId is handled separately via a join because the client sends a UUID, not a numeric id.
 const WAREHOUSE_FILTERS: FilterConfigs = {
   name: {
@@ -60,7 +61,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   // A warehouse is created together with one row in warehouse_locations per grid cell,
   // atomically. Defaults to a 10x10 grid if dimensions are not provided.
   async create(item: IWarehouse): Promise<IWarehouse> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     const warehouse = await knex.transaction(async (trx) => {
       const [newWarehouse] = await trx(this.tableName)
@@ -104,25 +105,33 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   }
 
   async getById(id: number): Promise<IWarehouse | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const warehouse = await knex(this.tableName).where("id", id).first();
 
     return warehouse ? this.mapToInterface(warehouse) : null;
   }
 
-  async getByUuid(uuid: string): Promise<IWarehouse | null> {
-    const knex = KnexManager.getConnection();
-    const warehouse = await knex(this.tableName).where("uuid", uuid).first();
+  async getByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<IWarehouse | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    // warehouses link to companies via the snake_case `company_id` column.
+    applyCompanyUuidScope(query, this.tableName, companyUuid, "company_id");
+    const warehouse = await query.select(`${this.tableName}.*`).first();
 
     return warehouse ? this.mapToInterface(warehouse) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = KnexManager.getConnection();
-    const warehouse = await knex(this.tableName)
-      .where("uuid", uuid)
-      .select("id")
-      .first();
+  async getIdByUuid(
+    uuid: string,
+    companyUuid?: string,
+  ): Promise<number | null> {
+    const knex = db("erp");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyUuidScope(query, this.tableName, companyUuid, "company_id");
+    const warehouse = await query.select(`${this.tableName}.id`).first();
 
     return warehouse ? warehouse.id : null;
   }
@@ -134,7 +143,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     id: number,
     item: Partial<IWarehouse>,
   ): Promise<IWarehouse | null> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
 
     const gridChanged =
       item.gridRows !== undefined || item.gridCols !== undefined;
@@ -203,7 +212,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -214,7 +223,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IWarehouse>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const offset = (page - 1) * limit;
 
     const [warehouses, totalResult] = await Promise.all([
@@ -240,7 +249,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IWarehouse>> {
-    const knex = KnexManager.getConnection();
+    const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // Client sends a UUID for companyId; resolve via join against companies.uuid.

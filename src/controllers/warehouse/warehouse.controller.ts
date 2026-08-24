@@ -26,7 +26,7 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
   protected async buildCreateDTO(
     req: Request,
     _res: Response,
-    next: NextFunction,
+    _next: NextFunction,
   ): Promise<any | null> {
     // Validation runs in beforeCreate so it sees the injected companyId.
     return req.body;
@@ -103,7 +103,9 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
     try {
       const { uuid } = req.params;
 
-      const warehouse = await this.dao.getByUuid(uuid);
+      // SECURITY (C2): scope the warehouse lookup to the caller's company; cross-company → 404.
+      const companyUuid = this.itemCompanyUuid(req);
+      const warehouse = await this.dao.getByUuid(uuid, companyUuid);
       if (!warehouse || !warehouse.id) {
         res.status(404).json({
           success: false,
