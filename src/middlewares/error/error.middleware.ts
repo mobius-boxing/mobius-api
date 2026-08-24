@@ -5,6 +5,21 @@ import { NextFunction, Response, Request } from "express";
 // stack traces, or raw error objects.
 const debugErrors = (): boolean => process.env.DEBUG_ERRORS === "true";
 
+/**
+ * PostgreSQL class-22 codes that can only be reached by a malformed CLIENT
+ * value, so they answer 400. Deliberately narrow: class 22 also contains
+ * server-side faults (22012 division_by_zero, 22004 null_value_not_allowed)
+ * which are bugs here, not bad input, and must keep their 500.
+ */
+const CLIENT_DATA_EXCEPTIONS = new Set([
+  "22P02", // invalid_text_representation
+  "22007", // invalid_datetime_format
+  "22008", // datetime_field_overflow
+  "22009", // invalid_time_zone_displacement_value (a raw out-of-range date STRING)
+  "22003", // numeric_value_out_of_range
+  "22001", // string_data_right_truncation (value longer than the varchar limit)
+]);
+
 export const errorMiddleware = (
   err: any,
   req: Request | any,
@@ -88,8 +103,19 @@ export const errorMiddleware = (
       });
     }
 
-    if (err.code === "22P02") {
-      // invalid_text_representation (e.g., non-numeric value for an integer column)
+    if (CLIENT_DATA_EXCEPTIONS.has(err.code)) {
+      // Class 22 (data exception) raised by a value the CLIENT supplied:
+      // 22P02 invalid_text_representation (a non-numeric value for an integer
+      // column, a non-uuid for a uuid column), 22007 invalid_datetime_format,
+      // 22008 datetime_field_overflow and 22009 (an out-of-range date STRING —
+      // e.g. "-271821-04-20T00:00:00.000Z" — which PG rejects as a bad time
+      // zone displacement), 22003 numeric_value_out_of_range, 22001
+      // string_data_right_truncation (an over-long value for a varchar column).
+      //
+      // SECURITY: these MUST be mapped. Falling through to the generic handler
+      // answers 500 with `err.message`, and knex prefixes that message with the
+      // full generated SQL — one malformed query param and the caller reads the
+      // query, its joins and its column list.
       return res.status(400).json({
         success: false,
         message: "Invalid data type provided.",
@@ -156,8 +182,19 @@ export const errorMiddleware = (
     req.statusError ||
     500;
 
+  // SECURITY (M2): an unhandled 5xx NEVER echoes `err.message`. knex prefixes
+  // its driver errors with the full generated SQL, so echoing the message hands
+  // the caller the statement, its joins and its column list — the bug family
+  // the CLIENT_DATA_EXCEPTIONS map above only patches one SQLSTATE at a time.
+  // The detail is already logged server-side by the console.error at the top of
+  // this handler. Deliberate 4xx (DTO/controller validation, which sets
+  // `req.statusCode = 400` then `next(new Error(msg))`) keeps its message:
+  // those strings are written for the client.
+  const isServerError = statusError >= 500;
   const message =
-    err.message || "An unexpected error occurred. Please try again later.";
+    isServerError && !debugErrors()
+      ? "An unexpected error occurred. Please try again later."
+      : err.message || "An unexpected error occurred. Please try again later.";
 
   res.status(statusError).json({
     success: false,

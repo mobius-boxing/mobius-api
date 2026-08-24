@@ -34,6 +34,9 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Local file storage (file-storage.service.ts when no S3 bucket is configured)
+uploads/
+
 # Temp files
 *.tmp
 *.temp

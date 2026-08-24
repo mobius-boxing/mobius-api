@@ -1,14 +1,21 @@
 /**
  * Part calculations — specs/parts/03-calculations.md + 06-cascade-and-dimensions.md.
  *
- * Scope note (Sprint 2.5): the Modelo formula engine is module 08 (next slice).
- * With modelId nullable/stubbed, the live cascade paths are:
+ * Scope note: with parts.modelId still unset on live rows, the cascade paths
+ * here are:
  *   - internal ↔ external via the corrugation's FIRST flute-type static
  *     adjustments (AjusteLargo/Ancho/Altura → flute_types.length/width/height)
  *   - boxSurface → boxWeight (the ONLY auto-weight path;
  *     PesoEditableEnPartes=False at the live customer → weight computed)
- * TODO(module-08): CalcularPlancha/CalcularAletas formula paths (sheet dims,
- * trazadores from Modelo, flap formulas, AumentoEnFormula Chapeton override).
+ *
+ * Module-08 extension point: the NCalc-parity formula engine is shipped at
+ * `src/services/formula-engine/` — consume `evaluate(formula, scope)` for
+ * scalar Modelo formulas and `evaluateList(text, scope)` for the pipe-`|`
+ * trazadores lists (scope = the 34 FORMULA_PARAMETERS names). Follow-up
+ * slices that will consume it from here: CalcularPlancha/CalcularAletas
+ * (sheet dims, trazadores from Modelo, flap formulas, AumentoEnFormula
+ * Chapeton override), the RotacionObligatoria sheet-swap (golden Fixture C),
+ * and POST /models/:uuid/recalculate-parts.
  *
  * All arithmetic in IEEE-754 doubles (parity — 03 gotcha #5).
  */
@@ -74,7 +81,11 @@ export class PartCalculator {
     boxSurface: number | null | undefined,
     effectiveGrammage: number | null | undefined,
   ): number | null {
-    if (boxSurface == null || effectiveGrammage == null || effectiveGrammage <= 0)
+    if (
+      boxSurface == null ||
+      effectiveGrammage == null ||
+      effectiveGrammage <= 0
+    )
       return null;
     return (boxSurface * effectiveGrammage) / 1000;
   }
@@ -119,7 +130,10 @@ export class PartCalculator {
       part.boxWeight = this.boxWeight(value, grammage);
     } else if (field === "grammage") {
       part.grammage = value;
-      const grammage = this.effectiveGrammage(value, corrugationTheoreticalGrammage);
+      const grammage = this.effectiveGrammage(
+        value,
+        corrugationTheoreticalGrammage,
+      );
       part.boxWeight = this.boxWeight(part.boxSurface, grammage);
     }
 

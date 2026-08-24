@@ -11,10 +11,15 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { assertUuidParam } from "../../utils/query-params";
 import { Request } from "express";
 
 // companyId is handled separately via a join because the client sends a UUID, not a numeric id.
-const PRODUCT_FILTERS: FilterConfigs = {
+// The customer filter is `customerUuid`, applied directly on the query in
+// getAllWithFilters. There is deliberately NO `customerId` entry here: it
+// parseInt'ed a value that, under the uuid-only API, is always a UUID — i.e. it
+// was accepted and broken, which L-007 forbids (gate decision OQ-1).
+export const PRODUCT_FILTERS: FilterConfigs = {
   code: {
     column: "code",
     operator: "ILIKE",
@@ -26,11 +31,6 @@ const PRODUCT_FILTERS: FilterConfigs = {
   description: {
     column: "description",
     operator: "ILIKE",
-  },
-  customerId: {
-    column: "customerId",
-    operator: "=",
-    transform: (value: string) => parseInt(value, 10),
   },
   uuid: {
     column: "uuid",
@@ -224,6 +224,26 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;
 
+    // customerUuid → the numeric column, applied on the query (not through the
+    // filter config, so no numeric-id filter is client-reachable). A miss pins
+    // the impossible id -1 rather than returning everything. The value is
+    // shape-checked first: `customers.uuid` is a uuid column, so a malformed
+    // value would reach Postgres and come back as 22P02 — a 500 whose body can
+    // echo the generated SQL — instead of a 400.
+    const customerUuid = assertUuidParam(
+      "customerUuid",
+      parsedQuery.filters.customerUuid,
+    );
+    delete parsedQuery.filters.customerUuid;
+    let customerId: number | undefined;
+    if (customerUuid) {
+      const customer = await knex("customers")
+        .where("uuid", customerUuid)
+        .select("id")
+        .first();
+      customerId = customer?.id ?? -1;
+    }
+
     const dataQuery = knex(this.tableName)
       .select(
         `${this.tableName}.*`,
@@ -244,6 +264,9 @@ export class ProductDAO implements IBaseDAO<IProduct> {
         .join("companies", `${this.tableName}.companyId`, "companies.id")
         .where("companies.uuid", companyUuid);
     }
+    if (customerId !== undefined) {
+      dataQuery.where(`${this.tableName}.customerId`, customerId);
+    }
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
@@ -253,6 +276,9 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       countQuery
         .join("companies", `${this.tableName}.companyId`, "companies.id")
         .where("companies.uuid", companyUuid);
+    }
+    if (customerId !== undefined) {
+      countQuery.where(`${this.tableName}.customerId`, customerId);
     }
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);

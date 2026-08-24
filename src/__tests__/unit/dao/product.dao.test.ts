@@ -30,7 +30,7 @@ jest.mock("../../../database/registry", () => ({
 }));
 
 // Import DAO after mocking
-import { ProductDAO } from "../../../dao/product/product.dao";
+import { ProductDAO, PRODUCT_FILTERS } from "../../../dao/product/product.dao";
 
 describe("ProductDAO", () => {
   let dao: ProductDAO;
@@ -326,6 +326,84 @@ describe("ProductDAO", () => {
       const result = await dao.getWithDetails("non-existent-uuid");
 
       expect(result).toBeNull();
+    });
+  });
+
+  /**
+   * AC-20 / AC-28 — the customer filter is `customerUuid`.
+   *
+   * The old numeric `customerId` filter was deleted (gate decision OQ-1): under
+   * the uuid-only API the client only ever holds a UUID, and `parseInt` turned
+   * that into NaN — accepted and broken, which L-007 forbids. It is gone from
+   * PRODUCT_FILTERS, so a `?customerId=` query is now an unknown key that the
+   * shared builder silently drops (queryBuilder.ts:66) instead of filtering.
+   */
+  describe("customerUuid filter (AC-20, AC-28)", () => {
+    beforeEach(() => {
+      mockQueryBuilder.first.mockResolvedValue({ count: "0" });
+      mockQueryBuilder.then = (resolve: any) =>
+        Promise.resolve([]).then(resolve);
+    });
+
+    it("no longer exposes a numeric customerId filter", () => {
+      expect(PRODUCT_FILTERS).not.toHaveProperty("customerId");
+      expect(PRODUCT_FILTERS).toHaveProperty("uuid");
+    });
+
+    it("resolves customerUuid to the numeric column", async () => {
+      const customer = createTestCustomer();
+      mockQueryBuilder.first
+        .mockResolvedValueOnce({ id: customer.id })
+        .mockResolvedValue({ count: "0" });
+
+      await dao.getAllWithFilters({
+        query: { customerUuid: customer.uuid },
+      } as any);
+
+      expect(mockKnex).toHaveBeenCalledWith("customers");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("uuid", customer.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "products.customerId",
+        customer.id,
+      );
+    });
+
+    it("pins an unknown customerUuid to the impossible id -1", async () => {
+      mockQueryBuilder.first
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ count: "0" });
+
+      await dao.getAllWithFilters({
+        query: { customerUuid: "99999999-9999-4999-8999-999999999999" },
+      } as any);
+
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "products.customerId",
+        -1,
+      );
+    });
+
+    it("rejects a malformed customerUuid before it reaches Postgres", async () => {
+      // `customers.uuid` is a uuid column: handing it a non-uuid raises 22P02
+      // deep in the driver, which surfaces as a 500 whose body can echo the
+      // generated SQL. `name = "ValidationError"` is what makes the error
+      // middleware answer 400 instead.
+      await expect(
+        dao.getAllWithFilters({
+          query: { customerUuid: "not-a-uuid" },
+        } as any),
+      ).rejects.toMatchObject({ name: "ValidationError" });
+
+      expect(mockKnex).not.toHaveBeenCalledWith("customers");
+    });
+
+    it("does not filter at all when no customerUuid is supplied", async () => {
+      await dao.getAllWithFilters({ query: {} } as any);
+
+      const customerFilterCalls = (
+        mockQueryBuilder.where as jest.Mock
+      ).mock.calls.filter((call: any[]) => call[0] === "products.customerId");
+      expect(customerFilterCalls).toHaveLength(0);
     });
   });
 

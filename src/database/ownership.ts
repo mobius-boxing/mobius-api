@@ -5,9 +5,11 @@ import { DbKey } from "./keys";
  *
  * Two layers, because two different questions are being asked (plan R-1):
  *
- * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 75 application tables of
+ * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 80 application tables of
  *   the end state (74 measured in production 2026-08-13 + the pending
- *   `countdown_reminder_digests`), each mapped to the database that owns its
+ *   `countdown_reminder_digests` + `models` (module 08) + `order_data`,
+ *   `sales_orders` and `sales_order_approval_events` (module 18 sub-area D) +
+ *   `production_orders` (module 13)), each mapped to the database that owns its
  *   original row set. This is what AC-1(c)/(d) counts.
  * - `TABLE_OWNER` is keyed `(database, table)` and additionally carries the
  *   per-database *copies* of the two table names that deliberately live in more
@@ -51,7 +53,7 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   countdown_reminder_runs: "countdown",
   countdown_reminder_digests: "countdown",
 
-  // ── erp (51) — the ERP domain, plus code_sequences / app_config (D-3) ─────
+  // ── erp (56) — the ERP domain, plus code_sequences / app_config (D-3) ─────
   app_config: "erp",
   audit_logs: "erp",
   box_types: "erp",
@@ -78,6 +80,8 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   machine_types: "erp",
   machines: "erp",
   manufacturers: "erp",
+  models: "erp",
+  order_data: "erp",
   pallet_types: "erp",
   palletizations: "erp",
   paper_class_papers: "erp",
@@ -89,11 +93,14 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   part_approval_events: "erp",
   parts: "erp",
   product_types: "erp",
+  production_orders: "erp",
   production_route_stage_machines: "erp",
   production_route_stage_supplies: "erp",
   production_route_stages: "erp",
   production_routes: "erp",
   products: "erp",
+  sales_order_approval_events: "erp",
+  sales_orders: "erp",
   sheet_stock: "erp",
   strapping_types: "erp",
   suppliers: "erp",

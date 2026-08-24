@@ -182,6 +182,30 @@ export const sensitiveCountdownDeletionRateLimiter = createRateLimiter(
   "countdown:delete",
 );
 
+// Anulación of a pedido is its soft delete, so it gets a deletion-shaped bucket
+// of its own rather than the generic `sensitive` one (3 per 5 min shared by
+// EVERY sensitive route). It is a reversible operational PATCH — it ships its
+// own `cancel` action — and a clerk voiding a fourth pedido in five minutes
+// must not be 429'd; that is the trap documented above for countdown.
+export const sensitiveSalesOrderVoidRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many sales order void requests. Please try again later.",
+  "sales-orders:void",
+);
+
+// Órdenes de producción are high-volume operational rows, so the generic
+// `sensitive` bucket (3 per 5 min shared by EVERY sensitive route) would make
+// routine cleanup — and test teardown — unusable. They still get a destructive
+// verb's own bucket rather than the plain API limiter, which is what every
+// other entity's DELETE does.
+export const sensitiveProductionOrderDeletionRateLimiter = createRateLimiter(
+  10,
+  5,
+  "Too many production order deletion requests. Please try again later.",
+  "production-orders:delete",
+);
+
 /**
  * No-op shims kept for backward compatibility. The library owns its in-memory store, so manual
  * clearing/inspection by identifier is no longer applicable. These are retained so existing

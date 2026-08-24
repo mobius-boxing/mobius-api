@@ -5,6 +5,11 @@
  * and ETL matching. Types per
  * specs/replication/modules/01-system-and-cross-cutting/configuration.md.
  *
+ * Two further keys — `ImagenOCObligatoria` and `UnaOrdenPorPedido` — are declared
+ * by `PLS UseCases/PLSUseCases.Servicios/Configuracion.cs:35,45` but absent from
+ * that dump (the customer never overrode them), so they are added here at their
+ * source defaults and gate the production-order generation flow.
+ *
  * A company without an app_config row for a key gets the default below — rows are
  * only written when a value is changed (divergence D3/D4: no null-row auto-insert).
  */
@@ -67,6 +72,7 @@ export const APP_CONFIG_DEFAULTS: IAppConfigDefault[] = [
   bool("EstimacionesDeProduccion", false),
   bool("FechaDelServidor", true),
   str("FormulaRecalculoPeso"),
+  bool("ImagenOCObligatoria", false),
   bool("InvertirLargoAnchoNombramientoPlanchas", false),
   bool("LotesDeInsumos", false),
   int("MajorVersion", 2),
@@ -108,6 +114,7 @@ export const APP_CONFIG_DEFAULTS: IAppConfigDefault[] = [
   double("ToleranciaRelativaCumplimiento", 0),
   double("ToleranciaRelativaProgramacion", 0),
   double("ToleranciaStock", 10),
+  bool("UnaOrdenPorPedido", false),
   bool("VerProductosAprobadosPorDefecto", false),
   int("VersionAjusteCodigo", 0),
   bool("VerSoloProductosTitulares", false),

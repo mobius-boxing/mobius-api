@@ -20,12 +20,12 @@ const isLocalDb =
 const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 
 /** D-5, frozen by measurement on the live host 2026-08-13. */
-const DOMAIN_TABLE_COUNT = 75;
+const DOMAIN_TABLE_COUNT = 80;
 const DOMAIN_COUNTS: Record<DbKey, number> = {
   core: 10,
   store: 5,
   countdown: 9,
-  erp: 51,
+  erp: 56,
 };
 /** The two names that deliberately live in more than one database (AC-2). */
 const FANNED_OUT_COPIES: Record<string, number> = { files: 3, audit_logs: 4 };

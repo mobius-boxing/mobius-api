@@ -19,11 +19,15 @@ export const CODE_SCOPES = {
   coil: "coil",
   sheetLot: "sheet-lot",
   finishedGoodStock: "finished-good-stock",
+  salesOrder: "sales-order",
 } as const;
 
 const PAD_WIDTHS: Record<string, number> = {
   [CODE_SCOPES.productionOrder]: 8,
   [CODE_SCOPES.coil]: 10,
+  // pedido `Numero`: 8-digit zero-padded, same format as Procusto's
+  // `{0:00000000}` (Editar.cs:54-65) — only the counter source diverges (D-5).
+  [CODE_SCOPES.salesOrder]: 8,
   // sheet-lot / finished-good-stock formats to be pinned when modules 10/11 land.
   [CODE_SCOPES.sheetLot]: 0,
   [CODE_SCOPES.finishedGoodStock]: 0,
