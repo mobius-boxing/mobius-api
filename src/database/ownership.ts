@@ -5,13 +5,14 @@ import { DbKey } from "./keys";
  *
  * Two layers, because two different questions are being asked (plan R-1):
  *
- * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 75 application tables of
+ * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 78 application tables of
  *   the end state (74 measured in production 2026-08-13 + the pending
  *   `countdown_reminder_digests` + `models` (module 08) + `order_data`,
  *   `sales_orders` and `sales_order_approval_events` (module 18 sub-area D) +
  *   `production_orders` (module 13), minus the 5 store tables deleted with the
- *   store module on 2026-08-24), each mapped to the database that owns its
- *   original row set. This is what AC-1(c)/(d) counts.
+ *   store module on 2026-08-24, plus the 3 `nf_*` tables of node-files Phase 1),
+ *   each mapped to the database that owns its original row set. This is what
+ *   AC-1(c)/(d) counts.
  * - `TABLE_OWNER` is keyed `(database, table)` and additionally carries the
  *   per-database *copies* of the two table names that deliberately live in more
  *   than one database — `files` (G-2) and `audit_logs` (D-2). That fan-out is
@@ -46,6 +47,13 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   countdown_reminder_log: "countdown",
   countdown_reminder_runs: "countdown",
   countdown_reminder_digests: "countdown",
+
+  // ── nodefiles (3) — document extraction, Phase 1 (slug `node-files`) ──────
+  // The key has no hyphen (it becomes a database name); the module slug, route
+  // path and permission code all do. See `keys.ts`.
+  nf_workflows: "nodefiles",
+  nf_documents: "nodefiles",
+  nf_runs: "nodefiles",
 
   // ── erp (56) — the ERP domain, plus code_sequences / app_config (D-3) ─────
   app_config: "erp",

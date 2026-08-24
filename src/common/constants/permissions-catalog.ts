@@ -995,6 +995,15 @@ export const MOBIUS_ADDED_PERMISSIONS: IPermissionConcept[] = [
       "Administración del módulo Countdown: borrar documentos, asignar responsables y gestionar rubros y grupos",
     area: "actions",
   },
+  {
+    // The code carries the hyphenated module slug (`node-files`); only the
+    // database key drops the hyphen (see src/database/keys.ts).
+    code: "node-files.manage",
+    name: "Node Files - Administración",
+    description:
+      "Administración del módulo Node Files: eliminar flujos de extracción de documentos",
+    area: "actions",
+  },
 ];
 
 /**

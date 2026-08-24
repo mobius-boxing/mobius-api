@@ -25,10 +25,13 @@ export const POOL_MAX: Record<DbKey, number> = {
   core: 12,
   erp: 15,
   countdown: 5,
+  nodefiles: 5,
 };
-// sum = 32 of a 40 budget. The 5 freed by deleting the store key on 2026-08-24
-// are reserved for the `nodefiles` module (amendment-2026-08-24), which will
-// take the sum back to 37.
+// sum = 37 of a 40 budget. The 5 freed by deleting the store key on 2026-08-24
+// were reserved for the `nodefiles` module (amendment-2026-08-24) and are now
+// spent: node-files Phase 1 took them, and the extraction worker lives inside
+// this budget — which is exactly why it never holds a connection across an LLM
+// call (see node-files-worker.ts).
 
 /** The ceiling `sum(POOL_MAX)` may not exceed. Asserted by unit test. */
 export const POOL_BUDGET = 40;
@@ -38,6 +41,7 @@ const POOL_MIN: Record<DbKey, number> = {
   core: 1,
   erp: 1,
   countdown: 0,
+  nodefiles: 0,
 };
 
 const IDLE_TIMEOUT_MS = 20000;

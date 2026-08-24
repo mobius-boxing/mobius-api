@@ -365,9 +365,14 @@ describe("connection registry", () => {
 
   describe("pool budget (AC-44)", () => {
     it("stays inside the ratified ceiling with the ratified split", () => {
-      expect(POOL_MAX).toEqual({ core: 12, erp: 15, countdown: 5 });
+      expect(POOL_MAX).toEqual({
+        core: 12,
+        erp: 15,
+        countdown: 5,
+        nodefiles: 5,
+      });
       const sum = Object.values(POOL_MAX).reduce((a, b) => a + b, 0);
-      expect(sum).toBe(32);
+      expect(sum).toBe(37);
       expect(sum).toBeLessThanOrEqual(POOL_BUDGET);
       expect(POOL_BUDGET).toBe(40);
     });
@@ -386,6 +391,7 @@ describe("connection registry", () => {
       expect(byKey.core).toMatchObject({ min: 1, max: 12 });
       expect(byKey.erp).toMatchObject({ min: 1, max: 15 });
       expect(byKey.countdown).toMatchObject({ min: 0, max: 5 });
+      expect(byKey.nodefiles).toMatchObject({ min: 0, max: 5 });
     });
 
     it("logs the budget exactly once, however often connectAll is called", async () => {
@@ -404,7 +410,7 @@ describe("connection registry", () => {
           "[db] pool budget",
           POOL_MAX,
           "sum",
-          32,
+          37,
         ]);
       } finally {
         consoleInfo.mockRestore();

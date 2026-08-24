@@ -33,7 +33,8 @@ export class FileStorageService {
     } else if (this.bucket) {
       this.s3 = new S3Client({});
     }
-    this.localDir = process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
+    this.localDir =
+      process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
     if (!this.s3) {
       console.warn(
         "⚠ S3_FILES_BUCKET not configured. File bytes will be stored on local disk at " +
@@ -47,7 +48,11 @@ export class FileStorageService {
   }
 
   /** Canonical object key — mirrors the spec layout. */
-  public buildStorageKey(companyId: number, uuid: string, originalName: string): string {
+  public buildStorageKey(
+    companyId: number,
+    uuid: string,
+    originalName: string,
+  ): string {
     const ext = path.extname(originalName || "").toLowerCase();
     return `companies/${companyId}/files/${uuid}${ext}`;
   }
@@ -56,7 +61,11 @@ export class FileStorageService {
     return crypto.createHash("sha256").update(buffer).digest("hex");
   }
 
-  async putObject(storageKey: string, buffer: Buffer, contentType?: string): Promise<void> {
+  async putObject(
+    storageKey: string,
+    buffer: Buffer,
+    contentType?: string,
+  ): Promise<void> {
     if (this.s3) {
       await this.s3.send(
         new PutObjectCommand({
@@ -92,6 +101,38 @@ export class FileStorageService {
     return getSignedUrl(this.s3, command, { expiresIn: 900 });
   }
 
+  /**
+   * The stored bytes, on BOTH drivers.
+   *
+   * `getDownloadUrl` is S3-only and `getLocalReadStream` is disk-only, which is
+   * enough for a request handler that just hands a file to a browser but
+   * useless to anything that has to *read* the content later — a background
+   * worker cannot follow a signed URL it has no browser for, and cannot open a
+   * local path in production. This is the one shape both drivers share.
+   *
+   * Whole-buffer by design: callers are size-capped before the bytes ever get
+   * here (node-files refuses anything over NF_MAX_UPLOAD_BYTES), and a partial
+   * read would be worse than an error for every current caller.
+   */
+  async getObjectBuffer(storageKey: string): Promise<Buffer> {
+    if (this.s3) {
+      const response = await this.s3.send(
+        new GetObjectCommand({ Bucket: this.bucket!, Key: storageKey }),
+      );
+      const body = response.Body;
+      if (!body) {
+        throw new Error(`Stored object has no body: ${storageKey}`);
+      }
+      // The v3 SDK's Node stream exposes this helper; it is the documented way
+      // to collect a GetObject body without hand-rolling stream handling.
+      const bytes = await (
+        body as { transformToByteArray: () => Promise<Uint8Array> }
+      ).transformToByteArray();
+      return Buffer.from(bytes);
+    }
+    return fs.promises.readFile(path.join(this.localDir, storageKey));
+  }
+
   getLocalReadStream(storageKey: string): fs.ReadStream {
     return fs.createReadStream(path.join(this.localDir, storageKey));
   }
@@ -124,7 +165,10 @@ export class FileStorageService {
     if (this.s3) {
       // Encode per path segment — encoding the whole key would percent-encode
       // the '/' separators and make S3 resolve a nonexistent source.
-      const encodedSource = sourceKey.split("/").map(encodeURIComponent).join("/");
+      const encodedSource = sourceKey
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/");
       await this.s3.send(
         new CopyObjectCommand({
           Bucket: this.bucket!,

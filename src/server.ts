@@ -4,6 +4,10 @@ import {
   startReminderScheduler,
   stopReminderScheduler,
 } from "./services/countdown/countdown-reminders.service";
+import {
+  startNodeFilesWorker,
+  stopNodeFilesWorker,
+} from "./services/node-files/node-files-worker";
 dotenv.config();
 
 /**
@@ -36,11 +40,15 @@ const PORT: number = parseInt(envPort);
     console.info(`Server up and running on port ${PORT}`),
   );
 
-  // First background job in this API: the countdown module's daily reminder
-  // batch. In-process hourly tick rather than a host crontab — no extra
-  // dependency and it comes back with the process. Never under test, which
-  // would try to send mail.
-  if (process.env.NODE_ENV !== "test") startReminderScheduler();
+  // The background jobs, both in-process ticks rather than host crontabs — no
+  // extra dependency and they come back with the process:
+  //   - countdown's daily reminder batch (hourly tick, once per weekday);
+  //   - the node-files extraction worker (5 s tick, one queued run at a time).
+  // Never under test, which would try to send mail and to call Claude.
+  if (process.env.NODE_ENV !== "test") {
+    startReminderScheduler();
+    startNodeFilesWorker();
+  }
 
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
@@ -51,6 +59,7 @@ const PORT: number = parseInt(envPort);
     console.info(`Shutting down (${signal}), draining in-flight requests`);
 
     stopReminderScheduler();
+    stopNodeFilesWorker();
 
     const force = setTimeout(() => {
       console.error("Shutdown drain timed out, forcing exit");
