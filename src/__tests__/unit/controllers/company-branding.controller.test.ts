@@ -93,6 +93,8 @@ describe("CompaniesController.updateBranding", () => {
         displayName: "QA Demo",
         brandColor: "#2563eb",
         accentColor: "#ffd400",
+        shellColor: null,
+        canvasColor: null,
         logoFileUuid: LOGO_UUID,
         loginMessage: "Hola",
       },
@@ -104,6 +106,8 @@ describe("CompaniesController.updateBranding", () => {
         displayName: "QA Demo",
         brandColor: "#2563EB",
         accentColor: "#FFD400",
+        shellColor: null,
+        canvasColor: null,
         logoFileUuid: LOGO_UUID,
         loginMessage: "Hola",
       }),
@@ -116,6 +120,8 @@ describe("CompaniesController.updateBranding", () => {
       // Lower-cased by the DTO.
       brandColor: "#2563eb",
       accentColor: "#ffd400",
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: LOGO_UUID,
       loginMessage: "Hola",
     });
@@ -138,6 +144,8 @@ describe("CompaniesController.updateBranding", () => {
       displayName: null,
       brandColor: "#018445",
       accentColor: null,
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });

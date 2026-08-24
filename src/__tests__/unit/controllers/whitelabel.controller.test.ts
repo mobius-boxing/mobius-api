@@ -122,6 +122,8 @@ describe("WhitelabelController.getBranding", () => {
         displayName: "QA Demo",
         brandColor: "#2563eb",
         accentColor: "#2563eb",
+        shellColor: "#191713",
+        canvasColor: "#f9f7f4",
         logoUrl: null,
         loginMessage: "Portal de vencimientos de QA Demo.",
       },

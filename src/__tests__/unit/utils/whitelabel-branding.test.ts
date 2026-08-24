@@ -35,6 +35,8 @@ describe("normalizeBranding", () => {
         displayName: "Acme",
         brandColor: "#00ff00",
         accentColor: "#ffd400",
+        shellColor: null,
+        canvasColor: null,
         logoFileUuid: VALID_UUID_V4,
         loginMessage: "Bienvenido",
       }),
@@ -42,6 +44,8 @@ describe("normalizeBranding", () => {
       displayName: "Acme",
       brandColor: "#00ff00",
       accentColor: "#ffd400",
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: VALID_UUID_V4,
       loginMessage: "Bienvenido",
     });
@@ -52,6 +56,8 @@ describe("normalizeBranding", () => {
       displayName: null,
       brandColor: null,
       accentColor: null,
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -96,6 +102,8 @@ describe("normalizeBranding", () => {
       displayName: null,
       brandColor: null,
       accentColor: null,
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -107,6 +115,8 @@ describe("normalizeBranding", () => {
         displayName: null,
         brandColor: null,
         accentColor: null,
+        shellColor: null,
+        canvasColor: null,
         logoFileUuid: null,
         loginMessage: null,
       });
@@ -122,6 +132,8 @@ describe("readLegacyModuleBranding", () => {
       displayName: "QA Demo",
       brandColor: "#2563eb",
       accentColor: null,
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: null,
       loginMessage: "Portal de vencimientos de QA Demo.",
     });
@@ -146,6 +158,8 @@ describe("readLegacyModuleBranding", () => {
       displayName: "Vencimientos",
       brandColor: null,
       accentColor: null,
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
