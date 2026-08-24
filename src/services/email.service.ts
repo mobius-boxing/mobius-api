@@ -1,15 +1,10 @@
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import {
   invitationEmailTemplate,
-  storeInvitationEmailTemplate,
-  storeOrderNotificationEmailTemplate,
-  storeOrderStatusEmailTemplate,
-  STORE_ORDER_STATUS_LABELS,
   welcomeEmailTemplate,
   passwordResetEmailTemplate,
   emailVerificationTemplate,
 } from "../templates/email-templates";
-import { StoreOrderStatus } from "../interfaces/store-order/store-order.interfaces";
 
 export class EmailService {
   private isConfigured: boolean;
@@ -17,7 +12,6 @@ export class EmailService {
   private fromEmail: string;
   private fromName: string;
   private frontendUrl: string;
-  private storeAppUrl: string | undefined;
 
   constructor() {
     // SES authenticates via the ambient AWS credential chain: the EC2 instance role
@@ -37,11 +31,6 @@ export class EmailService {
     this.fromEmail = process.env.EMAIL_FROM || "noreply@mobius-tms.com";
     this.fromName = process.env.EMAIL_FROM_NAME || "Mobius";
     this.frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    // STORE_APP_URL points at the customer-facing store app. It may be unset:
-    // mobius-store-app does not exist yet, so the invite link will not resolve
-    // until that app is built. Invite creation still succeeds (token persisted);
-    // the email send is fail-soft at the caller. Primary v1 path is admin-set-password.
-    this.storeAppUrl = process.env.STORE_APP_URL;
   }
 
   // If SES is not configured (no region) we degrade gracefully by logging the email
@@ -102,113 +91,6 @@ export class EmailService {
     } catch (error) {
       console.error("Error sending invitation email:", error);
       throw error;
-    }
-  }
-
-  /**
-   * Store-user invitation. Links to STORE_APP_URL (customer-facing store app).
-   *
-   * ⚠ FLAG: mobius-store-app does not exist yet, so STORE_APP_URL may be unset and
-   * the invite link will not resolve until that app is built. We fall back to
-   * FRONTEND_URL only so the email is well-formed; the link is effectively dormant.
-   * Callers MUST invoke this fail-soft (try/catch → console.error) — the store user
-   * and token are already persisted, and the primary v1 path is admin-set-password.
-   */
-  public async sendStoreInvitationEmail(
-    email: string,
-    token: string,
-    name?: string,
-  ): Promise<void> {
-    try {
-      const baseUrl = this.storeAppUrl || this.frontendUrl;
-      const actionUrl = `${baseUrl}/accept-invitation/${token}`;
-
-      const html = storeInvitationEmailTemplate({
-        firstName: name,
-        actionUrl,
-      });
-
-      const subject = "Has sido invitado a la tienda en Mobius";
-
-      await this.send(email, subject, html);
-    } catch (error) {
-      console.error("Error sending store invitation email:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * New-order notification to company admins. No price; the short uuid ref, the
-   * buyer email and the item count only. Multi-recipient: send to each admin in a
-   * loop (the private `send` takes a single `to`) so one bad address can't drop the
-   * rest. Caller invokes this fail-soft — an email failure must NOT fail the order.
-   */
-  public async sendStoreOrderNotificationEmail(
-    toEmails: string[],
-    data: {
-      orderRef: string;
-      buyerEmail: string;
-      itemCount: number;
-      companyName: string;
-    },
-  ): Promise<void> {
-    try {
-      const html = storeOrderNotificationEmailTemplate({
-        orderRef: data.orderRef,
-        buyerEmail: data.buyerEmail,
-        itemCount: data.itemCount,
-        companyName: data.companyName,
-        actionUrl: `${this.frontendUrl}/store-orders`,
-      });
-      const subject = `Nuevo pedido de tienda — ${data.companyName} (#${data.orderRef})`;
-
-      for (const to of toEmails) {
-        await this.send(to, subject, html);
-      }
-    } catch (error) {
-      console.error("Error sending store order notification email:", error);
-      throw error; // caller is fail-soft
-    }
-  }
-
-  /**
-   * Buyer-facing order status email. One method for every status transition
-   * (created → pending, plus confirmed/in_production/shipped/delivered/cancelled):
-   * the template picks the Spanish copy from a status → message map (DRY). The CTA
-   * deep-links to the buyer's order in the store app (falls back to the web app URL
-   * when STORE_APP_URL is unset — same fallback as the store invite). Caller invokes
-   * this fail-soft — an email failure must NEVER block the order create/update.
-   *
-   * `data.orderUuid` is the full uuid for the deep link; `data.orderRef` is the short
-   * uuid shown in the copy/subject — never expose more than the short ref to the buyer.
-   */
-  public async sendStoreOrderStatusEmail(
-    to: string,
-    data: {
-      orderRef: string;
-      orderUuid: string;
-      status: StoreOrderStatus;
-      companyName: string;
-    },
-  ): Promise<void> {
-    try {
-      const baseUrl = this.storeAppUrl ?? this.frontendUrl;
-      const actionUrl = `${baseUrl}/orders/${data.orderUuid}`;
-
-      const html = storeOrderStatusEmailTemplate({
-        orderRef: data.orderRef,
-        status: data.status,
-        companyName: data.companyName,
-        actionUrl,
-      });
-
-      const statusLabel = STORE_ORDER_STATUS_LABELS[data.status] ?? data.status;
-      const subject = `Pedido #${data.orderRef} — ${statusLabel}`;
-
-      await this.send(to, subject, html);
-    } catch (error) {
-      console.error("Error sending store order status email:", error);
-      throw error; // caller is fail-soft
     }
   }
 

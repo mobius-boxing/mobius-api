@@ -5,16 +5,15 @@ import { CompanyBrandingInputDTO } from "./CompanyBrandingInputDTO";
  * Per-module configuration — the payload of
  * `PUT /api/companies/:uuid/modules/:slug/config`.
  *
- * The stored shape is namespaced by module slug inside `company_modules.config`
- * (same precedent as `services/store/store-order-limits.ts`):
+ * The stored shape is namespaced by module slug inside `company_modules.config`:
  *
  *   config = { "<moduleSlug>": { "branding": { ...five fields... } } }
  *
  * LEGACY: the `branding` written here is NO LONGER READ by anything. Branding
  * became a property of the COMPANY (`companies.branding`, written by
  * `PUT /api/companies/:uuid/branding`), and the public whitelabel endpoint reads
- * it from there. This endpoint stays for genuine per-module config (e.g. store
- * order limits) and its existing shape is kept so no caller breaks; giving it a
+ * it from there. This endpoint stays for genuine per-module config and its
+ * existing shape is kept so no caller breaks; giving it a
  * real per-module DTO — or retiring it — is a follow-up spec.
  *
  * Validation is NOT duplicated: it delegates to `CompanyBrandingInputDTO`, the
@@ -45,8 +44,8 @@ export class CompanyModuleConfigInputDTO {
   /**
    * The object to merge into `config[<moduleSlug>]`. `branding` is replaced
    * wholesale (the editor always sends the complete set of five fields), while
-   * any sibling key under the same module namespace — e.g. the store module's
-   * `storeOrderLimits` — is left untouched by the DAO merge.
+   * any sibling key under the same module namespace — e.g. countdown's
+   * `reminderDays` — is left untouched by the DAO merge.
    */
   public toConfigSection(): Record<string, unknown> {
     return { branding: { ...this.branding } };

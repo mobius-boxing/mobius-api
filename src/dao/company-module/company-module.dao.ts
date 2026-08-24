@@ -175,7 +175,7 @@ export class CompanyModuleDAO {
    * module's own namespace: `config[moduleSlug] = {...previous, ...section}`.
    *
    * Two namespaces are respected on purpose. Other modules' top-level keys are
-   * never touched (a store config survives a countdown branding save), and
+   * never touched (one module's config survives another's branding save), and
    * sibling keys inside the module's own namespace survive too (`storeOrderLimits`
    * survives a `branding` save).
    *

@@ -25,8 +25,10 @@ export const POOL_MAX: Record<DbKey, number> = {
   core: 12,
   erp: 15,
   countdown: 5,
-  store: 5,
 };
+// sum = 32 of a 40 budget. The 5 freed by deleting the store key on 2026-08-24
+// are reserved for the `nodefiles` module (amendment-2026-08-24), which will
+// take the sum back to 37.
 
 /** The ceiling `sum(POOL_MAX)` may not exceed. Asserted by unit test. */
 export const POOL_BUDGET = 40;
@@ -36,7 +38,6 @@ const POOL_MIN: Record<DbKey, number> = {
   core: 1,
   erp: 1,
   countdown: 0,
-  store: 0,
 };
 
 const IDLE_TIMEOUT_MS = 20000;

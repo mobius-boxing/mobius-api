@@ -130,20 +130,20 @@ describe("readLegacyModuleBranding", () => {
   it("returns empty branding for a module namespace that is not there", () => {
     expect(
       isEmptyBranding(
-        readLegacyModuleBranding(PRODUCTION_COUNTDOWN_CONFIG, "store"),
+        readLegacyModuleBranding(PRODUCTION_COUNTDOWN_CONFIG, "absent-module"),
       ),
     ).toBe(true);
   });
 
   it("ignores sibling config keys under the same module namespace", () => {
     const config = {
-      store: {
-        storeOrderLimits: { maxBoxes: 10 },
-        branding: { displayName: "Tienda" },
+      countdown: {
+        reminderDays: [30, 7, 1],
+        branding: { displayName: "Vencimientos" },
       },
     };
-    expect(readLegacyModuleBranding(config, "store")).toEqual({
-      displayName: "Tienda",
+    expect(readLegacyModuleBranding(config, "countdown")).toEqual({
+      displayName: "Vencimientos",
       brandColor: null,
       accentColor: null,
       logoFileUuid: null,

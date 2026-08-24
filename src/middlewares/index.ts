@@ -16,14 +16,7 @@ export {
 } from "./auth.middleware";
 
 // Module-enabled gate middleware
-export {
-  requireModule,
-  requireStoreModule,
-  requireCountdownModule,
-} from "./module.middleware";
-
-// Store-customer authentication middleware (isolated from internal auth)
-export { authenticateStore } from "./store-auth.middleware";
+export { requireModule, requireCountdownModule } from "./module.middleware";
 
 // Validation middleware
 export {

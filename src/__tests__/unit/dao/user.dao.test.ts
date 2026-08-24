@@ -392,7 +392,6 @@ describe("UserDAO", () => {
       expect(mockKnex).toHaveBeenCalledWith("users");
       expect(mockOtherKeys.mocks.erp).not.toHaveBeenCalled();
       expect(mockOtherKeys.mocks.countdown).not.toHaveBeenCalled();
-      expect(mockOtherKeys.mocks.store).not.toHaveBeenCalled();
     });
   });
 

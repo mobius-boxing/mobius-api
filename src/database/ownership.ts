@@ -5,11 +5,12 @@ import { DbKey } from "./keys";
  *
  * Two layers, because two different questions are being asked (plan R-1):
  *
- * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 80 application tables of
+ * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 75 application tables of
  *   the end state (74 measured in production 2026-08-13 + the pending
  *   `countdown_reminder_digests` + `models` (module 08) + `order_data`,
  *   `sales_orders` and `sales_order_approval_events` (module 18 sub-area D) +
- *   `production_orders` (module 13)), each mapped to the database that owns its
+ *   `production_orders` (module 13), minus the 5 store tables deleted with the
+ *   store module on 2026-08-24), each mapped to the database that owns its
  *   original row set. This is what AC-1(c)/(d) counts.
  * - `TABLE_OWNER` is keyed `(database, table)` and additionally carries the
  *   per-database *copies* of the two table names that deliberately live in more
@@ -34,13 +35,6 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   // Company-level assets (logos today). The ERP and countdown copies are in
   // EXTRA_COPIES below; the rows are partitioned at the core cutover.
   files: "core",
-
-  // ── store (5) — D-1 ───────────────────────────────────────────────────────
-  store_boxes: "store",
-  store_rolls: "store",
-  store_users: "store",
-  store_orders: "store",
-  store_order_items: "store",
 
   // ── countdown (9) — the 8 tables of 20260812000001 + the digests table ────
   countdown_categories: "countdown",
@@ -125,7 +119,7 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
  */
 const EXTRA_COPIES: Record<string, readonly DbKey[]> = {
   files: ["erp", "countdown"],
-  audit_logs: ["core", "countdown", "store"],
+  audit_logs: ["core", "countdown"],
 };
 
 const buildTableOwner = (): Record<`${DbKey}.${string}`, DbKey> => {

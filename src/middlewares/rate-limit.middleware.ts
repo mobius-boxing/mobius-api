@@ -73,7 +73,7 @@ export const createRateLimiter = (
   return rateLimit(options);
 };
 
-// SECURITY (H3): strict auth limiter for login / store-login / password-reset.
+// SECURITY (H3): strict auth limiter for login / password-reset.
 export const authRateLimiter = createRateLimiter(
   5,
   1,

@@ -145,8 +145,6 @@ describe("AC-56 — the registry is the only door", () => {
     "controllers/glue-type/glue-type.controller.ts",
     "controllers/invitations/invitations.controller.ts",
     "controllers/product-type/product-type.controller.ts",
-    "controllers/store-box/store-box.controller.ts",
-    "controllers/store-roll/store-roll.controller.ts",
     "controllers/strapping-type/strapping-type.controller.ts",
     "controllers/trace-type/trace-type.controller.ts",
     "controllers/users/users.controller.ts",
@@ -205,7 +203,7 @@ describe("AC-56 — the registry is the only door", () => {
   });
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
-    expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(15);
+    expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(13);
     expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(8);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(

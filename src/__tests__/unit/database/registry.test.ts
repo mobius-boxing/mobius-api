@@ -169,7 +169,7 @@ describe("connection registry", () => {
       for (const instance of mockInstances) {
         expect(instance.destroy).toHaveBeenCalledTimes(1);
       }
-      expect(() => db("store")).toThrow(DatabaseNotConnectedError);
+      expect(() => db("countdown")).toThrow(DatabaseNotConnectedError);
     });
   });
 
@@ -206,7 +206,7 @@ describe("connection registry", () => {
         // no SQL_CORE_PASSWORD: the shared value still applies
         password: "one_password",
       });
-      for (const key of ["erp", "countdown", "store"] as DbKey[]) {
+      for (const key of ["erp", "countdown"] as DbKey[]) {
         expect(byKey[key]).toMatchObject({ database: "one_database" });
       }
     });
@@ -290,7 +290,6 @@ describe("connection registry", () => {
       expect(() => db("core")("users")).not.toThrow();
       expect(() => db("erp")("products as p")).not.toThrow();
       expect(() => db("countdown")("countdown_documents")).not.toThrow();
-      expect(() => db("store")("store_boxes")).not.toThrow();
     });
 
     it("never objects to a fanned-out or unknown table", () => {
@@ -366,14 +365,14 @@ describe("connection registry", () => {
 
   describe("pool budget (AC-44)", () => {
     it("stays inside the ratified ceiling with the ratified split", () => {
-      expect(POOL_MAX).toEqual({ core: 12, erp: 15, countdown: 5, store: 5 });
+      expect(POOL_MAX).toEqual({ core: 12, erp: 15, countdown: 5 });
       const sum = Object.values(POOL_MAX).reduce((a, b) => a + b, 0);
-      expect(sum).toBe(37);
+      expect(sum).toBe(32);
       expect(sum).toBeLessThanOrEqual(POOL_BUDGET);
       expect(POOL_BUDGET).toBe(40);
     });
 
-    it("gives the two low-traffic keys min 0 — idle connections are not free", async () => {
+    it("gives the low-traffic key min 0 — idle connections are not free", async () => {
       await connectAll();
       const pools = DB_KEYS.map(
         (_key, index) =>
@@ -387,7 +386,6 @@ describe("connection registry", () => {
       expect(byKey.core).toMatchObject({ min: 1, max: 12 });
       expect(byKey.erp).toMatchObject({ min: 1, max: 15 });
       expect(byKey.countdown).toMatchObject({ min: 0, max: 5 });
-      expect(byKey.store).toMatchObject({ min: 0, max: 5 });
     });
 
     it("logs the budget exactly once, however often connectAll is called", async () => {
@@ -406,7 +404,7 @@ describe("connection registry", () => {
           "[db] pool budget",
           POOL_MAX,
           "sum",
-          37,
+          32,
         ]);
       } finally {
         consoleInfo.mockRestore();

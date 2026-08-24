@@ -19,16 +19,18 @@ const isLocalDb =
   process.env.SQL_HOST === "localhost" || process.env.SQL_HOST === "127.0.0.1";
 const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 
-/** D-5, frozen by measurement on the live host 2026-08-13. */
-const DOMAIN_TABLE_COUNT = 80;
+/**
+ * D-5, frozen by measurement on the live host 2026-08-13, less the 5 store
+ * tables deleted with the store module on 2026-08-24 (amendment-2026-08-24).
+ */
+const DOMAIN_TABLE_COUNT = 75;
 const DOMAIN_COUNTS: Record<DbKey, number> = {
   core: 10,
-  store: 5,
   countdown: 9,
   erp: 56,
 };
 /** The two names that deliberately live in more than one database (AC-2). */
-const FANNED_OUT_COPIES: Record<string, number> = { files: 3, audit_logs: 4 };
+const FANNED_OUT_COPIES: Record<string, number> = { files: 3, audit_logs: 3 };
 
 const countBy = (owners: DbKey[]): Record<string, number> =>
   owners.reduce<Record<string, number>>(
@@ -78,7 +80,6 @@ describe("TABLE_OWNER manifest (AC-1 a/b/d, AC-2)", () => {
   it("resolves a single-owner table and declines to guess a fanned-out one", () => {
     expect(ownerOf("customers")).toBe("erp");
     expect(ownerOf("companies")).toBe("core");
-    expect(ownerOf("store_boxes")).toBe("store");
     expect(ownerOf("countdown_documents")).toBe("countdown");
     // `undefined` is what stops the wrong-database guard objecting to a table
     // that legitimately exists on more than one connection.
