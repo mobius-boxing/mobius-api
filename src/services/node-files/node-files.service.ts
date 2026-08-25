@@ -29,6 +29,10 @@ import { encryptSecret, NodeFilesSecretError } from "./credential-crypto";
 import { DefinitionError, validateDefinition } from "./definition";
 import { isAcceptedMimeType } from "./extraction/claude-extraction.provider";
 import {
+  pngDeclaresTransparency,
+  TRANSPARENCY_REJECTION,
+} from "./extraction/image-alpha";
+import {
   coerceReviewValues,
   missingRequiredLabels,
 } from "./extraction/field-schema";
@@ -346,6 +350,11 @@ export class NodeFilesService {
       throw badRequest(
         `Tipo de archivo no admitido (${file.mimetype}): usá PDF, PNG, JPEG, WEBP, TXT o CSV`,
       );
+    }
+    // Refused here rather than at extraction: the file would be stored, billed
+    // for and turned into a confidently wrong row before anyone saw it.
+    if (pngDeclaresTransparency(file.buffer)) {
+      throw badRequest(TRANSPARENCY_REJECTION);
     }
 
     const workflow = await this._workflowDAO.getByUuid(

@@ -99,6 +99,82 @@ export function buildExtractionSchema(
 }
 
 /**
+ * The JSON-Schema type of one declared field's `value`, already nullable.
+ *
+ * Kept next to `valueSchemaFor` on purpose: the two switch on the same enum and
+ * must answer the same question, so they are read together or not at all.
+ */
+function jsonValueTypeFor(type: NodeFilesFieldType): Record<string, unknown> {
+  switch (type) {
+    case "number":
+    case "currency":
+      return { type: ["number", "null"] };
+    case "boolean":
+      return { type: ["boolean", "null"] };
+    case "list":
+      return { type: ["array", "null"], items: { type: "string" } };
+    // A date crosses the wire as an ISO string and is validated after parsing,
+    // exactly as in the Zod twin.
+    case "date":
+    case "string":
+    default:
+      return { type: ["string", "null"] };
+  }
+}
+
+/**
+ * The JSON-Schema twin of `buildExtractionSchema`, for providers whose
+ * structured-output contract is JSON Schema rather than Zod (OpenAI's
+ * Responses API `text.format`).
+ *
+ * It is a TWIN, not an approximation: same keys, same `{ value, confidence }`
+ * pair, same nullability, same descriptions. Nothing in the type system stops
+ * the two builders drifting apart, so a unit test asserts they agree on both
+ * the key set and which values are nullable — drift here would mean the same
+ * workflow is described differently to two providers.
+ *
+ * `strict: true` on OpenAI's side imposes two extra rules, both applied here:
+ * every property appears in `required`, and `additionalProperties` is `false`
+ * at every level. "Not found" is still expressible because `value`'s type is a
+ * union WITH `"null"` — that is how optionality is spelled under strict mode.
+ */
+export function buildExtractionJsonSchema(
+  fields: INodeFilesField[],
+): Record<string, unknown> {
+  if (fields.length === 0) {
+    throw new Error("El flujo no declara ningún campo a extraer");
+  }
+  const properties: Record<string, unknown> = {};
+  for (const field of fields) {
+    const description = field.description
+      ? `${field.label} — ${field.description}`
+      : field.label;
+    properties[field.key] = {
+      type: "object",
+      description,
+      properties: {
+        value: {
+          ...jsonValueTypeFor(field.type),
+          description: `${description}. null si no aparece en el documento.`,
+        },
+        confidence: {
+          type: "number",
+          description: "Confianza de 0 a 1 en el valor extraído.",
+        },
+      },
+      required: ["value", "confidence"],
+      additionalProperties: false,
+    };
+  }
+  return {
+    type: "object",
+    properties,
+    required: fields.map((field) => field.key),
+    additionalProperties: false,
+  };
+}
+
+/**
  * One value, coerced to its declared type or discarded.
  *
  * The contract, which the unit tests pin down: a value that does not match its

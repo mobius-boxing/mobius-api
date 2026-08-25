@@ -11,8 +11,10 @@ import { ClaudeExtractionProvider } from "./extraction/claude-extraction.provide
 import {
   ExtractionError,
   IExtractionProvider,
+  IExtractionSettings,
   resolveExtractionSettings,
 } from "./extraction/extraction-provider";
+import { OpenAIExtractionProvider } from "./extraction/openai-extraction.provider";
 import { missingRequiredLabels } from "./extraction/field-schema";
 
 /**
@@ -106,8 +108,25 @@ const WORKER_ID = `nf-${process.pid}-${randomUUID().slice(0, 8)}`;
 /** Overridable so tests and future phases can swap the provider. */
 type ProviderFactory = (companyId: number) => Promise<IExtractionProvider>;
 
+/**
+ * Settings → provider. Exhaustive by construction: the switch returns on every
+ * member of the union, so adding a third vendor to
+ * `NodeFilesExtractionProvider` is a compile error here rather than a silent
+ * fall-through to whichever one happens to be listed last.
+ */
+export function providerFor(
+  settings: IExtractionSettings,
+): IExtractionProvider {
+  switch (settings.provider) {
+    case "claude":
+      return new ClaudeExtractionProvider(settings);
+    case "openai":
+      return new OpenAIExtractionProvider(settings);
+  }
+}
+
 const defaultProviderFactory: ProviderFactory = async (companyId) =>
-  new ClaudeExtractionProvider(await resolveExtractionSettings(companyId));
+  providerFor(await resolveExtractionSettings(companyId));
 
 /** Put abandoned claims back in the queue. Returns how many moved. */
 export async function sweepStaleLocks(now: Date = new Date()): Promise<number> {
@@ -156,7 +175,7 @@ export async function sweepAbandonedExecutions(
  *   1. claim         — one statement, its own transaction
  *   2. read metadata — short queries, no lock held
  *   3. fetch bytes   — external I/O, no DB connection held
- *   4. call Claude   — external I/O, no DB connection held
+ *   4. call provider — external I/O, no DB connection held
  *   5. record        — one short statement
  */
 export async function processNextRun(

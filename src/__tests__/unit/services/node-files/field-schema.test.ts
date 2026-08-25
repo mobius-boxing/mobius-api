@@ -6,9 +6,13 @@
  * nullable — "not found" has to be expressible, or the model invents one.
  */
 import { describe, it, expect } from "@jest/globals";
-import { buildExtractionSchema } from "../../../../services/node-files/extraction/field-schema";
+import {
+  buildExtractionJsonSchema,
+  buildExtractionSchema,
+} from "../../../../services/node-files/extraction/field-schema";
 import {
   INodeFilesField,
+  NODE_FILES_FIELD_TYPES,
   NodeFilesFieldType,
 } from "../../../../interfaces/node-files/node-files.interfaces";
 
@@ -119,5 +123,102 @@ describe("buildExtractionSchema", () => {
     const shape = schema.shape.total as { description?: string };
     expect(shape.description).toContain("Total");
     expect(shape.description).toContain("el total con IVA");
+  });
+});
+
+/**
+ * The two builders describe the SAME contract to two different providers, and
+ * nothing in the type system ties them together — one can be edited without
+ * the other and everything still compiles. These cases are that tie: if the
+ * Zod schema and the JSON Schema ever disagree about which keys exist, what a
+ * value's base type is, or whether it may be null, a workflow means one thing
+ * on Claude and another on OpenAI.
+ *
+ * The loop is over `NODE_FILES_FIELD_TYPES`, and the sample table is a
+ * `Record` over it, so adding a seventh field type without teaching both
+ * builders about it is a compile error rather than a silent gap.
+ */
+type JsonProperty = { type: string[]; description?: string };
+type JsonEntry = {
+  type: string;
+  description?: string;
+  properties: { value: JsonProperty; confidence: JsonProperty };
+  required: string[];
+  additionalProperties: boolean;
+};
+type JsonRoot = {
+  type: string;
+  properties: Record<string, JsonEntry>;
+  required: string[];
+  additionalProperties: boolean;
+};
+
+const SAMPLE: Record<NodeFilesFieldType, { value: unknown; jsonType: string }> =
+  {
+    string: { value: "Acme", jsonType: "string" },
+    number: { value: 12.5, jsonType: "number" },
+    currency: { value: 12.5, jsonType: "number" },
+    date: { value: "2026-08-25", jsonType: "string" },
+    boolean: { value: true, jsonType: "boolean" },
+    list: { value: ["a", "b"], jsonType: "array" },
+  };
+
+describe("buildExtractionJsonSchema ⇄ buildExtractionSchema", () => {
+  const fields = NODE_FILES_FIELD_TYPES.map((type) => field(`f_${type}`, type));
+
+  it("agrees on the key set", () => {
+    const zodKeys = Object.keys(buildExtractionSchema(fields).shape).sort();
+    const json = buildExtractionJsonSchema(fields) as JsonRoot;
+
+    expect(Object.keys(json.properties).sort()).toEqual(zodKeys);
+    // strict mode: every property is required, none may be added.
+    expect([...json.required].sort()).toEqual(zodKeys);
+    expect(json.additionalProperties).toBe(false);
+  });
+
+  it.each(NODE_FILES_FIELD_TYPES)(
+    "agrees on the base type and on nullability for %s",
+    (type) => {
+      const one = [field("campo", type)];
+      const zod = buildExtractionSchema(one);
+      const json = (buildExtractionJsonSchema(one) as JsonRoot).properties
+        .campo;
+      const sample = SAMPLE[type];
+
+      // Both accept the declared type...
+      expect(
+        zod.safeParse({ campo: { value: sample.value, confidence: 1 } })
+          .success,
+      ).toBe(true);
+      expect(json.properties.value.type).toContain(sample.jsonType);
+
+      // ...and both accept "I could not find it".
+      expect(
+        zod.safeParse({ campo: { value: null, confidence: 0 } }).success,
+      ).toBe(true);
+      expect(json.properties.value.type).toContain("null");
+
+      expect([...json.required].sort()).toEqual(["confidence", "value"]);
+      expect(json.additionalProperties).toBe(false);
+    },
+  );
+
+  it("carries the same description into both schemas", () => {
+    const one = [
+      field("total", "currency", {
+        label: "Total",
+        description: "el total con IVA",
+      }),
+    ];
+    const zodDescription = (
+      buildExtractionSchema(one).shape.total as { description?: string }
+    ).description;
+    const json = (buildExtractionJsonSchema(one) as JsonRoot).properties.total;
+
+    expect(json.description).toBe(zodDescription);
+  });
+
+  it("refuses a workflow that declares no fields at all", () => {
+    expect(() => buildExtractionJsonSchema([])).toThrow(/ningún campo/);
   });
 });
