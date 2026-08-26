@@ -233,26 +233,72 @@ export async function seed(knex: Knex): Promise<void> {
     return;
   }
 
-  const existing = await knex("companies")
-    .where({ slug: COMPANY_SLUG })
-    .first();
+  let existing = await knex("companies").where({ slug: COMPANY_SLUG }).first();
 
-  // Carry the old row's uuid onto the new one. The rebuild is a delete of the
-  // company (everything cascades from it), which would otherwise mint a fresh
-  // uuid — and the SPA pins the superAdmin company switcher to a uuid in
-  // localStorage. A rotated uuid leaves an open session sending
-  // `?companyId=<gone>` on every list, which the API answers 0 rows to with no
-  // error: the app looks empty rather than stale, on every screen at once.
-  const keepUuid = existing?.uuid as string | undefined;
-  if (existing) {
+  // A tenant by this slug may already exist and hold real rows — in a shared
+  // database it may sit beside live customers. Default is therefore ADDITIVE:
+  // adopt the company and add to it. Only SEED_QA_DEMO_RESET=1 deletes, and
+  // that cascades away everything the company owns, so it is a local-only tool.
+  if (existing && process.env.SEED_QA_DEMO_RESET === "1") {
+    // Carry the old row's uuid onto the new one. Everything cascades from the
+    // company, and a fresh uuid would strand any open session: the SPA pins the
+    // superAdmin company switcher to a uuid in localStorage, so a rotated uuid
+    // leaves it sending `?companyId=<gone>` on every list.
+    const keepUuid = existing.uuid as string;
     console.log(
-      `· Rebuilding "${COMPANY_NAME}" (id ${existing.id}), keeping uuid ${keepUuid}`,
+      `· RESET: deleting and rebuilding "${COMPANY_NAME}" (id ${existing.id}), keeping uuid ${keepUuid}`,
     );
     await knex("companies").where({ id: existing.id }).delete();
+    existing = undefined;
+    await knex.transaction(async (trx) => {
+      await runSeed(trx, await seedCompany(trx, keepUuid));
+    });
+    console.log(
+      `✓ "${COMPANY_NAME}" seeded — login ${ADMIN_EMAIL} / ${DEMO_PASSWORD}`,
+    );
+    return;
+  }
+
+  if (existing) {
+    // Re-running additively would collide on this seed's fixed codes, so stop
+    // with an explanation rather than a unique-violation stack trace.
+    const alreadySeeded = await knex("customers")
+      .where({ companyId: existing.id })
+      .whereLike("code", `${P}-CLI-%`)
+      .first();
+    if (alreadySeeded) {
+      throw new Error(
+        `"${COMPANY_NAME}" (id ${existing.id}) already holds this seed's data. ` +
+          `Re-run with SEED_QA_DEMO_RESET=1 to rebuild it from scratch — that ` +
+          `DELETES the company and everything cascading from it.`,
+      );
+    }
+    console.log(
+      `· Adding demo data to the existing "${existing.name}" (id ${existing.id}), keeping its ${await knex(
+        "customers",
+      )
+        .where({ companyId: existing.id })
+        .count("* as n")
+        .first()
+        .then((r) => r?.n ?? 0)} existing customer(s)`,
+    );
   }
 
   await knex.transaction(async (trx) => {
-    const companyId = await seedCompany(trx, keepUuid);
+    const companyId = existing
+      ? await adoptCompany(trx, existing.id as number)
+      : await seedCompany(trx);
+    await runSeed(trx, companyId);
+  });
+
+  console.log(
+    `✓ "${COMPANY_NAME}" seeded — login ${ADMIN_EMAIL} / ${DEMO_PASSWORD}`,
+  );
+}
+
+/** Everything below the company row, shared by the additive and reset paths. */
+async function runSeed(trx: Knex, companyId: number): Promise<void> {
+  {
     const people = await seedPeople(trx, companyId);
     const catalogs = await seedCatalogs(trx, companyId);
     const commercial = await seedCommercial(trx, companyId, people, catalogs);
@@ -274,11 +320,24 @@ export async function seed(knex: Knex): Promise<void> {
       production,
       engineering,
     );
-  });
+  }
+}
 
-  console.log(
-    `✓ "${COMPANY_NAME}" seeded — login ${ADMIN_EMAIL} / ${DEMO_PASSWORD}`,
-  );
+/**
+ * Bring an existing tenant up to the baseline the demo data assumes — the core
+ * module linked and the RBAC catalogue present — without touching a row it
+ * already owns. Both operations are idempotent.
+ */
+async function adoptCompany(trx: Knex, companyId: number): Promise<number> {
+  const core = await trx("modules").where({ slug: "core" }).first();
+  if (core) {
+    await trx("company_modules")
+      .insert({ companyId, moduleId: core.id, enabled: true })
+      .onConflict(["companyId", "moduleId"])
+      .ignore();
+  }
+  await RbacService.seedCompanyRbac(trx, companyId);
+  return companyId;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,9 +413,15 @@ async function seedPeople(trx: Knex, companyId: number): Promise<People> {
     .first();
   const allRoles = await trx("roles").where({ companyId }).select("id");
 
-  // One hash reused across every account: bcrypt at cost 10, 44 times over,
-  // would otherwise be the slowest thing this seed does.
+  // The admin is the documented way in. The other 43 accounts exist so the
+  // Users screen has rows to page through — they get an unguessable hash
+  // instead of the shared demo password, so seeding a tenant never mints 43
+  // usable logins on a database that also serves real customers.
   const password = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const unusablePassword = await bcrypt.hash(
+    `${DEMO_PASSWORD}-${Math.random()}-${process.pid}-no-login`,
+    10,
+  );
 
   const [adminUserId] = await insertMany(trx, "users", [
     {
@@ -383,7 +448,7 @@ async function seedPeople(trx: Knex, companyId: number): Promise<People> {
       const handle = slugify(`${firstName} ${lastName}`);
       return {
         email: `${handle}.${pad(i + 1, 2)}@qa-demo-co.local`,
-        password,
+        password: unusablePassword,
         firstName,
         lastName,
         username: `${handle}${pad(i + 1, 2)}`,
