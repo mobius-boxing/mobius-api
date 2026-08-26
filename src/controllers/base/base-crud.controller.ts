@@ -2,10 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { IBaseController } from "../../types.d";
 import { IDataPaginator } from "../../database/d.types";
-import {
-  enforceCompanyFilter,
-  getCompanyFilterUuid,
-} from "../../utils/companyScope";
+import { getCompanyFilterUuid } from "../../utils/companyScope";
 import { AuditService } from "../../services/audit.service";
 import { getCompanyForCreate } from "../../utils/companyScope";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
@@ -25,9 +22,10 @@ export interface ICrudDAO<T> {
 
 export interface BaseCrudOptions {
   entityLabel: string;
-  enforceCompanyOnList?: boolean;
   // SECURITY (C2): enforce company scoping on single-item ops (getByUuid/update/delete).
-  // Defaults to enforceCompanyOnList ?? true. Set false for globally-shared reference entities.
+  // Defaults to true. Set false for globally-shared reference entities.
+  // List scoping is NOT an option: parseQueryParams derives the company filter
+  // from the caller's token for every list, always.
   enforceCompanyOnItem?: boolean;
   fkCatchOnDelete?: boolean;
   fkCatchMessage?: string;
@@ -105,11 +103,7 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
    * then to true. Globally-shared reference entities opt out via enforceCompanyOnItem: false.
    */
   protected isCompanyScopedOnItem(): boolean {
-    return (
-      this.options.enforceCompanyOnItem ??
-      this.options.enforceCompanyOnList ??
-      true
-    );
+    return this.options.enforceCompanyOnItem ?? true;
   }
 
   /**
@@ -153,10 +147,6 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const enforce = this.options.enforceCompanyOnList ?? true;
-      if (enforce) {
-        enforceCompanyFilter(req);
-      }
       const result = await this.dao.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {

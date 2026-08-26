@@ -1,5 +1,6 @@
 import { Knex } from "knex";
 import { Request } from "express";
+import { getCompanyFilterUuid } from "./companyScope";
 import {
   FilterConfig,
   QueryBuilderConfig,
@@ -50,6 +51,25 @@ export function parseQueryParams(req: Request): ParsedQuery {
       }
     }
   });
+
+  // SECURITY: the company filter is derived from the caller's token, never
+  // from their input. Every DAO's getAllWithFilters lifts `filters.companyId`
+  // out of this object and turns it into a join on companies.uuid, so setting
+  // it here scopes all ~50 of them at once.
+  //
+  // This used to be `enforceCompanyFilter(req)`, called from the controllers,
+  // which assigned to `req.query.companyId`. Under Express 5 `req.query` is a
+  // getter that re-parses the query string on every access, so the assignment
+  // was silently discarded and non-superAdmins were never scoped at all: a
+  // list endpoint returned every tenant's rows. Writing the value into the
+  // parsed result instead is what makes the scope actually reach the DAO.
+  const companyUuid = getCompanyFilterUuid(req);
+  if (companyUuid === undefined) {
+    // superAdmin with no company selected: no filter, full cross-company view.
+    delete filters.companyId;
+  } else {
+    filters.companyId = companyUuid;
+  }
 
   return {
     page,

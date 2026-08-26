@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from "uuid";
 import { FileDAO } from "../../dao/file/file.dao";
 import { FileStorageService } from "../../services/file-storage.service";
 import {
-  enforceCompanyFilter,
   getCompanyFilterUuid,
   getCompanyForCreate,
 } from "../../utils/companyScope";
@@ -114,9 +113,6 @@ export class FileController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      // Sets the top-level companyId query param the DAO's query config reads —
-      // filters are flat (?companyId=...), NOT nested under ?filter[...].
-      enforceCompanyFilter(req);
       const result = await this.dao.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {

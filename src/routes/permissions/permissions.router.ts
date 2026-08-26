@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { Request, Response, NextFunction } from "express";
 import { PermissionDAO } from "../../dao/permission/permission.dao";
-import { enforceCompanyFilter } from "../../utils/companyScope";
 import {
   authenticate,
   requirePermission,
@@ -27,7 +26,6 @@ export class PermissionsRouter {
       apiRateLimiter,
       async (req: Request, res: Response, next: NextFunction) => {
         try {
-          enforceCompanyFilter(req);
           const result = await this.dao.getAllWithFilters(req);
           res.status(200).json(result);
         } catch (err: any) {

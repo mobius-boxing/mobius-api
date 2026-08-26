@@ -14,10 +14,7 @@ import {
   ProductCreateInputDTO,
   ProductUpdateInputDTO,
 } from "../../dto/input/product";
-import {
-  enforceCompanyFilter,
-  getCompanyFilterUuid,
-} from "../../utils/companyScope";
+import { getCompanyFilterUuid } from "../../utils/companyScope";
 import { db } from "../../database/registry";
 import { PartDAO } from "../../dao/part/part.dao";
 import { RbacService } from "../../services/rbac.service";
@@ -86,8 +83,6 @@ export class ProductController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      enforceCompanyFilter(req);
-
       const result: IDataPaginator<IProduct> =
         await this._productDAO.getAllWithFilters(req);
       res.status(200).json(result);

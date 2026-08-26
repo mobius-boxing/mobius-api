@@ -650,9 +650,19 @@ export class PartDAO {
   }
 
   // ── List ─────────────────────────────────────────────────────────────────
-  async getAllWithFilters(req: Request): Promise<IDataPaginator<IPart>> {
+  /**
+   * `extraFilters` carries values that come from the route rather than the
+   * query string (the nested `/product/:productUuid/parts` list). They cannot
+   * be smuggled through req.query: Express 5 re-parses it on every access, so
+   * an assignment there is silently dropped.
+   */
+  async getAllWithFilters(
+    req: Request,
+    extraFilters?: Record<string, string>,
+  ): Promise<IDataPaginator<IPart>> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
+    Object.assign(parsedQuery.filters, extraFilters ?? {});
 
     const companyUuid = parsedQuery.filters.companyId as string | undefined;
     delete parsedQuery.filters.companyId;

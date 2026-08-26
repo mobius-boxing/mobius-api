@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import * as jwt from "jsonwebtoken";
 import { UserDAO } from "../dao";
+import { CompanyDAO } from "../dao/company/company.dao";
 
 interface IJWTPayload {
   userId: string;
@@ -15,6 +16,45 @@ interface IJWTPayload {
   iat?: number;
   exp?: number;
 }
+
+/** RFC 4122 shape only — a malformed uuid would make Postgres throw, not answer. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A superAdmin targets a tenant with `?companyId=<uuid>` (the SPA's company
+ * switcher, which remembers its choice in localStorage). If that company has
+ * since been deleted, every scoped list answers 200 with zero rows and the app
+ * reads as EMPTY rather than STALE — on every screen at once, with nothing
+ * pointing at the switcher. Answer 404 so the caller can tell the difference.
+ *
+ * Only superAdmins can supply this: for everyone else parseQueryParams ignores
+ * the parameter entirely and uses the token's company.
+ *
+ * @returns false when it has already answered; the caller must not call next().
+ */
+const rejectMissingTargetCompany = async (
+  req: Request,
+  res: Response,
+): Promise<boolean> => {
+  const companyUuid = req.query.companyId;
+  if (typeof companyUuid !== "string" || req.user?.role !== "superAdmin") {
+    return true;
+  }
+
+  const companyId = UUID_RE.test(companyUuid)
+    ? await new CompanyDAO().getIdByUuid(companyUuid)
+    : null;
+
+  if (companyId !== null) return true;
+
+  res.status(404).json({
+    success: false,
+    code: "COMPANY_NOT_FOUND",
+    message: "The selected company no longer exists.",
+  });
+  return false;
+};
 
 export const authenticate = async (
   req: Request,
@@ -68,6 +108,8 @@ export const authenticate = async (
       role: decoded.role,
       companyId: decoded.companyId,
     };
+
+    if (!(await rejectMissingTargetCompany(req, res))) return;
 
     next();
   } catch (error: any) {

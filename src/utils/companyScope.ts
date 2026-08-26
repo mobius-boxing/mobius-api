@@ -60,18 +60,6 @@ export function hasCompanyAccess(
   return userCompanyUuid === targetCompanyUuid;
 }
 
-/**
- * SECURITY: overwrites req.query.companyId on non-SuperAdmins so DAOs always see the JWT-derived
- * company filter, even if the client tried to inject a different value.
- */
-export function enforceCompanyFilter(req: Request): void {
-  const user = req.user;
-
-  if (user?.role !== "superAdmin" && user?.companyId) {
-    req.query.companyId = user.companyId as unknown as string;
-  }
-}
-
 export interface ResolvedCompanyResult {
   companyUuid: string;
   success: true;

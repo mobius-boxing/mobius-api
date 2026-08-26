@@ -13,10 +13,7 @@ import {
   CustomerCreateInputDTO,
   CustomerUpdateInputDTO,
 } from "../../dto/input/customer";
-import {
-  enforceCompanyFilter,
-  getCompanyFilterUuid,
-} from "../../utils/companyScope";
+import { getCompanyFilterUuid } from "../../utils/companyScope";
 
 export class CustomerController implements IBaseController {
   private _audit = new AuditService();
@@ -42,8 +39,6 @@ export class CustomerController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      enforceCompanyFilter(req);
-
       const result: IDataPaginator<ICustomer> =
         await this._customerDAO.getAllWithFilters(req);
       res.status(200).json(result);

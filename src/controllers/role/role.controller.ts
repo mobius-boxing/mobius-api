@@ -3,10 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { RoleDAO } from "../../dao/role/role.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { AuditService } from "../../services/audit.service";
-import {
-  enforceCompanyFilter,
-  getCompanyFilterUuid,
-} from "../../utils/companyScope";
+import { getCompanyFilterUuid } from "../../utils/companyScope";
 
 const PROFILE_TYPES = [
   "director",
@@ -60,7 +57,6 @@ export class RoleController {
 
   public async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      enforceCompanyFilter(req);
       const result = await this.dao.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {

@@ -13,7 +13,6 @@ import {
 } from "../../interfaces/part/part.interfaces";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
 import {
-  enforceCompanyFilter,
   getCompanyFilterUuid,
   getCompanyForCreate,
 } from "../../utils/companyScope";
@@ -133,7 +132,6 @@ export class PartController {
 
   public async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      enforceCompanyFilter(req);
       const result = await this.dao.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
@@ -144,9 +142,13 @@ export class PartController {
   /** Nested list: GET /product/:productUuid/parts */
   public async getAllForProduct(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      enforceCompanyFilter(req);
-      (req.query as any).productUuid = req.params.productUuid;
-      const result = await this.dao.getAllWithFilters(req);
+      // productUuid comes from the ROUTE, not the query string. Assigning it
+      // onto req.query (as this did) is discarded by Express 5's re-parsing
+      // getter, so the filter never reached the DAO and this list returned
+      // every part in the company instead of the product's own.
+      const result = await this.dao.getAllWithFilters(req, {
+        productUuid: req.params.productUuid as string,
+      });
       res.status(200).json(result);
     } catch (err: any) {
       next(err);

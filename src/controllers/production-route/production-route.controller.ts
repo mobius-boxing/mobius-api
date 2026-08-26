@@ -20,7 +20,6 @@ import {
 } from "../../dto/input/production-route";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
 import {
-  enforceCompanyFilter,
   getCompanyFilterUuid,
   getCompanyForCreate,
 } from "../../utils/companyScope";
@@ -157,7 +156,6 @@ export class ProductionRouteController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      enforceCompanyFilter(req);
       const result = await this.dao.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
