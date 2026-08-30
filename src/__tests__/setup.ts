@@ -3,12 +3,12 @@
  * This file runs before all tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 
 // Set test environment variables
-process.env.NODE_ENV = 'test';
-process.env.JWT_SECRET = 'test-jwt-secret-key-for-testing-only';
-process.env.JWT_EXPIRE = '1h';
+process.env.NODE_ENV = "test";
+process.env.JWT_SECRET = "test-jwt-secret-key-for-testing-only";
+process.env.JWT_EXPIRE = "1h";
 
 // Global test timeout
 jest.setTimeout(30000);

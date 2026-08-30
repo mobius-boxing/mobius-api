@@ -18,7 +18,8 @@ export class ColorCreateInputDTO {
           ? parseInt(data.tonality, 10)
           : data.tonality;
     }
-    if (data.colorTypeUuid !== undefined) this.colorTypeUuid = data.colorTypeUuid;
+    if (data.colorTypeUuid !== undefined)
+      this.colorTypeUuid = data.colorTypeUuid;
   }
 
   public build(): this {

@@ -31,7 +31,11 @@ export class AppConfigController {
     return id;
   }
 
-  public async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async getAll(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = await this.companyId(req, res);
       if (companyId === null) return;
@@ -42,14 +46,20 @@ export class AppConfigController {
     }
   }
 
-  public async getByKey(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async getByKey(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = await this.companyId(req, res);
       if (companyId === null) return;
       const { key } = req.params;
       const entry = await this.service.getEntry(companyId, key);
       if (!entry) {
-        res.status(404).json({ success: false, message: "Config key not found" });
+        res
+          .status(404)
+          .json({ success: false, message: "Config key not found" });
         return;
       }
       res.status(200).json({ success: true, data: entry });
@@ -58,7 +68,11 @@ export class AppConfigController {
     }
   }
 
-  public async set(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async set(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = await this.companyId(req, res);
       if (companyId === null) return;
@@ -83,14 +97,20 @@ export class AppConfigController {
     }
   }
 
-  public async reset(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async reset(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = await this.companyId(req, res);
       if (companyId === null) return;
       const { key } = req.params;
       try {
         await this.service.reset(companyId, key);
-        res.status(200).json({ success: true, message: "Config key reset to default" });
+        res
+          .status(200)
+          .json({ success: true, message: "Config key reset to default" });
       } catch (e: any) {
         if (e?.message?.startsWith("Unknown config key")) {
           res.status(404).json({ success: false, message: e.message });

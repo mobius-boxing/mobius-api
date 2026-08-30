@@ -12,7 +12,10 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import { getCompanyForCreate, getCompanyFilterUuid } from "../../utils/companyScope";
+import {
+  getCompanyForCreate,
+  getCompanyFilterUuid,
+} from "../../utils/companyScope";
 
 export class MachineController extends BaseCrudController<IMachine> {
   protected dao = new MachineDAO();
@@ -85,7 +88,9 @@ export class MachineController extends BaseCrudController<IMachine> {
         companyUuid,
       );
       if (!machineTypeId) {
-        res.status(400).json({ success: false, message: "Machine type not found" });
+        res
+          .status(400)
+          .json({ success: false, message: "Machine type not found" });
         return null;
       }
       resolved.machineTypeId = machineTypeId;
@@ -95,9 +100,13 @@ export class MachineController extends BaseCrudController<IMachine> {
       ["destinationWarehouseUuid", "destinationWarehouseId", "warehouses"],
     ] as const) {
       if (inputDTO[uuidKey] !== undefined) {
-        const id = inputDTO[uuidKey] ? await getIdByUuid(inputDTO[uuidKey], table) : null;
+        const id = inputDTO[uuidKey]
+          ? await getIdByUuid(inputDTO[uuidKey], table)
+          : null;
         if (inputDTO[uuidKey] && !id) {
-          res.status(400).json({ success: false, message: "Warehouse not found" });
+          res
+            .status(400)
+            .json({ success: false, message: "Warehouse not found" });
           return null;
         }
         resolved[idKey] = id;

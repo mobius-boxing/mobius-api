@@ -3,7 +3,7 @@
  * Generate consistent test data for all entities
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
 
 // Base factory utilities
 const now = () => new Date().toISOString();
@@ -22,10 +22,10 @@ export const createTestUser = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
   email: `testuser${idCounter}@example.com`,
-  firstName: 'Test',
-  lastName: 'User',
-  password: '$2a$10$hashedpassword',
-  role: 'member' as const,
+  firstName: "Test",
+  lastName: "User",
+  password: "$2a$10$hashedpassword",
+  role: "member" as const,
   companyId: 1,
   isActive: true,
   emailVerified: true,
@@ -47,7 +47,7 @@ export const createTestCompany = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
   name: `Test Company ${idCounter}`,
-  description: 'A test company',
+  description: "A test company",
   isActive: true,
   createdAt: now(),
   updatedAt: now(),
@@ -66,8 +66,8 @@ export const createTestCompanyResponse = (overrides: any = {}) => {
 export const createTestCorrugationClass = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `CC${String(idCounter).padStart(3, '0')}`,
-  description: 'Test corrugation class',
+  code: `CC${String(idCounter).padStart(3, "0")}`,
+  description: "Test corrugation class",
   createdAt: now(),
   updatedAt: now(),
   ...overrides,
@@ -85,8 +85,8 @@ export const createTestCorrugationClassResponse = (overrides: any = {}) => {
 export const createTestCorrugation = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `CRG${String(idCounter).padStart(3, '0')}`,
-  description: 'Test corrugation',
+  code: `CRG${String(idCounter).padStart(3, "0")}`,
+  description: "Test corrugation",
   theoreticalGrammage: 150.5,
   suggestedWidth: 1200,
   caliper: 0.35,
@@ -101,7 +101,8 @@ export const createTestCorrugationResponse = (overrides: any = {}) => {
   const { id, corrugationClassId, ...response } = corrugation;
   return {
     ...response,
-    corrugationClass: overrides.corrugationClass || createTestCorrugationClassResponse(),
+    corrugationClass:
+      overrides.corrugationClass || createTestCorrugationClassResponse(),
   };
 };
 
@@ -126,14 +127,14 @@ export const createTestCustomer = (overrides: any = {}) => ({
   uuid: uuidv4(),
   companyId: 1,
   name: `Test Customer ${idCounter}`,
-  supplierCode: `SUP${String(idCounter).padStart(3, '0')}`,
+  supplierCode: `SUP${String(idCounter).padStart(3, "0")}`,
   salesPersonId: null,
   categoryId: null,
   active: true,
-  legalName: 'Test Customer Legal Name',
-  legalCode: 'TC123456',
-  address: '123 Test Street',
-  tradeName: 'Test Customer Trade',
+  legalName: "Test Customer Legal Name",
+  legalCode: "TC123456",
+  address: "123 Test Street",
+  tradeName: "Test Customer Trade",
   contacts: [],
   deliveryLocations: [],
   deliveryDays: [],
@@ -148,9 +149,9 @@ export const createTestCustomer = (overrides: any = {}) => ({
 export const createTestProduct = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `PROD${String(idCounter).padStart(3, '0')}`,
-  clientCode: `CLI${String(idCounter).padStart(3, '0')}`,
-  description: 'Test product description',
+  code: `PROD${String(idCounter).padStart(3, "0")}`,
+  clientCode: `CLI${String(idCounter).padStart(3, "0")}`,
+  description: "Test product description",
   customerId: 1,
   createdAt: now(),
   updatedAt: now(),
@@ -178,8 +179,8 @@ export const createTestWarehouse = (overrides: any = {}) => ({
 export const createTestPaperType = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `PT${String(idCounter).padStart(3, '0')}`,
-  description: 'Test paper type',
+  code: `PT${String(idCounter).padStart(3, "0")}`,
+  description: "Test paper type",
   createdAt: now(),
   updatedAt: now(),
   ...overrides,
@@ -191,8 +192,8 @@ export const createTestPaperType = (overrides: any = {}) => ({
 export const createTestFluteType = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `FT${String(idCounter).padStart(3, '0')}`,
-  description: 'Test flute type',
+  code: `FT${String(idCounter).padStart(3, "0")}`,
+  description: "Test flute type",
   fluteFactor: 1.5,
   length: 100,
   width: 50,
@@ -208,7 +209,7 @@ export const createTestFluteType = (overrides: any = {}) => ({
 export const createTestPaperClass = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `PC${String(idCounter).padStart(3, '0')}`,
+  code: `PC${String(idCounter).padStart(3, "0")}`,
   name: `Paper Class ${idCounter}`,
   papers: [],
   createdAt: now(),
@@ -222,7 +223,7 @@ export const createTestPaperClass = (overrides: any = {}) => ({
 export const createTestManufacturer = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `MFG${String(idCounter).padStart(3, '0')}`,
+  code: `MFG${String(idCounter).padStart(3, "0")}`,
   name: `Manufacturer ${idCounter}`,
   createdAt: now(),
   updatedAt: now(),
@@ -235,7 +236,7 @@ export const createTestManufacturer = (overrides: any = {}) => ({
 export const createTestSupplier = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `SPL${String(idCounter).padStart(3, '0')}`,
+  code: `SPL${String(idCounter).padStart(3, "0")}`,
   suppliesSheets: true,
   suppliesElaborated: false,
   suppliesConsumables: true,
@@ -252,9 +253,9 @@ export const createTestSupplier = (overrides: any = {}) => ({
 export const createTestPaperSupply = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
-  code: `PS${String(idCounter).padStart(3, '0')}`,
+  code: `PS${String(idCounter).padStart(3, "0")}`,
   name: `Paper Supply ${idCounter}`,
-  description: 'Test paper supply',
+  description: "Test paper supply",
   manufacturerId: 1,
   supplierId: 1,
   minimumStockPallets: 10,
@@ -271,7 +272,7 @@ export const createTestInvitation = (overrides: any = {}) => ({
   id: nextId(),
   uuid: uuidv4(),
   email: `invite${idCounter}@example.com`,
-  role: 'member' as const,
+  role: "member" as const,
   companyId: 1,
   invitedBy: 1,
   token: `test-invitation-token-${idCounter}`,
@@ -289,7 +290,7 @@ export const createPaginatedResponse = <T>(
   data: T[],
   page = 1,
   limit = 10,
-  totalCount?: number
+  totalCount?: number,
 ) => ({
   success: true,
   data,
@@ -303,7 +304,11 @@ export const createPaginatedResponse = <T>(
 /**
  * API Response Factory
  */
-export const createApiResponse = <T>(data: T, success = true, message?: string) => ({
+export const createApiResponse = <T>(
+  data: T,
+  success = true,
+  message?: string,
+) => ({
   success,
   data,
   message,

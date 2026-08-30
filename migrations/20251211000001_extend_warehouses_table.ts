@@ -4,7 +4,12 @@ export async function up(knex: Knex): Promise<void> {
   await knex.schema.alterTable("warehouses", function (table) {
     table.integer("grid_rows").notNullable().defaultTo(10);
     table.integer("grid_cols").notNullable().defaultTo(10);
-    table.integer("company_id").nullable().references("id").inTable("companies").onDelete("CASCADE");
+    table
+      .integer("company_id")
+      .nullable()
+      .references("id")
+      .inTable("companies")
+      .onDelete("CASCADE");
 
     table.index(["company_id"]);
   });

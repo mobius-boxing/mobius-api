@@ -111,7 +111,8 @@ export class ConsumableSupplyController extends BaseCrudController<IConsumableSu
     let colorId: number | undefined;
     if (inputDTO.colorUuid) {
       const { ColorDAO } = await import("../../dao/color/color.dao");
-      colorId = (await new ColorDAO().getIdByUuid(inputDTO.colorUuid)) ?? undefined;
+      colorId =
+        (await new ColorDAO().getIdByUuid(inputDTO.colorUuid)) ?? undefined;
       if (!colorId) {
         res.status(400).json({ success: false, message: "Color not found" });
         return null;
@@ -196,7 +197,8 @@ export class ConsumableSupplyController extends BaseCrudController<IConsumableSu
       }
     }
 
-    if (inputDTO.location !== undefined) updateData.location = inputDTO.location;
+    if (inputDTO.location !== undefined)
+      updateData.location = inputDTO.location;
     if (inputDTO.expiry !== undefined) updateData.expiry = inputDTO.expiry;
     if (inputDTO.minimumStock !== undefined)
       updateData.minimumStock = inputDTO.minimumStock;

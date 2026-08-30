@@ -30,14 +30,21 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
    */
   private async resolveLayers(
     layers:
-      | Array<{ position?: number; isLiner?: boolean; paperClassUuid?: string; fluteTypeUuid?: string }>
+      | Array<{
+          position?: number;
+          isLiner?: boolean;
+          paperClassUuid?: string;
+          fluteTypeUuid?: string;
+        }>
       | undefined,
     res: Response,
   ): Promise<ICorrugationLayer[] | null | undefined> {
     if (layers === undefined) return undefined;
 
     const ordered = [...layers].sort(
-      (a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER),
+      (a, b) =>
+        (a.position ?? Number.MAX_SAFE_INTEGER) -
+        (b.position ?? Number.MAX_SAFE_INTEGER),
     );
 
     const resolved: ICorrugationLayer[] = [];

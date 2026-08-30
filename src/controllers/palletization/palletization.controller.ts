@@ -22,8 +22,7 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
   protected options: BaseCrudOptions = {
     entityLabel: "Palletization",
     fkCatchOnDelete: true,
-    fkCatchMessage:
-      "Cannot delete palletization: parts still reference it.",
+    fkCatchMessage: "Cannot delete palletization: parts still reference it.",
   };
 
   private palletTypeDAO = new PalletTypeDAO();
@@ -92,7 +91,9 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
           companyUuid,
         );
         if (!palletTypeId) {
-          res.status(400).json({ success: false, message: "Pallet type not found" });
+          res
+            .status(400)
+            .json({ success: false, message: "Pallet type not found" });
           return null;
         }
         resolved.palletTypeId = palletTypeId;
@@ -103,7 +104,9 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
       if (inputDTO[key]) {
         const fileId = await getIdByUuid(inputDTO[key], "files");
         if (!fileId) {
-          res.status(400).json({ success: false, message: `File not found (${key})` });
+          res
+            .status(400)
+            .json({ success: false, message: `File not found (${key})` });
           return null;
         }
       }
