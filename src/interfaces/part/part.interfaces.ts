@@ -152,6 +152,7 @@ export interface IPart {
   corrugation?: { uuid: string; code?: string; theoreticalGrammage?: number | null } | null;
   productionRoute?: { uuid: string; name?: string; isGlobal?: boolean } | null;
   palletization?: { uuid: string; code?: string | null; name?: string | null } | null;
+  model?: { uuid: string; code?: string | null; description?: string } | null;
   flapType?: { uuid: string; code?: string } | null;
   glueType?: { uuid: string; code?: string } | null;
   strappingType?: { uuid: string; code?: string } | null;

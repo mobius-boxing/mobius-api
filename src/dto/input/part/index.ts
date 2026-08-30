@@ -80,6 +80,7 @@ const REF_KEYS = [
   "corrugationUuid",
   "productionRouteUuid",
   "palletizationUuid",
+  "modelUuid",
   "flapTypeUuid",
   "glueTypeUuid",
   "strappingTypeUuid",
@@ -136,7 +137,8 @@ class PartBaseInputDTO
   blueprintFileUuid?: string | null; imageFileUuid?: string | null;
   // FK refs (UUIDs)
   productUuid?: string; corrugationUuid?: string; productionRouteUuid?: string;
-  palletizationUuid?: string; flapTypeUuid?: string; glueTypeUuid?: string;
+  palletizationUuid?: string; modelUuid?: string; flapTypeUuid?: string;
+  glueTypeUuid?: string;
   strappingTypeUuid?: string; traceTypeUuid?: string; complementUuid?: string;
   registeredAt?: string | null;
 
