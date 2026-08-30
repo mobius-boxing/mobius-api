@@ -322,9 +322,13 @@ describe("UsersController", () => {
       const existingUser = createTestUser({ email: "existing@test.com" });
       mockUserDAO.getUserByEmail.mockResolvedValue(existingUser);
 
+      // firstName/lastName are NOT NULL columns and the DTO now enforces that,
+      // so they must be present for the request to reach the duplicate check.
       const mockReq = createBodyRequest({
         email: "existing@test.com",
         password: "password",
+        firstName: "Existing",
+        lastName: "User",
       }) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);

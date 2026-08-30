@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "@jest/globals";
 import { NextFunction, Request, Response } from "express";
 import { errorMiddleware } from "../../../middlewares/error/error.middleware";
+import { ValidationError } from "../../../dto/input/shared/ValidationError";
 
 /**
  * SECURITY regression: knex prefixes every driver error message with the full
@@ -108,5 +109,79 @@ describe("errorMiddleware — generic branch", () => {
     expect(out.status).toBe(500);
     expect(out.body.message).toBe("select 1 - boom");
     expect(out.body.stack).toBeDefined();
+  });
+});
+
+/**
+ * SECURITY (M2) regression for the ONE deliberate exemption to the DEBUG_ERRORS
+ * gate: our own `ValidationError` publishes its per-field `errors` array
+ * unconditionally, because every message in it is author-written Spanish keyed
+ * by a DTO field name the caller just submitted. Anything else merely NAMED
+ * "ValidationError" must stay gated — a name is trivially spoofable and a
+ * wrapped driver error's `details` can carry column names or knex's generated
+ * SQL.
+ */
+describe("errorMiddleware — ValidationError field detail", () => {
+  const original = process.env.DEBUG_ERRORS;
+
+  beforeEach(() => {
+    delete process.env.DEBUG_ERRORS;
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.DEBUG_ERRORS;
+    else process.env.DEBUG_ERRORS = original;
+  });
+
+  it("publishes our own ValidationError's field errors without DEBUG_ERRORS", () => {
+    const out = run(
+      new ValidationError([
+        { field: "code", message: "El código es obligatorio" },
+        { field: "length", message: "El largo debe ser un número" },
+      ]),
+    );
+
+    expect(out.status).toBe(400);
+    expect(out.body.code).toBe("VALIDATION_ERROR");
+    expect(out.body.message).toBe("El código es obligatorio");
+    expect(out.body.errors).toEqual([
+      { field: "code", message: "El código es obligatorio" },
+      { field: "length", message: "El largo debe ser un número" },
+    ]);
+  });
+
+  it("keeps the gate on a foreign error that merely calls itself ValidationError", () => {
+    const impostor: any = new Error("boom");
+    impostor.name = "ValidationError";
+    impostor.isValidationError = true;
+    // A POPULATED errors array is the point: if the exemption were keyed on the
+    // spoofable `name` instead of `instanceof`, this leaks verbatim.
+    impostor.errors = [
+      {
+        field: "internal_secret_column",
+        message: 'insert into "flute_types" ("code") values ($1) - boom',
+      },
+    ];
+    impostor.details = { column: "internal_secret_column" };
+
+    const out = run(impostor);
+
+    expect(out.status).toBe(400);
+    expect(out.body.code).toBe("VALIDATION_ERROR");
+    expect(out.body.errors).toBeUndefined();
+    expect(leaksSql(out.body)).toBe(false);
+    expect(JSON.stringify(out.body)).not.toContain("internal_secret_column");
+  });
+
+  it("still reveals a foreign ValidationError's detail under DEBUG_ERRORS", () => {
+    process.env.DEBUG_ERRORS = "true";
+
+    const impostor: any = new Error("boom");
+    impostor.name = "ValidationError";
+    impostor.details = { column: "code" };
+
+    const out = run(impostor);
+
+    expect(out.body.errors).toEqual({ column: "code" });
   });
 });

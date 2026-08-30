@@ -1,5 +1,6 @@
 import { SCORE_LINES_PATTERN } from "../../../services/score-lines/score-lines.helper";
 import { toNumberInput, toIntInput } from "../../../utils/numbers";
+import { FieldValidationError } from "../shared/ValidationError";
 
 const NUMERIC_KEYS = [
   "boxLength",
@@ -159,15 +160,27 @@ class PartBaseInputDTO
   /** Shared V-rule checks (02-validation.md). Throws on critical violations. */
   protected validateShared(): void {
     if (this.sheetLength !== undefined && !(this.sheetLength > 0))
-      throw new Error("Sheet length must be positive"); // V4
+      throw new FieldValidationError(
+        "sheetLength",
+        "Sheet length must be positive",
+      ); // V4
     if (this.sheetWidth !== undefined && !(this.sheetWidth > 0))
-      throw new Error("Sheet width must be positive"); // V5
+      throw new FieldValidationError(
+        "sheetWidth",
+        "Sheet width must be positive",
+      ); // V5
     if (this.additionalSheetLength !== undefined && this.additionalSheetLength < 0)
-      throw new Error("Additional sheet length must be non-negative"); // V6
+      throw new FieldValidationError(
+        "additionalSheetLength",
+        "Additional sheet length must be non-negative",
+      ); // V6
     for (const key of ["corrugationScoreLines", "printScoreLines"] as const) {
       const value = this[key];
       if (value != null && value !== "" && !SCORE_LINES_PATTERN.test(value))
-        throw new Error("Score lines may only contain digits, separators and spaces");
+        throw new FieldValidationError(
+          key,
+          "Score lines may only contain digits, separators and spaces",
+        );
     }
   }
 }
@@ -176,12 +189,26 @@ export class PartCreateInputDTO extends PartBaseInputDTO {
   public build(): this {
     // V2/V3-analog: corrugation required; route optional (RUTA PROPIA
     // auto-creation covers V3); product required (Partes.Producto_Id NOT NULL).
-    if (!this.productUuid) throw new Error("productUuid is required");
-    if (!this.corrugationUuid) throw new Error("Corrugation is required");
+    if (!this.productUuid)
+      throw new FieldValidationError(
+        "productUuid",
+        "productUuid is required",
+      );
+    if (!this.corrugationUuid)
+      throw new FieldValidationError(
+        "corrugationUuid",
+        "Corrugation is required",
+      );
     if (!(this.sheetLength !== undefined && this.sheetLength > 0))
-      throw new Error("Sheet length must be positive");
+      throw new FieldValidationError(
+        "sheetLength",
+        "Sheet length must be positive",
+      );
     if (!(this.sheetWidth !== undefined && this.sheetWidth > 0))
-      throw new Error("Sheet width must be positive");
+      throw new FieldValidationError(
+        "sheetWidth",
+        "Sheet width must be positive",
+      );
     this.validateShared();
     return this;
   }
@@ -222,7 +249,10 @@ export class PartCascadeInputDTO {
       "grammage",
     ];
     if (!allowed.includes(this.field))
-      throw new Error(`Cascade field must be one of: ${allowed.join(", ")}`);
+      throw new FieldValidationError(
+        "field",
+        `Cascade field must be one of: ${allowed.join(", ")}`,
+      );
     return this;
   }
 }
