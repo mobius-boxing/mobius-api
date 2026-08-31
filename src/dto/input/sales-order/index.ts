@@ -1,4 +1,8 @@
 import { toNumberInput as num } from "../../../utils/numbers";
+import {
+  collect,
+  FieldValidationError,
+} from "../shared/ValidationError";
 
 /**
  * Pedido DTOs — module 18 sub-area D.
@@ -107,26 +111,33 @@ export class SalesOrderCreateInputDTO {
 
   protected rejectServerOwnedFields(): void {
     if (this.providedKeys.has("number")) {
-      throw new Error("number is server-generated");
+      throw new FieldValidationError(
+        "number",
+        "number is server-generated",
+      );
     }
     for (const key of UNSUPPORTED_REFERENCES) {
       if (this.providedKeys.has(key)) {
-        throw new Error(`${key} is not supported`);
+        throw new FieldValidationError(key, `${key} is not supported`);
       }
     }
   }
 
   protected validateQuantity(required: boolean): void {
     if (!this.providedKeys.has("quantity")) {
-      if (required) throw new Error("quantity is required");
+      if (required)
+        throw new FieldValidationError("quantity", "quantity is required");
       return;
     }
     if (this.quantity === undefined) {
-      throw new Error("quantity must be a number");
+      throw new FieldValidationError("quantity", "quantity must be a number");
     }
     // PedidoDeProducto.cs:52-55 — "Debe especificar una cantidad mayor que cero!"
     if (this.quantity <= 0) {
-      throw new Error("quantity must be greater than zero");
+      throw new FieldValidationError(
+        "quantity",
+        "quantity must be greater than zero",
+      );
     }
   }
 
@@ -134,8 +145,10 @@ export class SalesOrderCreateInputDTO {
     for (const key of ["price", "paid"] as const) {
       if (!this.providedKeys.has(key)) continue;
       const value = this[key];
-      if (value === undefined) throw new Error(`${key} must be a number`);
-      if (value < 0) throw new Error(`${key} must be zero or greater`);
+      if (value === undefined)
+        throw new FieldValidationError(key, `${key} must be a number`);
+      if (value < 0)
+        throw new FieldValidationError(key, `${key} must be zero or greater`);
     }
   }
 
@@ -143,7 +156,10 @@ export class SalesOrderCreateInputDTO {
     if (!this.providedKeys.has("deliveryDate")) return;
     if (this.deliveryDate === null) return;
     if (Number.isNaN(new Date(this.deliveryDate as string).getTime())) {
-      throw new Error("deliveryDate must be a valid date");
+      throw new FieldValidationError(
+        "deliveryDate",
+        "deliveryDate must be a valid date",
+      );
     }
   }
 
@@ -152,17 +168,44 @@ export class SalesOrderCreateInputDTO {
     return String(this[key] ?? "").trim() !== "";
   }
 
+  /**
+   * Rules and messages are UNCHANGED — every string below is what this DTO
+   * threw before, down to the Procusto source references. What changed is that
+   * they are keyed to a field and aggregated, so a sales order with a bad
+   * quantity AND a missing customer reports both, each against its own input,
+   * instead of one bare sentence with nothing to attach it to.
+   *
+   * The discriminator rule (exactly one of productUuid/partUuid) is reported
+   * against `productUuid`: it is a cross-field rule with no field of its own,
+   * and the product select is the one the user picks first.
+   */
   public build(): this {
-    this.rejectServerOwnedFields();
+    collect((field) => {
+      field("_server", () => this.rejectServerOwnedFields());
+      field("_discriminator", () => this.validateDiscriminator());
+      field("quantity", () => this.validateQuantity(true));
+      field("money", () => this.validateMoney());
+      field("deliveryDate", () => this.validateDeliveryDate());
+    });
+    return this;
+  }
+
+  protected validateDiscriminator(): void {
     // One row per pedido, exactly one discriminator — the table's CHECK
     // (create_sales_orders_tables.ts:208-209) mirrors `PedidoMapper.cs:147-165`.
     // PedidoDeProducto.cs:48-51 "Debe especificar un producto!" /
     // PedidoDeParte.cs:41-45 "Debe especificar una parte!".
     if (this.filled("productUuid") && this.filled("partUuid")) {
-      throw new Error("exactly one of productUuid or partUuid is allowed");
+      throw new FieldValidationError(
+        "productUuid",
+        "exactly one of productUuid or partUuid is allowed",
+      );
     }
     if (!this.filled("productUuid") && !this.filled("partUuid")) {
-      throw new Error("exactly one of productUuid or partUuid is required");
+      throw new FieldValidationError(
+        "productUuid",
+        "exactly one of productUuid or partUuid is required",
+      );
     }
     if (this.filled("partUuid")) {
       // PedidoDeParteMapper.cs:19 — the cliente is derived from the parte, so a
@@ -171,34 +214,47 @@ export class SalesOrderCreateInputDTO {
         this.providedKeys.has("customerUuid") &&
         !this.filled("customerUuid")
       ) {
-        throw new Error("customerUuid cannot be empty");
+        throw new FieldValidationError(
+          "customerUuid",
+          "customerUuid cannot be empty",
+        );
       }
     } else if (!this.filled("customerUuid")) {
       // D-1: Mobius picks the cliente first, so customerUuid is required on the
       // producto path even though Procusto derives it from the product.
-      throw new Error("customerUuid is required");
+      throw new FieldValidationError(
+        "customerUuid",
+        "customerUuid is required",
+      );
     }
-    this.validateQuantity(true);
-    this.validateMoney();
-    this.validateDeliveryDate();
-    return this;
   }
 }
 
 export class SalesOrderUpdateInputDTO extends SalesOrderCreateInputDTO {
-  public build(): this {
-    this.rejectServerOwnedFields();
+  protected validateDiscriminator(): void {
     // customerUuid / productUuid / partUuid stay accepted on PUT so the
     // controller can answer 400 "cannot be changed" for a DIFFERENT value and
     // 200 for the same one (AC-13); emptying them is meaningless either way.
     for (const key of ["customerUuid", "productUuid", "partUuid"] as const) {
       if (this.providedKeys.has(key) && !String(this[key] ?? "").trim()) {
-        throw new Error(`${key} cannot be empty`);
+        throw new FieldValidationError(key, `${key} cannot be empty`);
       }
     }
-    this.validateQuantity(false);
-    this.validateMoney();
-    this.validateDeliveryDate();
+  }
+
+  /**
+   * Same aggregation as the create DTO, with `quantity` optional: an update
+   * that does not mention it must not demand it. `rejectServerOwnedFields`
+   * still runs — a PUT may no more set `number` than a POST may.
+   */
+  public build(): this {
+    collect((field) => {
+      field("_server", () => this.rejectServerOwnedFields());
+      field("_discriminator", () => this.validateDiscriminator());
+      field("quantity", () => this.validateQuantity(false));
+      field("money", () => this.validateMoney());
+      field("deliveryDate", () => this.validateDeliveryDate());
+    });
 
     const self = this as Record<string, unknown>;
     Object.keys(self).forEach((key) => {

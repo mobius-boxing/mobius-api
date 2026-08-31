@@ -47,7 +47,9 @@ export async function up(knex: Knex): Promise<void> {
     // Check if companyId column already exists
     const hasColumn = await knex.schema.hasColumn(tableName, "companyId");
     if (hasColumn) {
-      console.log(`Table ${tableName} already has companyId column, skipping...`);
+      console.log(
+        `Table ${tableName} already has companyId column, skipping...`,
+      );
       continue;
     }
 

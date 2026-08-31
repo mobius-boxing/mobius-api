@@ -48,7 +48,13 @@ describe("PartCalculator", () => {
   // currently does (skips the external write on null), not verified Procusto
   // behavior. If the cascade is later fixed to null the pair, update this.
   it("PROVISIONAL: null value clears the field without cascading (stale external kept)", () => {
-    const part = calc.applyEdit({ boxLength: 500, externalLength: 506 }, "boxLength", null, flute, null);
+    const part = calc.applyEdit(
+      { boxLength: 500, externalLength: 506 },
+      "boxLength",
+      null,
+      flute,
+      null,
+    );
     expect(part.boxLength).toBeNull();
     expect(part.externalLength).toBe(506); // untouched — current behavior, unverified
   });

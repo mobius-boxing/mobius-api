@@ -210,7 +210,7 @@ describe("CorrugationController", () => {
         theoreticalGrammage: 150,
         suggestedWidth: 1200,
         caliper: 3.5,
-        corrugationClassUuid: "class-uuid-123",
+        corrugationClassUuid: "11111111-1111-4111-8111-111111111111",
       };
       const createdData = createTestCorrugationResponse({
         uuid: "generated-uuid",
@@ -228,7 +228,7 @@ describe("CorrugationController", () => {
       await controller.create(mockReq, mockRes as Response, mockNext);
 
       expect(mockCorrugationClassDAO.getIdByUuid).toHaveBeenCalledWith(
-        "class-uuid-123",
+        "11111111-1111-4111-8111-111111111111",
       );
       expect(mockCorrugationDAO.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -266,7 +266,7 @@ describe("CorrugationController", () => {
     it("should return 400 when corrugation class not found", async () => {
       const inputData = {
         code: "NEW001",
-        corrugationClassUuid: "non-existent-class",
+        corrugationClassUuid: "22222222-2222-4222-8222-222222222222",
       };
 
       mockCorrugationClassDAO.getIdByUuid.mockResolvedValue(null);
@@ -336,7 +336,7 @@ describe("CorrugationController", () => {
       const classId = 10;
       const updateData = {
         code: "UPDATED",
-        corrugationClassUuid: "new-class-uuid",
+        corrugationClassUuid: "33333333-3333-4333-8333-333333333333",
       };
 
       mockCorrugationDAO.getIdByUuid.mockResolvedValue(existingId);
@@ -353,7 +353,7 @@ describe("CorrugationController", () => {
       await controller.update(mockReq, mockRes as Response, mockNext);
 
       expect(mockCorrugationClassDAO.getIdByUuid).toHaveBeenCalledWith(
-        "new-class-uuid",
+        "33333333-3333-4333-8333-333333333333",
       );
       expect(mockCorrugationDAO.update).toHaveBeenCalledWith(
         existingId,
@@ -384,7 +384,7 @@ describe("CorrugationController", () => {
 
       const mockReq = {
         ...createUuidParamRequest("existing-uuid"),
-        body: { code: "UPDATED", corrugationClassUuid: "invalid-class" },
+        body: { code: "UPDATED", corrugationClassUuid: "44444444-4444-4444-8444-444444444444" },
       } as Request;
 
       await controller.update(mockReq, mockRes as Response, mockNext);
@@ -453,7 +453,7 @@ describe("CorrugationController", () => {
 
   describe("Security: UUID-to-ID conversion", () => {
     it("should convert class UUID to internal ID for create", async () => {
-      const classUuid = "class-uuid";
+      const classUuid = "55555555-5555-4555-8555-555555555555";
       const classId = 42;
 
       mockCorrugationClassDAO.getIdByUuid.mockResolvedValue(classId);
@@ -475,5 +475,25 @@ describe("CorrugationController", () => {
         expect.objectContaining({ corrugationClassId: classId }),
       );
     });
+  });
+
+  /**
+   * New in the Trello #38 sweep: the DTO checks uuid SHAPE before the
+   * controller resolves it, so a malformed reference is a field-level 400
+   * rather than a database round-trip that reports "not found".
+   */
+  it("rejects a corrugationClassUuid that is not a uuid", async () => {
+    const mockReq = {
+      body: { code: "NEW001", corrugationClassUuid: "class-uuid-123" },
+      user: { companyId: "company-uuid" },
+    } as unknown as Request;
+
+    await controller.create(mockReq, mockRes as Response, mockNext);
+
+    expect(mockNext).toHaveBeenCalled();
+    const error = mockNext.mock.calls[0][0] as {
+      errors?: Array<{ field: string }>;
+    };
+    expect(error.errors?.[0].field).toBe("corrugationClassUuid");
   });
 });

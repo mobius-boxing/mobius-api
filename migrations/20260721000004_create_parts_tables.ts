@@ -199,7 +199,10 @@ export async function up(knex: Knex): Promise<void> {
     table.text("partCancelledBy");
 
     // Creation audit
-    table.timestamp("createdAt", { useTz: true }).notNullable().defaultTo(knex.fn.now());
+    table
+      .timestamp("createdAt", { useTz: true })
+      .notNullable()
+      .defaultTo(knex.fn.now());
     table.text("createdBy");
     table.timestamp("registeredAt", { useTz: true });
     table.timestamp("updatedAt", { useTz: true }).defaultTo(knex.fn.now());

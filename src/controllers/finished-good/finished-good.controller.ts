@@ -70,7 +70,9 @@ export class FinishedGoodController extends BaseCrudController<IFinishedGood> {
         ? await getIdByUuid(inputDTO.manufacturerUuid, "manufacturers")
         : null;
       if (inputDTO.manufacturerUuid && !manufacturerId) {
-        res.status(400).json({ success: false, message: "Manufacturer not found" });
+        res
+          .status(400)
+          .json({ success: false, message: "Manufacturer not found" });
         return null;
       }
       resolved.manufacturerId = manufacturerId;
