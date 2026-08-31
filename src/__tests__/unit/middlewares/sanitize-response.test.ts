@@ -39,7 +39,9 @@ describe("sanitizeResponse middleware (M3)", () => {
   });
 
   it("strips numeric foreign-key *Id fields but keeps UUID-string ids", () => {
-    expect(run({ companyId: 5, salesPersonId: 7, warehouseId: 9, name: "x" })).toEqual({
+    expect(
+      run({ companyId: 5, salesPersonId: 7, warehouseId: 9, name: "x" }),
+    ).toEqual({
       name: "x",
     });
     // Controllers expose relationships as UUID strings — those must survive.

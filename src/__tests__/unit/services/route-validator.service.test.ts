@@ -105,7 +105,9 @@ describe("validateRoute V-rules", () => {
         supply({ direction: "output", supplyId: 2 }),
       ],
     });
-    expect(codesOf(validateRoute({ name: "r", stages: [dupSheet] }).critical)).toContain("V8");
+    expect(
+      codesOf(validateRoute({ name: "r", stages: [dupSheet] }).critical),
+    ).toContain("V8");
 
     const dupConsumable = stage({
       supplies: [
@@ -128,7 +130,9 @@ describe("validateRoute V-rules", () => {
         supply({ direction: "output", supplyType: "consumable", supplyId: 4 }),
       ],
     });
-    expect(codesOf(validateRoute({ name: "r", stages: [s] }).critical)).toContain("V9");
+    expect(
+      codesOf(validateRoute({ name: "r", stages: [s] }).critical),
+    ).toContain("V9");
   });
 
   it("V10/V11: null and zero quantities are Critico", () => {
@@ -145,7 +149,9 @@ describe("validateRoute V-rules", () => {
 
   it("V12: a numbering gap is Critico", () => {
     const stages = [stage({ number: 1 }), stage({ number: 3 })];
-    expect(codesOf(validateRoute({ name: "r", stages }).critical)).toContain("V12");
+    expect(codesOf(validateRoute({ name: "r", stages }).critical)).toContain(
+      "V12",
+    );
   });
 
   it("V13: mutual consumption is a cycle (Critico); a chain is not", () => {
@@ -164,7 +170,9 @@ describe("validateRoute V-rules", () => {
       ],
     });
     expect(isAcyclic([a, b])).toBe(false);
-    expect(codesOf(validateRoute({ name: "r", stages: [a, b] }).critical)).toContain("V13");
+    expect(
+      codesOf(validateRoute({ name: "r", stages: [a, b] }).critical),
+    ).toContain("V13");
 
     const chainB = stage({
       number: 2,
@@ -177,6 +185,8 @@ describe("validateRoute V-rules", () => {
   });
 
   it("V1: missing name is Critico", () => {
-    expect(codesOf(validateRoute({ name: "", stages: [] }).critical)).toContain("V1");
+    expect(codesOf(validateRoute({ name: "", stages: [] }).critical)).toContain(
+      "V1",
+    );
   });
 });

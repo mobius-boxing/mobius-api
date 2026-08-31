@@ -6,6 +6,7 @@ route path). Entry: `src/server.ts` / `src/app.ts`. PORT falls back to 3005 —
 local dev sets `PORT=3001` in `.env`.
 
 ## Commands
+
 - `npm run start:dev` — dev server (nodemon)
 - `npm run build` — compile to dist/ (fails on type errors)
 - `npm test` — jest (tests in `src/__tests__/`)
@@ -15,6 +16,7 @@ local dev sets `PORT=3001` in `.env`.
 - `npm run deploy` — read `../docs/infra.md` first
 
 ## Conventions (full guides: `../docs/new_entity_guide.md` + `../docs/main_endpoint_guide.md`)
+
 - Plain-CRUD controllers extend `BaseCrudController` (owns company scoping,
   fk-catch, audit). Hand-roll only for atomic multi-entity writes or
   non-CRUD verbs — still `implements IBaseController`. No third shape.
@@ -27,7 +29,7 @@ local dev sets `PORT=3001` in `.env`.
 - Writes gated by `requirePermission(<catalogue code>)` via rbac.service —
   never bare `requireAdmin()` or inline superAdmin checks.
 - UUID-only public API: numeric id/FKs never leave the API (`sanitizeResponse`
-  + per-DAO `mapToInterface`); DTOs accept `*Uuid`; `uuidv4()` generated in
+  and per-DAO `mapToInterface`); DTOs accept `*Uuid`; `uuidv4()` generated in
   the controller.
 - Envelopes: `{success: true, data}` / `{success: false, message}`;
   paginated responses returned unwrapped; DELETE returns 200 with a message.

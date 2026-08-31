@@ -1,4 +1,5 @@
 import { NextFunction, Response, Request } from "express";
+import { ValidationError } from "../../dto/input/shared/ValidationError";
 
 // SECURITY (M2): verbose error detail is gated on an EXPLICIT opt-in flag, not on NODE_ENV.
 // When off (the default), responses are generic and never leak DB column/constraint names,
@@ -143,12 +144,28 @@ export const errorMiddleware = (
   }
 
   if (err.name === "ValidationError" || err.isValidationError) {
+    // SECURITY (M2) — narrow, deliberate exemption. Our own `ValidationError`
+    // (src/dto/input/shared/ValidationError.ts) carries ONLY author-written
+    // Spanish messages keyed by the DTO field names the caller just submitted;
+    // it is constructed by hand in `build()` and never wraps a driver error, so
+    // there is nothing in it for pg or knex to leak. Any OTHER error that
+    // merely happens to be named "ValidationError" (a library's, or a wrapped
+    // driver error) keeps the DEBUG_ERRORS gate, because its `errors`/`details`
+    // can hold column names, constraint names, or a knex message prefixed with
+    // the full generated SQL. `instanceof` is the test — not the name, which is
+    // exactly what an untrusted error would be free to spoof.
+    const isOwnValidationError = err instanceof ValidationError;
+    const details = isOwnValidationError
+      ? { errors: err.errors }
+      : debugErrors()
+        ? { errors: err.errors || err.details }
+        : {};
+
     return res.status(400).json({
       success: false,
       message: err.message || "Validation failed",
       code: "VALIDATION_ERROR",
-      // SECURITY (M2): only echo detailed validation errors when explicitly debugging.
-      ...(debugErrors() ? { errors: err.errors || err.details } : {}),
+      ...details,
     });
   }
 

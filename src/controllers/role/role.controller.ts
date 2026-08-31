@@ -4,6 +4,10 @@ import { RoleDAO } from "../../dao/role/role.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { AuditService } from "../../services/audit.service";
 import { getCompanyFilterUuid } from "../../utils/companyScope";
+import {
+  RoleCreateInputDTO,
+  RoleUpdateInputDTO,
+} from "../../dto/input/role";
 
 const PROFILE_TYPES = [
   "director",
@@ -81,11 +85,16 @@ export class RoleController {
     try {
       const companyId = await this.callerCompanyId(req, res);
       if (companyId === null) return;
-      const { name, profileType, hasAccessToAllMachines } = req.body;
-      if (!name || typeof name !== "string") {
-        res.status(400).json({ success: false, message: "name is required" });
-        return;
-      }
+      // Hand-rolled controller, so `build()` runs here inside the try/catch
+      // (CLAUDE.md): it replaces the inline `!name || typeof name !== "string"`
+      // check with a field-level error, and adds the varchar(200)/varchar(50)
+      // bounds the column has and this endpoint never enforced.
+      const inputDTO = new RoleCreateInputDTO(req.body).build();
+      const { name, profileType, hasAccessToAllMachines } = inputDTO;
+      // KEPT VERBATIM: this endpoint has always rejected an off-list
+      // profileType and continues to. The DTO deliberately does NOT enumerate
+      // the column (see its header — legacy rows outside the list), so removing
+      // this check would LOOSEN the API, which a validation batch may not do.
       if (profileType && !PROFILE_TYPES.includes(profileType)) {
         res.status(400).json({
           success: false,
@@ -122,7 +131,8 @@ export class RoleController {
         res.status(404).json({ success: false, message: "Role not found" });
         return;
       }
-      const { name, profileType, hasAccessToAllMachines } = req.body;
+      const inputDTO = new RoleUpdateInputDTO(req.body).build();
+      const { name, profileType, hasAccessToAllMachines } = inputDTO;
       if (existing.isProtected && name && name !== existing.name) {
         res.status(400).json({
           success: false,

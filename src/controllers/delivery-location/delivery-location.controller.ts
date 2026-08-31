@@ -41,7 +41,9 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
       return null;
     }
     if (!inputDTO.customerUuid) {
-      res.status(400).json({ success: false, message: "customerUuid is required" });
+      res
+        .status(400)
+        .json({ success: false, message: "customerUuid is required" });
       return null;
     }
     if (!inputDTO.deliveryZoneUuid) {
@@ -67,8 +69,16 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
       return null;
     }
     // §L.6: the zone may be changed but never cleared via the API.
-    if ((inputDTO as any).deliveryZoneUuid === null || (inputDTO as any).deliveryZoneUuid === "") {
-      res.status(400).json({ success: false, message: "deliveryZoneUuid cannot be cleared" });
+    if (
+      (inputDTO as any).deliveryZoneUuid === null ||
+      (inputDTO as any).deliveryZoneUuid === ""
+    ) {
+      res
+        .status(400)
+        .json({
+          success: false,
+          message: "deliveryZoneUuid cannot be cleared",
+        });
       return null;
     }
     return inputDTO;
@@ -96,7 +106,9 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
       companyUuid,
     );
     if (!zoneId) {
-      res.status(400).json({ success: false, message: "Delivery zone not found" });
+      res
+        .status(400)
+        .json({ success: false, message: "Delivery zone not found" });
       return null;
     }
 
@@ -127,7 +139,9 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
         getCompanyFilterUuid(req),
       );
       if (!zoneId) {
-        res.status(400).json({ success: false, message: "Delivery zone not found" });
+        res
+          .status(400)
+          .json({ success: false, message: "Delivery zone not found" });
         return null;
       }
       updateData.deliveryZoneId = zoneId;

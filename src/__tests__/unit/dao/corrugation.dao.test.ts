@@ -4,27 +4,34 @@
  * Tests for the Corrugation data access layer with foreign key handling
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import {
+  jest,
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+} from "@jest/globals";
 import {
   createTestCorrugation,
   createTestCorrugationClass,
   resetIdCounter,
-} from '../../mocks/factories';
-import { createMockQueryBuilder } from '../../mocks/knex.mock';
+} from "../../mocks/factories";
+import { createMockQueryBuilder } from "../../mocks/knex.mock";
 
 // We need to create fresh mocks that persist across beforeEach
 let mockQueryBuilder: any;
 let mockKnex: jest.Mock<any>;
 
-jest.mock('../../../database/registry', () => ({
+jest.mock("../../../database/registry", () => ({
   __esModule: true,
   db: () => mockKnex,
 }));
 
 // Import DAO after mocking
-import { CorrugationDAO } from '../../../dao/corrugation/corrugation.dao';
+import { CorrugationDAO } from "../../../dao/corrugation/corrugation.dao";
 
-describe('CorrugationDAO', () => {
+describe("CorrugationDAO", () => {
   let dao: CorrugationDAO;
 
   beforeEach(() => {
@@ -41,16 +48,18 @@ describe('CorrugationDAO', () => {
     layersQueryBuilder.insert = jest.fn().mockResolvedValue([]);
     layersQueryBuilder.delete = jest.fn().mockResolvedValue(0);
     layersQueryBuilder.then = jest.fn((resolve: any, reject: any) =>
-      Promise.resolve([]).then(resolve, reject)
+      Promise.resolve([]).then(resolve, reject),
     );
 
     mockKnex = jest.fn((table: string) =>
-      typeof table === 'string' && table.startsWith('corrugation_layers')
+      typeof table === "string" && table.startsWith("corrugation_layers")
         ? layersQueryBuilder
-        : mockQueryBuilder
+        : mockQueryBuilder,
     );
-    (mockKnex as any).fn = { now: jest.fn().mockReturnValue(new Date().toISOString()) };
-    (mockKnex as any).raw = jest.fn().mockReturnValue('');
+    (mockKnex as any).fn = {
+      now: jest.fn().mockReturnValue(new Date().toISOString()),
+    };
+    (mockKnex as any).raw = jest.fn().mockReturnValue("");
     (mockKnex as any).transaction = jest.fn(async (cb: any) => cb(mockKnex));
 
     dao = new CorrugationDAO();
@@ -60,10 +69,12 @@ describe('CorrugationDAO', () => {
     jest.clearAllMocks();
   });
 
-  describe('create', () => {
-    it('should create a new corrugation and return it without numeric IDs', async () => {
+  describe("create", () => {
+    it("should create a new corrugation and return it without numeric IDs", async () => {
       const corrugationClass = createTestCorrugationClass();
-      const testData = createTestCorrugation({ corrugationClassId: corrugationClass.id });
+      const testData = createTestCorrugation({
+        corrugationClassId: corrugationClass.id,
+      });
 
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
@@ -77,39 +88,39 @@ describe('CorrugationDAO', () => {
         corrugationClassId: testData.corrugationClassId,
       });
 
-      expect(mockKnex).toHaveBeenCalledWith('corrugations');
+      expect(mockKnex).toHaveBeenCalledWith("corrugations");
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           uuid: testData.uuid,
           code: testData.code,
           corrugationClassId: testData.corrugationClassId,
-        })
+        }),
       );
 
       // SECURITY: Verify no numeric IDs in response
-      expect(result).not.toHaveProperty('id');
-      expect(result).not.toHaveProperty('corrugationClassId');
+      expect(result).not.toHaveProperty("id");
+      expect(result).not.toHaveProperty("corrugationClassId");
       expect(result.uuid).toBe(testData.uuid);
     });
   });
 
-  describe('getById', () => {
-    it('should return corrugation by numeric ID without exposing IDs', async () => {
+  describe("getById", () => {
+    it("should return corrugation by numeric ID without exposing IDs", async () => {
       const testData = createTestCorrugation();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getById(testData.id);
 
-      expect(mockKnex).toHaveBeenCalledWith('corrugations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', testData.id);
+      expect(mockKnex).toHaveBeenCalledWith("corrugations");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", testData.id);
 
       // SECURITY: Verify no numeric IDs in response
-      expect(result).not.toHaveProperty('id');
-      expect(result).not.toHaveProperty('corrugationClassId');
+      expect(result).not.toHaveProperty("id");
+      expect(result).not.toHaveProperty("corrugationClassId");
       expect(result?.uuid).toBe(testData.uuid);
     });
 
-    it('should return null when corrugation not found', async () => {
+    it("should return null when corrugation not found", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
       const result = await dao.getById(999);
@@ -118,8 +129,8 @@ describe('CorrugationDAO', () => {
     });
   });
 
-  describe('getByUuid', () => {
-    it('should return corrugation with related corrugation class (UUID only)', async () => {
+  describe("getByUuid", () => {
+    it("should return corrugation with related corrugation class (UUID only)", async () => {
       const corrugationClass = createTestCorrugationClass();
       const testData = createTestCorrugation({
         corrugationClassId: corrugationClass.id,
@@ -130,114 +141,117 @@ describe('CorrugationDAO', () => {
 
       const result = await dao.getByUuid(testData.uuid);
 
-      expect(mockKnex).toHaveBeenCalledWith('corrugations');
+      expect(mockKnex).toHaveBeenCalledWith("corrugations");
       expect(mockQueryBuilder.leftJoin).toHaveBeenCalled();
 
       // SECURITY: Verify no numeric IDs in response
-      expect(result).not.toHaveProperty('id');
-      expect(result).not.toHaveProperty('corrugationClassId');
+      expect(result).not.toHaveProperty("id");
+      expect(result).not.toHaveProperty("corrugationClassId");
       expect(result?.uuid).toBe(testData.uuid);
 
       // Verify related object has UUID but no numeric ID
       if (result?.corrugationClass) {
-        expect(result.corrugationClass).not.toHaveProperty('id');
-        expect(result.corrugationClass).toHaveProperty('uuid');
+        expect(result.corrugationClass).not.toHaveProperty("id");
+        expect(result.corrugationClass).toHaveProperty("uuid");
       }
     });
 
-    it('should return null when corrugation not found by UUID', async () => {
+    it("should return null when corrugation not found by UUID", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
-      const result = await dao.getByUuid('non-existent-uuid');
+      const result = await dao.getByUuid("non-existent-uuid");
 
       expect(result).toBeNull();
     });
   });
 
-  describe('getIdByUuid', () => {
-    it('should return internal numeric ID for a given UUID', async () => {
+  describe("getIdByUuid", () => {
+    it("should return internal numeric ID for a given UUID", async () => {
       const testData = createTestCorrugation();
       mockQueryBuilder.first.mockResolvedValue({ id: testData.id });
 
       const result = await dao.getIdByUuid(testData.uuid);
 
-      expect(mockKnex).toHaveBeenCalledWith('corrugations');
-      expect(mockQueryBuilder.select).toHaveBeenCalledWith('corrugations.id');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('corrugations.uuid', testData.uuid);
+      expect(mockKnex).toHaveBeenCalledWith("corrugations");
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith("corrugations.id");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "corrugations.uuid",
+        testData.uuid,
+      );
       expect(result).toBe(testData.id);
     });
 
-    it('should return null when UUID not found', async () => {
+    it("should return null when UUID not found", async () => {
       mockQueryBuilder.first.mockResolvedValue(null);
 
-      const result = await dao.getIdByUuid('non-existent-uuid');
+      const result = await dao.getIdByUuid("non-existent-uuid");
 
       expect(result).toBeNull();
     });
   });
 
-  describe('update', () => {
-    it('should update corrugation by numeric ID', async () => {
+  describe("update", () => {
+    it("should update corrugation by numeric ID", async () => {
       const testData = createTestCorrugation();
       const updatedData = {
         ...testData,
-        code: 'UPDATED',
+        code: "UPDATED",
         theoreticalGrammage: 200.0,
       };
       mockQueryBuilder.returning.mockResolvedValue([updatedData]);
 
       const result = await dao.update(testData.id, {
-        code: 'UPDATED',
+        code: "UPDATED",
         theoreticalGrammage: 200.0,
       });
 
-      expect(mockKnex).toHaveBeenCalledWith('corrugations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', testData.id);
+      expect(mockKnex).toHaveBeenCalledWith("corrugations");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", testData.id);
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          code: 'UPDATED',
+          code: "UPDATED",
           theoreticalGrammage: 200.0,
-        })
+        }),
       );
 
       // SECURITY: Verify no numeric IDs in response
-      expect(result).not.toHaveProperty('id');
-      expect(result).not.toHaveProperty('corrugationClassId');
+      expect(result).not.toHaveProperty("id");
+      expect(result).not.toHaveProperty("corrugationClassId");
     });
 
-    it('should update corrugationClassId when provided', async () => {
+    it("should update corrugationClassId when provided", async () => {
       const testData = createTestCorrugation();
       mockQueryBuilder.returning.mockResolvedValue([testData]);
 
       await dao.update(testData.id, { corrugationClassId: 5 });
 
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
-        expect.objectContaining({ corrugationClassId: 5 })
+        expect.objectContaining({ corrugationClassId: 5 }),
       );
     });
 
-    it('should return null when updating non-existent corrugation', async () => {
+    it("should return null when updating non-existent corrugation", async () => {
       mockQueryBuilder.returning.mockResolvedValue([]);
 
-      const result = await dao.update(999, { code: 'UPDATED' });
+      const result = await dao.update(999, { code: "UPDATED" });
 
       expect(result).toBeNull();
     });
   });
 
-  describe('delete', () => {
-    it('should delete corrugation by numeric ID and return true', async () => {
+  describe("delete", () => {
+    it("should delete corrugation by numeric ID and return true", async () => {
       mockQueryBuilder.delete.mockResolvedValue(1);
 
       const result = await dao.delete(1);
 
-      expect(mockKnex).toHaveBeenCalledWith('corrugations');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 1);
+      expect(mockKnex).toHaveBeenCalledWith("corrugations");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith("id", 1);
       expect(mockQueryBuilder.delete).toHaveBeenCalled();
       expect(result).toBe(true);
     });
 
-    it('should return false when corrugation not found', async () => {
+    it("should return false when corrugation not found", async () => {
       mockQueryBuilder.delete.mockResolvedValue(0);
 
       const result = await dao.delete(999);
@@ -246,24 +260,24 @@ describe('CorrugationDAO', () => {
     });
   });
 
-  describe('getAll', () => {
-    it('should return paginated corrugations with related objects (no numeric IDs)', async () => {
+  describe("getAll", () => {
+    it("should return paginated corrugations with related objects (no numeric IDs)", async () => {
       const corrugationClass = createTestCorrugationClass();
       const testData = [
         createTestCorrugation({
           id: 1,
-          code: 'CRG001',
+          code: "CRG001",
           corrugationClass: corrugationClass,
         }),
         createTestCorrugation({
           id: 2,
-          code: 'CRG002',
+          code: "CRG002",
           corrugationClass: corrugationClass,
         }),
       ];
 
       mockQueryBuilder.offset.mockResolvedValue(testData);
-      mockQueryBuilder.first.mockResolvedValue({ count: '2' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "2" });
 
       const result = await dao.getAll(1, 10);
 
@@ -274,44 +288,47 @@ describe('CorrugationDAO', () => {
 
       // SECURITY: Verify no numeric IDs in response data
       result.data.forEach((item) => {
-        expect(item).not.toHaveProperty('id');
-        expect(item).not.toHaveProperty('corrugationClassId');
-        expect(item).toHaveProperty('uuid');
-        expect(item).toHaveProperty('code');
+        expect(item).not.toHaveProperty("id");
+        expect(item).not.toHaveProperty("corrugationClassId");
+        expect(item).toHaveProperty("uuid");
+        expect(item).toHaveProperty("code");
 
         // Related object should also have no numeric ID
         if (item.corrugationClass) {
-          expect(item.corrugationClass).not.toHaveProperty('id');
-          expect(item.corrugationClass).toHaveProperty('uuid');
+          expect(item.corrugationClass).not.toHaveProperty("id");
+          expect(item.corrugationClass).toHaveProperty("uuid");
         }
       });
     });
 
-    it('should include left join for corrugation class', async () => {
+    it("should include left join for corrugation class", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '0' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
       expect(mockQueryBuilder.leftJoin).toHaveBeenCalledWith(
-        'corrugation_classes as cc',
-        'corrugations.corrugationClassId',
-        'cc.id'
+        "corrugation_classes as cc",
+        "corrugations.corrugationClassId",
+        "cc.id",
       );
     });
 
-    it('should order by code ascending', async () => {
+    it("should order by code ascending", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
-      mockQueryBuilder.first.mockResolvedValue({ count: '0' });
+      mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('corrugations.code', 'asc');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        "corrugations.code",
+        "asc",
+      );
     });
   });
 
-  describe('Security: Foreign Key Handling', () => {
-    it('should strip numeric ID from related corrugationClass object', async () => {
+  describe("Security: Foreign Key Handling", () => {
+    it("should strip numeric ID from related corrugationClass object", async () => {
       const corrugationClass = createTestCorrugationClass();
       const testData = createTestCorrugation({
         corrugationClass: {
@@ -328,11 +345,11 @@ describe('CorrugationDAO', () => {
 
       // The corrugationClass should have UUID but not ID
       expect(result?.corrugationClass).toBeDefined();
-      expect(result?.corrugationClass).not.toHaveProperty('id');
+      expect(result?.corrugationClass).not.toHaveProperty("id");
       expect(result?.corrugationClass?.uuid).toBe(corrugationClass.uuid);
     });
 
-    it('should handle null corrugationClass gracefully', async () => {
+    it("should handle null corrugationClass gracefully", async () => {
       const testData = createTestCorrugation({
         corrugationClassId: null,
         corrugationClass: null,
@@ -346,27 +363,27 @@ describe('CorrugationDAO', () => {
     });
   });
 
-  describe('Numeric Field Parsing', () => {
-    it('should parse decimal fields correctly', async () => {
+  describe("Numeric Field Parsing", () => {
+    it("should parse decimal fields correctly", async () => {
       const testData = createTestCorrugation({
-        theoreticalGrammage: '150.5', // String from DB
-        suggestedWidth: '1200.00',
-        caliper: '0.35',
+        theoreticalGrammage: "150.5", // String from DB
+        suggestedWidth: "1200.00",
+        caliper: "0.35",
       });
 
       mockQueryBuilder.first.mockResolvedValue(testData);
 
       const result = await dao.getById(testData.id);
 
-      expect(typeof result?.theoreticalGrammage).toBe('number');
-      expect(typeof result?.suggestedWidth).toBe('number');
-      expect(typeof result?.caliper).toBe('number');
+      expect(typeof result?.theoreticalGrammage).toBe("number");
+      expect(typeof result?.suggestedWidth).toBe("number");
+      expect(typeof result?.caliper).toBe("number");
       expect(result?.theoreticalGrammage).toBe(150.5);
       expect(result?.suggestedWidth).toBe(1200);
       expect(result?.caliper).toBe(0.35);
     });
 
-    it('should handle null decimal fields', async () => {
+    it("should handle null decimal fields", async () => {
       const testData = createTestCorrugation({
         theoreticalGrammage: null,
         suggestedWidth: null,

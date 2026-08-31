@@ -56,9 +56,9 @@ describeIfLocalDb(
     };
 
     const one = async <T extends Record<string, unknown>>(
-    sql: string,
-    params: unknown[] = [],
-  ): Promise<T> => {
+      sql: string,
+      params: unknown[] = [],
+    ): Promise<T> => {
       const result = await client.query<T>(sql, params);
       return result.rows[0];
     };

@@ -28,7 +28,8 @@ jest.mock("../../../dao/product/product.dao", () => ({
 jest.mock("../../../dao/part/part.dao", () => ({
   PartDAO: function () {
     return {
-      cascadeApprovalTrx: (...a) => mockPartDAOInstance.cascadeApprovalTrx(...a),
+      cascadeApprovalTrx: (...a) =>
+        mockPartDAOInstance.cascadeApprovalTrx(...a),
     };
   },
 }));
@@ -56,7 +57,10 @@ const makeRes = () => {
   return res;
 };
 
-const makeReq = (body, user = { userId: "u-1", email: "a@x", role: "member", companyId: "c-1" }) => ({
+const makeReq = (
+  body,
+  user = { userId: "u-1", email: "a@x", role: "member", companyId: "c-1" },
+) => ({
   params: { uuid: "prod-uuid" },
   body,
   query: {},
@@ -66,7 +70,10 @@ const makeReq = (body, user = { userId: "u-1", email: "a@x", role: "member", com
 beforeEach(() => {
   jest.clearAllMocks();
   mockProductDAO.getIdByUuid.mockResolvedValue(3);
-  mockProductDAO.setApproval.mockResolvedValue({ uuid: "prod-uuid", productApprovalAt: "t" });
+  mockProductDAO.setApproval.mockResolvedValue({
+    uuid: "prod-uuid",
+    productApprovalAt: "t",
+  });
   mockPartDAOInstance.cascadeApprovalTrx.mockResolvedValue([11, 12]);
   mockUserHasPermission = jest.fn().mockResolvedValue(true);
   const countBuilder = {
@@ -83,23 +90,46 @@ describe("ProductController.setApproval cascade", () => {
     mockUserHasPermission.mockResolvedValue(false);
     const controller = new ProductController();
     const res = makeRes();
-    await controller.setApproval(makeReq({ action: "approve", cascade: true }), res, jest.fn());
+    await controller.setApproval(
+      makeReq({ action: "approve", cascade: true }),
+      res,
+      jest.fn(),
+    );
     expect(res.statusCode).toBe(403);
     expect(mockKnex.transaction).not.toHaveBeenCalled();
     expect(mockProductDAO.setApproval).not.toHaveBeenCalled();
-    expect(mockUserHasPermission).toHaveBeenCalledWith("u-1", "member", "parts.approve.part");
+    expect(mockUserHasPermission).toHaveBeenCalledWith(
+      "u-1",
+      "member",
+      "parts.approve.part",
+    );
   });
 
   it("cascade runs in ONE transaction, parts FIRST, product last", async () => {
     const controller = new ProductController();
     const res = makeRes();
-    await controller.setApproval(makeReq({ action: "approve", cascade: true }), res, jest.fn());
+    await controller.setApproval(
+      makeReq({ action: "approve", cascade: true }),
+      res,
+      jest.fn(),
+    );
     expect(res.statusCode).toBe(200);
     expect(mockKnex.transaction).toHaveBeenCalledTimes(1);
-    expect(mockPartDAOInstance.cascadeApprovalTrx).toHaveBeenCalledWith("TRX", 3, "approve", "a@x");
-    expect(mockProductDAO.setApproval).toHaveBeenCalledWith(3, "approve", "a@x", "TRX");
+    expect(mockPartDAOInstance.cascadeApprovalTrx).toHaveBeenCalledWith(
+      "TRX",
+      3,
+      "approve",
+      "a@x",
+    );
+    expect(mockProductDAO.setApproval).toHaveBeenCalledWith(
+      3,
+      "approve",
+      "a@x",
+      "TRX",
+    );
     // Ordering: parts before product.
-    const partsOrder = mockPartDAOInstance.cascadeApprovalTrx.mock.invocationCallOrder[0];
+    const partsOrder =
+      mockPartDAOInstance.cascadeApprovalTrx.mock.invocationCallOrder[0];
     const productOrder = mockProductDAO.setApproval.mock.invocationCallOrder[0];
     expect(partsOrder).toBeLessThan(productOrder);
     expect(res.body.cascaded).toBe(2);
@@ -113,7 +143,11 @@ describe("ProductController.setApproval cascade", () => {
     }));
     const controller = new ProductController();
     const res = makeRes();
-    await controller.setApproval(makeReq({ action: "approve", cascade: true }), res, jest.fn());
+    await controller.setApproval(
+      makeReq({ action: "approve", cascade: true }),
+      res,
+      jest.fn(),
+    );
     expect(res.statusCode).toBe(400);
     expect(mockKnex.transaction).not.toHaveBeenCalled();
   });

@@ -4,18 +4,20 @@
  * For unit testing controllers
  */
 
-import { jest } from '@jest/globals';
-import { Request, Response, NextFunction } from 'express';
+import { jest } from "@jest/globals";
+import { Request, Response, NextFunction } from "express";
 
 /**
  * Create mock Express Request
  */
-export const createMockRequest = (overrides: Partial<Request> = {}): Partial<Request> => ({
+export const createMockRequest = (
+  overrides: Partial<Request> = {},
+): Partial<Request> => ({
   body: {},
   params: {},
   query: {},
   headers: {},
-  get: jest.fn().mockReturnValue(''),
+  get: jest.fn().mockReturnValue(""),
   ...overrides,
 });
 
@@ -46,12 +48,12 @@ export const createMockNext = (): NextFunction => jest.fn() as NextFunction;
  */
 export const createAuthenticatedRequest = (
   user: any,
-  overrides: Partial<Request> = {}
+  overrides: Partial<Request> = {},
 ): Partial<Request> => ({
   ...createMockRequest(overrides),
   user,
   headers: {
-    authorization: 'Bearer test-token',
+    authorization: "Bearer test-token",
     ...overrides.headers,
   },
 });
@@ -62,7 +64,7 @@ export const createAuthenticatedRequest = (
 export const createPaginatedRequest = (
   page = 1,
   limit = 10,
-  overrides: Partial<Request> = {}
+  overrides: Partial<Request> = {},
 ): Partial<Request> =>
   createMockRequest({
     query: { page: String(page), limit: String(limit) },
@@ -74,7 +76,7 @@ export const createPaginatedRequest = (
  */
 export const createUuidParamRequest = (
   uuid: string,
-  overrides: Partial<Request> = {}
+  overrides: Partial<Request> = {},
 ): Partial<Request> =>
   createMockRequest({
     params: { uuid },
@@ -86,7 +88,7 @@ export const createUuidParamRequest = (
  */
 export const createBodyRequest = (
   body: any,
-  overrides: Partial<Request> = {}
+  overrides: Partial<Request> = {},
 ): Partial<Request> =>
   createMockRequest({
     body,
@@ -99,7 +101,7 @@ export const createBodyRequest = (
 export const expectJsonResponse = (
   res: Partial<Response>,
   statusCode: number,
-  expectedData: any
+  expectedData: any,
 ) => {
   expect(res.status).toHaveBeenCalledWith(statusCode);
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining(expectedData));
@@ -110,12 +112,14 @@ export const expectJsonResponse = (
  */
 export const expectNextCalledWithError = (
   next: NextFunction,
-  errorMessage?: string
+  errorMessage?: string,
 ) => {
   expect(next).toHaveBeenCalled();
   if (errorMessage) {
     expect(next).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining(errorMessage) })
+      expect.objectContaining({
+        message: expect.stringContaining(errorMessage),
+      }),
     );
   }
 };

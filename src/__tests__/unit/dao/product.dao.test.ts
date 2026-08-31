@@ -361,7 +361,10 @@ describe("ProductDAO", () => {
       } as any);
 
       expect(mockKnex).toHaveBeenCalledWith("customers");
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith("uuid", customer.uuid);
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        "uuid",
+        customer.uuid,
+      );
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
         "products.customerId",
         customer.id,

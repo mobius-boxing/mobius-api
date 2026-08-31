@@ -5,42 +5,68 @@ import type { Knex } from "knex";
  * Stock entity for consumable supply inventory in warehouses
  */
 export async function up(knex: Knex): Promise<void> {
-  await knex.schema.createTable('consumable_stock', function (table) {
-    table.increments('id').primary();
-    table.uuid('uuid').unique().notNullable().defaultTo(knex.raw('gen_random_uuid()'));
+  await knex.schema.createTable("consumable_stock", function (table) {
+    table.increments("id").primary();
+    table
+      .uuid("uuid")
+      .unique()
+      .notNullable()
+      .defaultTo(knex.raw("gen_random_uuid()"));
 
     // Warehouse location
-    table.integer('warehouseId').unsigned().notNullable()
-      .references('id').inTable('warehouses').onDelete('CASCADE');
-    table.integer('warehouseLocationId').unsigned()
-      .references('id').inTable('warehouse_locations').onDelete('SET NULL');
+    table
+      .integer("warehouseId")
+      .unsigned()
+      .notNullable()
+      .references("id")
+      .inTable("warehouses")
+      .onDelete("CASCADE");
+    table
+      .integer("warehouseLocationId")
+      .unsigned()
+      .references("id")
+      .inTable("warehouse_locations")
+      .onDelete("SET NULL");
 
     // Supply chain info
-    table.integer('supplierId').unsigned()
-      .references('id').inTable('suppliers').onDelete('SET NULL');
-    table.integer('manufacturerId').unsigned()
-      .references('id').inTable('manufacturers').onDelete('SET NULL');
+    table
+      .integer("supplierId")
+      .unsigned()
+      .references("id")
+      .inTable("suppliers")
+      .onDelete("SET NULL");
+    table
+      .integer("manufacturerId")
+      .unsigned()
+      .references("id")
+      .inTable("manufacturers")
+      .onDelete("SET NULL");
 
     // Related consumable supply entity
-    table.integer('consumableSupplyId').unsigned().notNullable()
-      .references('id').inTable('consumable_supplies').onDelete('CASCADE');
+    table
+      .integer("consumableSupplyId")
+      .unsigned()
+      .notNullable()
+      .references("id")
+      .inTable("consumable_supplies")
+      .onDelete("CASCADE");
 
     // Stock details
-    table.text('comments');
-    table.decimal('price', 10, 2);
-    table.integer('quantity').notNullable().defaultTo(0);
+    table.text("comments");
+    table.decimal("price", 10, 2);
+    table.integer("quantity").notNullable().defaultTo(0);
 
-    table.timestamp('createdAt').defaultTo(knex.fn.now());
-    table.timestamp('updatedAt').defaultTo(knex.fn.now());
+    table.timestamp("createdAt").defaultTo(knex.fn.now());
+    table.timestamp("updatedAt").defaultTo(knex.fn.now());
 
-    table.index(['warehouseId']);
-    table.index(['warehouseLocationId']);
-    table.index(['supplierId']);
-    table.index(['manufacturerId']);
-    table.index(['consumableSupplyId']);
+    table.index(["warehouseId"]);
+    table.index(["warehouseLocationId"]);
+    table.index(["supplierId"]);
+    table.index(["manufacturerId"]);
+    table.index(["consumableSupplyId"]);
   });
 }
 
 export async function down(knex: Knex): Promise<void> {
-  await knex.schema.dropTable('consumable_stock');
+  await knex.schema.dropTable("consumable_stock");
 }

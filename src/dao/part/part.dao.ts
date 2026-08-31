@@ -298,6 +298,9 @@ export class PartDAO {
           `CASE WHEN pall.id IS NOT NULL THEN to_jsonb(pall) END as "palletization"`,
         ),
         knex.raw(
+          `CASE WHEN mdl.id IS NOT NULL THEN to_jsonb(mdl) END as "model"`,
+        ),
+        knex.raw(
           `CASE WHEN ft.id IS NOT NULL THEN to_jsonb(ft) END as "flapType"`,
         ),
         knex.raw(
@@ -330,6 +333,7 @@ export class PartDAO {
         `${this.tableName}.palletizationId`,
         "pall.id",
       )
+      .leftJoin("models as mdl", `${this.tableName}.modelId`, "mdl.id")
       .leftJoin("flap_types as ft", `${this.tableName}.flapTypeId`, "ft.id")
       .leftJoin("glue_types as gt", `${this.tableName}.glueTypeId`, "gt.id")
       .leftJoin(
@@ -810,6 +814,7 @@ export class PartDAO {
     ]);
     part.productionRoute = pick(record.productionRoute, ["name", "isGlobal"]);
     part.palletization = pick(record.palletization, ["code", "name"]);
+    part.model = pick(record.model, ["code", "description"]);
     part.flapType = pick(record.flapType, ["code"]);
     part.glueType = pick(record.glueType, ["code"]);
     part.strappingType = pick(record.strappingType, ["code"]);

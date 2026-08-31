@@ -7,7 +7,14 @@
  * If a refactor "fixes" either quirk, these tests MUST scream — the quirks are
  * parity requirements, not bugs.
  */
-import { jest, describe, it, expect, beforeEach, afterEach } from "@jest/globals";
+import {
+  jest,
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+} from "@jest/globals";
 
 // ── Table-aware thenable knex mock ──────────────────────────────────────────
 let fixtures; // { [table]: { firstRows: [], rows: [], updateCaptures: [], insertCaptures: [] } }
@@ -17,8 +24,19 @@ const makeBuilder = (table) => {
   const b = {};
   const chain = (name) => (b[name] = jest.fn(() => b));
   [
-    "select", "where", "whereIn", "whereNull", "whereNotNull", "orderBy",
-    "modify", "forUpdate", "leftJoin", "join", "limit", "offset", "groupBy",
+    "select",
+    "where",
+    "whereIn",
+    "whereNull",
+    "whereNotNull",
+    "orderBy",
+    "modify",
+    "forUpdate",
+    "leftJoin",
+    "join",
+    "limit",
+    "offset",
+    "groupBy",
   ].forEach(chain);
   b.first = jest.fn(() => Promise.resolve((f.firstRows ?? []).shift() ?? null));
   b.update = jest.fn((data) => {
@@ -32,7 +50,8 @@ const makeBuilder = (table) => {
   b.delete = jest.fn(() => Promise.resolve(f.deleteCount ?? 1));
   b.returning = jest.fn(() => Promise.resolve(f.returningRows ?? []));
   b.count = jest.fn(() => b);
-  b.then = (resolve, reject) => Promise.resolve(f.rows ?? []).then(resolve, reject);
+  b.then = (resolve, reject) =>
+    Promise.resolve(f.rows ?? []).then(resolve, reject);
   return b;
 };
 
@@ -93,7 +112,11 @@ describe("PartDAO.setApproval (pair semantics)", () => {
     expect(update.dimensionsCancelledAt).toBeNull();
     expect(update.dimensionsCancelledBy).toBeNull();
     const event = fixtures.part_approval_events.insertCaptures[0];
-    expect(event).toMatchObject({ partId: 7, stateMachine: "dimensions", action: "approve" });
+    expect(event).toMatchObject({
+      partId: 7,
+      stateMachine: "dimensions",
+      action: "approve",
+    });
   });
 
   it("cancel stamps the cancellation and NULLS the approval", async () => {

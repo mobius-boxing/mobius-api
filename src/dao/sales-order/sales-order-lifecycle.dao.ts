@@ -325,11 +325,10 @@ export class SalesOrderLifecycleDAO {
     const now = trx.fn.now();
     const query = trx(this.tableName).where("id", id);
     if (companyId != null) query.where("companyId", companyId);
-    await query
-      .update({
-        ...pairUpdate(FULFILLMENT_COLUMNS, "set", username, now),
-        updatedAt: now,
-      });
+    await query.update({
+      ...pairUpdate(FULFILLMENT_COLUMNS, "set", username, now),
+      updatedAt: now,
+    });
   }
 
   // ── Shared transition body ───────────────────────────────────────────────

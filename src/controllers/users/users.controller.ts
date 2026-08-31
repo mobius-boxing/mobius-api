@@ -153,6 +153,27 @@ export class UsersController implements IBaseController {
 
       const hashedPassword = await bcrypt.hash(inputDTO.password, BCRYPT_COST);
 
+      // SECURITY (C3), same rule the update path already applies: `companyId`
+      // arrives as a UUID from the clients and as a numeric id from internal
+      // callers. `UserCreateInputDTO` checks the SHAPE (uuid or int) and leaves
+      // it alone; resolving it here replaces the old `parseInt(uuid, 10)`,
+      // which quietly produced the leading digits — or NaN — and wrote it to
+      // the FK column.
+      let companyId: number | undefined;
+      if (typeof inputDTO.companyId === "number") {
+        companyId = inputDTO.companyId;
+      } else if (typeof inputDTO.companyId === "string") {
+        const company = await this._companyDAO.getByUuid(inputDTO.companyId);
+        if (!company || !company.id) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid company ID",
+          });
+          return;
+        }
+        companyId = company.id;
+      }
+
       const dataToCreate: IUser = {
         uuid: uuidv4(),
         email: inputDTO.email,
@@ -160,7 +181,7 @@ export class UsersController implements IBaseController {
         firstName: inputDTO.firstName,
         lastName: inputDTO.lastName,
         role: inputDTO.role as "member" | "admin" | "superAdmin",
-        companyId: inputDTO.companyId,
+        companyId,
         isActive: true,
         emailVerified: false,
       };

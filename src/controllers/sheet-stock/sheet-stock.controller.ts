@@ -33,10 +33,7 @@ export class SheetStockController extends BaseCrudController<ISheetStock> {
     return this.dao.getWithDetails(uuid);
   }
 
-  private async resolveForeignKeys(
-    data: any,
-    res: Response,
-  ): Promise<boolean> {
+  private async resolveForeignKeys(data: any, res: Response): Promise<boolean> {
     if (data.warehouseId && typeof data.warehouseId === "string") {
       const warehouseDAO = new WarehouseDAO();
       const id = await warehouseDAO.getIdByUuid(data.warehouseId);
