@@ -134,3 +134,30 @@ Check these on every review; each has already been found at least once.
   never hold the same day.** Any "a second instance independently claimed the same
   day seconds later" story requires the row to have been deleted in between —
   sequential and operator-mediated, not independent corroboration.
+- **`setDiff.ts`'s `diffKeyedRows`/`diffSets` structurally can't emit an empty
+  `UPDATE ... SET`** — `updates` only gets an entry when `changedColumns()`
+  returns a non-empty object, so the "zero writes for identical payload" test
+  class is really testing `changedColumns()`'s column list, not the diff
+  engine. Mutation-check by making one comparison unconditionally "changed"
+  (e.g. drop the `!==` check) — this is caught every time it's been tried
+  (corrugation, role, countdown DAOs, 2026-08-31).
+- **App-level XOR invariants on partial unique indexes (no CHECK constraint)
+  get one half tested, not both.** `countdown_document_assignments` diffing
+  (`assignmentKey()`) documents and tests the "neither subject set" corrupt
+  row (cleaned up, keys on `g:null`) but not the "both subject set" one (keys
+  as the user row only; the group half is invisible to the diff forever once
+  matched — a regression vs. the old delete-and-reinsert, which purged
+  corrupt rows on every save). Ask for the other half explicitly when a diff
+  keys on a XOR-shaped identity.
+- **The `PAIRED` sentinel workaround (production-route.dao.ts) is a second
+  place an empty-UPDATE bug could hide, separate from the `changedColumns()`
+  note above.** Callers that need every keyed match back (because an
+  unchanged parent can still own a changed child, e.g. stages→supplies) pass
+  `changedColumns: () => PAIRED` to force `diffKeyedRows` to always bucket a
+  match as an "update", then recompute the real per-column diff themselves
+  and must re-guard with `if (!Object.keys(changes).length) continue;` before
+  the `UPDATE`. Mutation-check that inner guard specifically (delete the
+  `continue`) — confirmed 2026-08-31 that removing it flips the "identical
+  payload writes nothing" test red (writeLog counts the empty UPDATE), so the
+  guard is real, but it is a second, easy-to-miss place doing the same job
+  the shared helper does everywhere else.

@@ -27,17 +27,30 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
    * each layer's lookup UUIDs to internal ids. Returns null (after writing the
    * 400) when a referenced lookup doesn't exist. Positions are renumbered 1..N
    * by the DAO from array order — Procusto grid semantics.
+   *
+   * A layer's own `uuid` is carried through untouched: the update DAO diffs on
+   * it, so dropping it here would silently turn every save back into a full
+   * delete-and-reinsert. It is a reference, not a value — the DAO mints the
+   * uuid of any row it actually inserts.
    */
   private async resolveLayers(
     layers:
-      | Array<{ position?: number; isLiner?: boolean; paperClassUuid?: string; fluteTypeUuid?: string }>
+      | Array<{
+          uuid?: string;
+          position?: number;
+          isLiner?: boolean;
+          paperClassUuid?: string;
+          fluteTypeUuid?: string;
+        }>
       | undefined,
     res: Response,
   ): Promise<ICorrugationLayer[] | null | undefined> {
     if (layers === undefined) return undefined;
 
     const ordered = [...layers].sort(
-      (a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER),
+      (a, b) =>
+        (a.position ?? Number.MAX_SAFE_INTEGER) -
+        (b.position ?? Number.MAX_SAFE_INTEGER),
     );
 
     const resolved: ICorrugationLayer[] = [];
@@ -63,6 +76,7 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
         return null;
       }
       resolved.push({
+        uuid: layer.uuid,
         position: index + 1,
         isLiner: layer.isLiner ?? false,
         paperClassId,

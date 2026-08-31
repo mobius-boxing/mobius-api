@@ -6,8 +6,12 @@ export class CorrugationUpdateInputDTO {
   caliper?: number;
   // SECURITY: Accept UUID from frontend, not numeric ID
   corrugationClassUuid?: string;
-  // Capas — when present the layer stack is replaced wholesale ([] clears it).
+  // Capas — when present the whole stack is reconciled against what is stored
+  // ([] clears it). `uuid` identifies which stored layer a row is, so an edit
+  // updates that row instead of recreating it; it is an identity reference
+  // only, never written (an unknown uuid becomes a new server-minted row).
   layers?: Array<{
+    uuid?: string;
     position?: number;
     isLiner?: boolean;
     paperClassUuid?: string;
@@ -40,6 +44,7 @@ export class CorrugationUpdateInputDTO {
     }
     if (Array.isArray(data.layers)) {
       this.layers = data.layers.map((layer: any) => ({
+        uuid: typeof layer?.uuid === "string" ? layer.uuid : undefined,
         position:
           typeof layer?.position === "string"
             ? parseInt(layer.position, 10)

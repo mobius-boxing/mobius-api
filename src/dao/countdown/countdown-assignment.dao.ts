@@ -1,4 +1,5 @@
 import { Knex } from "knex";
+import { v4 as uuidv4 } from "uuid";
 import { db } from "../../database/registry";
 import {
   CountdownAssignmentKind,
@@ -6,6 +7,7 @@ import {
   ICountdownAssignments,
   emptyCountdownAssignments,
 } from "../../interfaces/countdown/countdown.interfaces";
+import { diffSets } from "../../utils/setDiff";
 
 const ASSIGNMENTS_TABLE = "countdown_document_assignments";
 const GROUPS_TABLE = "countdown_groups";
@@ -25,6 +27,43 @@ interface IJoinedAssignmentRow {
 interface IEffectiveUserRow {
   documentId: number;
   effectiveUserId: number | null;
+}
+
+/** A stored assignment, read back for the diff in `replace()`. */
+interface IStoredAssignmentRow {
+  id: number;
+  kind: CountdownAssignmentKind;
+  userId: number | null;
+  groupId: number | null;
+}
+
+/** One target of an assignment: a user or a group, never both. */
+interface IAssignmentTarget {
+  kind: CountdownAssignmentKind;
+  userId?: number;
+  groupId?: number;
+}
+
+/**
+ * Identity of an assignment row, as the two partial unique indexes define it:
+ * `("documentId", kind, "userId") where "userId" is not null` and the same for
+ * `"groupId"`. `documentId` is fixed for a whole diff, so the key is the kind
+ * plus the subject; the `u:` / `g:` prefixes keep the two key spaces disjoint,
+ * so a user and a group of the same kind never collide.
+ *
+ * "A row is a user assignment or a group assignment" is an application
+ * invariant with no CHECK behind it. A stored row that breaks it — both columns
+ * null — keys on a groupId of `null`, which no incoming target can produce, so
+ * it is treated as removed and cleaned up rather than silently kept.
+ */
+function assignmentKey(row: {
+  kind: CountdownAssignmentKind;
+  userId?: number | null;
+  groupId?: number | null;
+}): string {
+  return row.userId !== null && row.userId !== undefined
+    ? `${row.kind}|u:${row.userId}`
+    : `${row.kind}|g:${row.groupId}`;
 }
 
 /** Same composition the reminder DAO uses, so a person reads the same everywhere. */
@@ -116,39 +155,79 @@ export class CountdownAssignmentDAO {
     return result;
   }
 
-  /** Replaces every assignment for a document. Transactional by necessity. */
+  /**
+   * Sets every assignment of a document. Transactional by necessity.
+   *
+   * A diff, not a rewrite (audit P1b): the four input arrays become one set of
+   * `(kind, subject)` targets, which is diffed against what is stored. An
+   * assignment row has no updatable column — it *is* its key — so this emits at
+   * most one bulk DELETE and one bulk INSERT and never an UPDATE, and an
+   * unchanged assignment set writes nothing. Editing only the watcher groups
+   * leaves the resolver rows, and their ids and uuids, untouched.
+   *
+   * Called three ways, and the signature is load-bearing for all of them: with
+   * the caller's transaction from the renewal copy, without one from
+   * `setAssignments()`, and against a brand-new document (nothing stored, so
+   * the diff is all inserts) from `create()`.
+   */
   async replace(
     documentId: number,
     input: ICountdownAssignmentInput,
     trx?: Knex.Transaction,
   ): Promise<void> {
     const knex = db("countdown");
-    const run = async (executor: Knex | Knex.Transaction): Promise<void> => {
-      await executor(ASSIGNMENTS_TABLE).where({ documentId }).delete();
+    const targets: IAssignmentTarget[] = [
+      ...input.resolverUserIds.map((userId) => ({
+        kind: "resolver" as const,
+        userId,
+      })),
+      ...input.resolverGroupIds.map((groupId) => ({
+        kind: "resolver" as const,
+        groupId,
+      })),
+      ...input.watcherUserIds.map((userId) => ({
+        kind: "watcher" as const,
+        userId,
+      })),
+      ...input.watcherGroupIds.map((groupId) => ({
+        kind: "watcher" as const,
+        groupId,
+      })),
+    ];
 
-      const rows = [
-        ...input.resolverUserIds.map((userId) => ({
-          documentId,
-          kind: "resolver",
-          userId,
-        })),
-        ...input.resolverGroupIds.map((groupId) => ({
-          documentId,
-          kind: "resolver",
-          groupId,
-        })),
-        ...input.watcherUserIds.map((userId) => ({
-          documentId,
-          kind: "watcher",
-          userId,
-        })),
-        ...input.watcherGroupIds.map((groupId) => ({
-          documentId,
-          kind: "watcher",
-          groupId,
-        })),
-      ];
-      if (rows.length > 0) await executor(ASSIGNMENTS_TABLE).insert(rows);
+    const run = async (executor: Knex | Knex.Transaction): Promise<void> => {
+      const existing: IStoredAssignmentRow[] = await executor(ASSIGNMENTS_TABLE)
+        .select("id", "kind", "userId", "groupId")
+        .where({ documentId });
+
+      const { inserts, deletes } = diffSets(targets, existing, {
+        keyOfIncoming: assignmentKey,
+        keyOfExisting: assignmentKey,
+      });
+
+      // By id, because the two unique indexes are partial: `whereIn` on a key
+      // spanning three columns, one of which is null half the time, is neither.
+      if (deletes.length > 0) {
+        await executor(ASSIGNMENTS_TABLE)
+          .whereIn(
+            "id",
+            deletes.map((row) => row.id),
+          )
+          .delete();
+      }
+
+      // Server-side uuid (AC-9), like every other row this phase inserts.
+      if (inserts.length > 0) {
+        await executor(ASSIGNMENTS_TABLE).insert(
+          inserts.map((target) => ({
+            uuid: uuidv4(),
+            documentId,
+            kind: target.kind,
+            userId: target.userId ?? null,
+            groupId: target.groupId ?? null,
+          })),
+        );
+      }
     };
 
     if (trx) return run(trx);

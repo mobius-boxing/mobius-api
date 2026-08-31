@@ -12,6 +12,7 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import { applyCompanyUuidScope } from "../../utils/daoScope";
+import { diffSets } from "../../utils/setDiff";
 import { Request } from "express";
 
 // companyId is intentionally absent — handled separately via a join in getAllWithFilters
@@ -80,17 +81,21 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   }
 
   /**
-   * Replace the class's paper links (paper_class_papers). `papers` is the API
-   * shape: an array of paper-supply UUIDs; unknown uuids are skipped.
+   * Reconcile the class's paper links (paper_class_papers) with the payload.
+   * `papers` is the API shape: an array of paper-supply UUIDs; unknown and
+   * malformed uuids are skipped.
+   *
+   * The join row is nothing but its composite key `(paperClassId,
+   * paperSupplyId)` — no `id`, no `uuid`, no `updatedAt` — so this is pure set
+   * semantics: at most one bulk DELETE and one bulk INSERT, and for an
+   * unchanged set neither. The uuid filter and the uuid→id resolution run
+   * *before* the diff so both sides are compared as numeric supply ids.
    */
   private async replacePapers(
     trx: any,
     paperClassId: number,
     paperUuids: string[],
   ): Promise<void> {
-    await trx("paper_class_papers")
-      .where("paperClassId", paperClassId)
-      .delete();
     // Malformed uuids would make Postgres throw on the uuid-typed column
     // (the old jsonb storage accepted anything) — drop them up front.
     const validUuids = paperUuids.filter((u) =>
@@ -98,13 +103,35 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
         u ?? "",
       ),
     );
-    if (!validUuids.length) return;
-    const supplies = await trx("paper_supplies")
-      .whereIn("uuid", validUuids)
-      .select("id");
-    if (supplies.length) {
+    const supplies: Array<{ id: number }> = validUuids.length
+      ? await trx("paper_supplies").whereIn("uuid", validUuids).select("id")
+      : [];
+    const existing: Array<{ paperSupplyId: number }> = await trx(
+      "paper_class_papers",
+    )
+      .where("paperClassId", paperClassId)
+      .select("paperSupplyId");
+
+    const diff = diffSets(supplies, existing, {
+      keyOfIncoming: (supply) => String(supply.id),
+      keyOfExisting: (link) => String(link.paperSupplyId),
+    });
+
+    if (diff.deletes.length) {
+      await trx("paper_class_papers")
+        .where("paperClassId", paperClassId)
+        .whereIn(
+          "paperSupplyId",
+          diff.deletes.map((link) => link.paperSupplyId),
+        )
+        .delete();
+    }
+    if (diff.inserts.length) {
       await trx("paper_class_papers").insert(
-        supplies.map((s: any) => ({ paperClassId, paperSupplyId: s.id })),
+        diff.inserts.map((supply) => ({
+          paperClassId,
+          paperSupplyId: supply.id,
+        })),
       );
     }
   }

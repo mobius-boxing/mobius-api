@@ -7,6 +7,9 @@ import {
 import { toNumberInput } from "../../../utils/numbers";
 
 export interface IStageSupplyInput {
+  /** Identity reference for the diff-and-upsert path (audit P1b); the API
+   * never writes a client uuid, it only matches on one. */
+  uuid?: string;
   direction: StageSupplyDirection;
   supplyType: StageSupplyType;
   supplyUuid: string;
@@ -19,6 +22,8 @@ export interface IStageSupplyInput {
 }
 
 export interface IStageInput {
+  /** See {@link IStageSupplyInput.uuid} — a reference, never a written value. */
+  uuid?: string;
   number?: number;
   description?: string;
   isCorrugation?: boolean;
@@ -28,9 +33,18 @@ export interface IStageInput {
   supplies?: IStageSupplyInput[];
 }
 
+/**
+ * Child row identity, carried through so the DAO can upsert instead of
+ * delete-and-reinsert (audit P1b). Anything that is not a string is dropped:
+ * an unmatched value simply means "new row", so a hostile one costs nothing.
+ */
+const asUuidRef = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
 const sanitizeStages = (stages: any): IStageInput[] | undefined => {
   if (!Array.isArray(stages)) return undefined;
   return stages.map((stage: any) => ({
+    uuid: asUuidRef(stage?.uuid),
     number: toNumberInput(stage?.number),
     description: stage?.description,
     isCorrugation: stage?.isCorrugation === true,
@@ -50,6 +64,7 @@ const sanitizeStages = (stages: any): IStageInput[] | undefined => {
               (SUPPLY_TYPES as readonly string[]).includes(s?.supplyType),
           )
           .map((s: any) => ({
+            uuid: asUuidRef(s.uuid),
             direction: s.direction,
             supplyType: s.supplyType,
             supplyUuid: s.supplyUuid,
@@ -74,11 +89,13 @@ const validateStages = (stages: IStageInput[] | undefined): void => {
       if (supply.quantity !== undefined && supply.quantity < 0)
         throw new Error("Stage supply quantity must be non-negative");
       if (
-        (supply.repetitionsWidth !== undefined && supply.repetitionsWidth < 0) ||
+        (supply.repetitionsWidth !== undefined &&
+          supply.repetitionsWidth < 0) ||
         (supply.repetitionsLength !== undefined && supply.repetitionsLength < 0)
       )
         throw new Error("Stage supply repetitions must be non-negative");
-      if (!supply.supplyUuid) throw new Error("Stage supply must reference a supply");
+      if (!supply.supplyUuid)
+        throw new Error("Stage supply must reference a supply");
     }
   }
 };

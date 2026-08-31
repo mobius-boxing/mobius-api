@@ -1,8 +1,10 @@
+import { v4 as uuidv4 } from "uuid";
 import { db } from "../../database/registry";
 import {
   ICountdownGroup,
   INamedRef,
 } from "../../interfaces/countdown/countdown.interfaces";
+import { diffSets } from "../../utils/setDiff";
 
 const GROUPS_TABLE = "countdown_groups";
 const MEMBERS_TABLE = "countdown_group_members";
@@ -151,19 +153,48 @@ export class CountdownGroupDAO {
   }
 
   /**
-   * Replaces the whole membership in one transaction: a half-applied member set
-   * is worse than the old one. `groupId` and `userIds` are both already
+   * Sets the whole membership in one transaction: a half-applied member set is
+   * worse than the old one. `groupId` and `userIds` are both already
    * tenant-resolved by the service.
+   *
+   * A diff, not a rewrite (audit P1b). Membership is a pure set — beyond
+   * `(groupId, userId)` the row carries only `uuid` and its timestamps, so
+   * nothing can "change" and there is no UPDATE branch: at most one bulk DELETE
+   * of the members who left and one bulk INSERT of the ones who arrived. An
+   * unchanged member list therefore writes **nothing at all**, which is the
+   * point: the audit ledger must record who was added or removed, not a full
+   * re-creation of the group on every save.
    */
   async setMembers(groupId: number, userIds: number[]): Promise<void> {
     const knex = db("countdown");
     await knex.transaction(async (trx) => {
-      await trx(MEMBERS_TABLE).where({ groupId }).delete();
-      if (userIds.length > 0) {
-        // uuid comes from the column default: membership rows are internal and
-        // their uuid never reaches the API.
+      const existing: { userId: number }[] = await trx(MEMBERS_TABLE)
+        .select("userId")
+        .where({ groupId });
+
+      const { inserts, deletes } = diffSets(userIds, existing, {
+        keyOfIncoming: (userId) => String(userId),
+        keyOfExisting: (row) => String(row.userId),
+      });
+
+      // Deleting by the natural key rather than by id: `UNIQUE(groupId, userId)`
+      // makes the two identical, and the read above never has to carry an id.
+      if (deletes.length > 0) {
+        await trx(MEMBERS_TABLE)
+          .where({ groupId })
+          .whereIn(
+            "userId",
+            deletes.map((row) => row.userId),
+          )
+          .delete();
+      }
+
+      // The uuid is minted here rather than left to the column default so that
+      // every row this DAO writes has a server-side identity (AC-9); it stays
+      // internal and never reaches the API either way.
+      if (inserts.length > 0) {
         await trx(MEMBERS_TABLE).insert(
-          userIds.map((userId) => ({ groupId, userId })),
+          inserts.map((userId) => ({ uuid: uuidv4(), groupId, userId })),
         );
       }
     });

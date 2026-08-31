@@ -63,12 +63,10 @@ export class ProductionRouteController {
           companyUuid,
         );
         if (!machineTypeId) {
-          res
-            .status(400)
-            .json({
-              success: false,
-              message: `${label}: machine type not found`,
-            });
+          res.status(400).json({
+            success: false,
+            message: `${label}: machine type not found`,
+          });
           return null;
         }
       }
@@ -103,6 +101,9 @@ export class ProductionRouteController {
           return null;
         }
         supplies.push({
+          // Row identity for the DAO's diff-and-upsert (audit P1b). Dropping it
+          // here silently degrades the upsert back to delete-and-reinsert.
+          uuid: s.uuid,
           direction: s.direction as "input" | "output",
           supplyType: s.supplyType as StageSupplyType,
           supplyId: row.id,
@@ -116,6 +117,7 @@ export class ProductionRouteController {
       }
 
       resolved.push({
+        uuid: stage.uuid,
         number: stage.number ?? index + 1,
         description: stage.description ?? null,
         isCorrugation: stage.isCorrugation ?? false,
@@ -370,12 +372,10 @@ export class ProductionRouteController {
       }
       await this.dao.delete(existing.id);
       this.recordAudit(req, "Baja", existing);
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "Production route deleted successfully",
-        });
+      res.status(200).json({
+        success: true,
+        message: "Production route deleted successfully",
+      });
     } catch (err: any) {
       next(err);
     }

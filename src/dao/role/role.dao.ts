@@ -14,6 +14,7 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import { applyCompanyUuidScope } from "../../utils/daoScope";
+import { diffSets } from "../../utils/setDiff";
 
 const ROLE_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
@@ -26,6 +27,12 @@ const ROLE_SORTING: SortConfigs = {
   profileType: { column: "profileType" },
   createdAt: { column: "createdAt" },
 };
+
+/** A permission resolved from a client-sent code, scoped to one company. */
+type PermissionRow = { id: number; code: string };
+
+/** A stored `role_permissions` row, read for the grant diff. */
+type GrantRow = { permissionId: number };
 
 const ROLE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("roles", {
   filters: ROLE_FILTERS,
@@ -76,7 +83,25 @@ export class RoleDAO {
     return deleted > 0;
   }
 
-  /** Replace a role's grants with the permission rows matching `codes`. */
+  /**
+   * Set a role's grants to exactly the permission rows matching `codes`.
+   *
+   * `role_permissions` is a pure join table — `(roleId, permissionId,
+   * companyId, createdAt)`, no `id`, no `uuid`, nothing updatable — so this is
+   * a set diff, not a keyed one: revoked grants leave in one bulk DELETE, new
+   * grants arrive in one bulk INSERT, and a grid that did not change writes
+   * **nothing at all**. It used to delete every row and reinsert the whole
+   * grid, which made saving a role without touching its permissions look, to
+   * anything reading the write stream, like the operator had revoked and
+   * re-granted everything. Permission grants are the most audit-sensitive
+   * write in the system; that noise is exactly what must not reach the ledger.
+   *
+   * Codes are resolved to ids **before** diffing: identity is the resolved
+   * `permissionId`, and a code that does not exist in this company's catalogue
+   * is dropped here rather than written. The returned array is the codes that
+   * are now granted, whether this call granted them or they were already
+   * there — unchanged from the delete-and-reinsert version.
+   */
   async setPermissions(
     roleId: number,
     companyId: number,
@@ -84,23 +109,45 @@ export class RoleDAO {
   ): Promise<string[]> {
     const knex = db("core");
     return knex.transaction(async (trx) => {
-      const permissions = codes.length
+      const permissions: PermissionRow[] = codes.length
         ? await trx("permissions")
             .where("companyId", companyId)
             .whereIn("code", codes)
             .select("id", "code")
         : [];
-      await trx("role_permissions").where("roleId", roleId).delete();
-      if (permissions.length) {
+
+      // Scoped by `roleId` alone, exactly like the delete-everything it
+      // replaces: a grant row carrying some other `companyId` must still be
+      // revoked when it leaves the grid, so the diff has to be able to see it.
+      const existing: GrantRow[] = await trx("role_permissions")
+        .where("roleId", roleId)
+        .select("permissionId");
+
+      const diff = diffSets(permissions, existing, {
+        keyOfIncoming: (permission) => String(permission.id),
+        keyOfExisting: (grant) => String(grant.permissionId),
+      });
+
+      if (diff.deletes.length) {
+        await trx("role_permissions")
+          .where("roleId", roleId)
+          .whereIn(
+            "permissionId",
+            diff.deletes.map((grant) => grant.permissionId),
+          )
+          .delete();
+      }
+      if (diff.inserts.length) {
         await trx("role_permissions").insert(
-          permissions.map((p: any) => ({
+          diff.inserts.map((permission) => ({
             roleId,
-            permissionId: p.id,
+            permissionId: permission.id,
             companyId,
           })),
         );
       }
-      return permissions.map((p: any) => p.code);
+
+      return permissions.map((permission) => permission.code);
     });
   }
 

@@ -1712,6 +1712,7 @@ async function seedProduction(
 
     stageSupplyRows.push({
       stageId,
+      position: 1,
       direction: "input",
       supplyType: "paper",
       supplyId: pick(catalogs.paperSupplyIds),
@@ -1723,6 +1724,7 @@ async function seedProduction(
     });
     stageSupplyRows.push({
       stageId,
+      position: 2,
       direction: "output",
       supplyType: "sheet",
       supplyId: pick(catalogs.paperSheetIds),
@@ -1735,6 +1737,7 @@ async function seedProduction(
     if (chance(0.5)) {
       stageSupplyRows.push({
         stageId,
+        position: 3,
         direction: "input",
         supplyType: "consumable",
         supplyId: pick(catalogs.consumableSupplyIds),

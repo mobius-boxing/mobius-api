@@ -16,6 +16,7 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import { applyCompanyUuidScope } from "../../utils/daoScope";
+import { diffKeyedRows } from "../../utils/setDiff";
 import { Request } from "express";
 
 // companyId is handled separately via a join because the client sends a UUID, not a numeric id.
@@ -64,6 +65,44 @@ const CORRUGATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     },
   },
 );
+
+/** A stored `corrugation_layers` row, as the layer diff reads it. */
+type StoredLayer = {
+  id: number;
+  uuid: string;
+  position: number;
+  isLiner: boolean;
+  paperClassId: number | null;
+  fluteTypeId: number | null;
+};
+
+/** An incoming layer, already normalised to the stored column shape. */
+type IncomingLayer = Omit<StoredLayer, "id" | "uuid"> & { uuid?: string };
+
+/**
+ * The columns a layer edit can touch, as an update patch; `{}` means the row is
+ * untouched and gets no UPDATE. `id`, `uuid`, `corrugationId`, `legacyId` and
+ * the timestamps are deliberately absent — identity, parentage and audit
+ * columns are not user-editable, and `updatedAt` is set only alongside a real
+ * change.
+ */
+function changedLayerColumns(
+  incoming: IncomingLayer,
+  stored: StoredLayer,
+): Record<string, unknown> {
+  const changes: Record<string, unknown> = {};
+  if (incoming.position !== stored.position) {
+    changes.position = incoming.position;
+  }
+  if (incoming.isLiner !== stored.isLiner) changes.isLiner = incoming.isLiner;
+  if (incoming.paperClassId !== (stored.paperClassId ?? null)) {
+    changes.paperClassId = incoming.paperClassId;
+  }
+  if (incoming.fluteTypeId !== (stored.fluteTypeId ?? null)) {
+    changes.fluteTypeId = incoming.fluteTypeId;
+  }
+  return changes;
+}
 
 export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   private tableName = "corrugations";
@@ -120,8 +159,25 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   }
 
   /**
-   * Replace the layer stack wholesale (the Capas grid is edited as a unit).
+   * Reconcile the layer stack against what is stored (the Capas grid is edited
+   * as a unit, but a save must not rewrite the rows it did not change).
    * `layers === undefined` leaves the stack untouched; `[]` clears it.
+   *
+   * Rows are matched by `uuid`, with `setDiff`'s array-ordinal fallback for
+   * clients that do not send one yet. A client uuid is an identity *reference*:
+   * one that matches nothing stored means a new row with a fresh server uuid.
+   *
+   * Statement order is load-bearing. `UNIQUE("corrugationId", "position")` is
+   * non-deferrable, so renumbering survivors in place collides mid-way with
+   * `23505`: (i) DELETE the rows the payload dropped, (ii) one bulk UPDATE
+   * flipping every mover's `position` negative to vacate the 1..N range
+   * (negatives are free — real positions are 1..N and unique, so their
+   * negations are unique too), (iii) the per-row UPDATEs that land the final
+   * positions and any other changed column, (iv) the INSERTs. An identical
+   * payload issues none of the four.
+   *
+   * Keeps its own transaction: `update()` calls this before and outside the
+   * parent-row UPDATE, and unifying the two is P1's job, not this one's.
    */
   async replaceLayers(
     corrugationId: number,
@@ -129,10 +185,67 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   ): Promise<void> {
     const knex = db("erp");
     await knex.transaction(async (trx) => {
-      await trx("corrugation_layers")
+      const existing: StoredLayer[] = await trx("corrugation_layers")
         .where("corrugationId", corrugationId)
-        .delete();
-      await this.insertLayers(trx, corrugationId, layers);
+        .orderBy("position", "asc");
+
+      // Array order is the display order: `position` is derived server-side,
+      // exactly as insertLayers does for the create path.
+      const incoming: IncomingLayer[] = layers.map((layer, index) => ({
+        uuid: layer.uuid,
+        position: index + 1,
+        isLiner: layer.isLiner ?? false,
+        paperClassId: layer.paperClassId ?? null,
+        fluteTypeId: layer.fluteTypeId ?? null,
+      }));
+
+      const diff = diffKeyedRows(incoming, existing, {
+        keyOfIncoming: (layer) => layer.uuid,
+        keyOfExisting: (layer) => layer.uuid,
+        changedColumns: changedLayerColumns,
+      });
+
+      if (diff.deletes.length) {
+        await trx("corrugation_layers")
+          .whereIn(
+            "id",
+            diff.deletes.map((layer) => layer.id),
+          )
+          .delete();
+      }
+
+      const movers = diff.updates.filter(
+        (update) => update.changes.position !== undefined,
+      );
+      if (movers.length) {
+        await trx("corrugation_layers")
+          .where("corrugationId", corrugationId)
+          .whereIn(
+            "id",
+            movers.map((update) => update.existing.id),
+          )
+          .update({ position: trx.raw('-"position"') });
+      }
+
+      for (const update of diff.updates) {
+        await trx("corrugation_layers")
+          .where("id", update.existing.id)
+          .update({ ...update.changes, updatedAt: trx.fn.now() });
+      }
+
+      if (diff.inserts.length) {
+        // SECURITY: the uuid is minted here, never taken from the payload.
+        await trx("corrugation_layers").insert(
+          diff.inserts.map(({ incoming: layer }) => ({
+            uuid: uuidv4(),
+            corrugationId,
+            position: layer.position,
+            isLiner: layer.isLiner,
+            paperClassId: layer.paperClassId,
+            fluteTypeId: layer.fluteTypeId,
+          })),
+        );
+      }
     });
   }
 

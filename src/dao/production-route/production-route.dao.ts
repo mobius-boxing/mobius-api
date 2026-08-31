@@ -5,6 +5,8 @@ import {
   SUPPLY_TABLES,
   IProductionRoute,
   IRouteStage,
+  IStageMachine,
+  IStageSupply,
 } from "../../interfaces/production-route/production-route.interfaces";
 import {
   parseQueryParams,
@@ -17,6 +19,7 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import { applyCompanyUuidScope } from "../../utils/daoScope";
+import { diffKeyedRows } from "../../utils/setDiff";
 import { v4 as uuidv4 } from "uuid";
 
 // Re-exported for existing importers; the definition lives in the interfaces
@@ -57,6 +60,100 @@ const ROUTE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     defaultSort: { column: "name", order: "asc" },
   },
 );
+
+// ── Stage-tree diff helpers (audit P1b) ─────────────────────────────────────
+// Pure and module-level: one mapper per table produces the column values a row
+// must end up with, and the *same* mapper produces them from a stored row. Both
+// the INSERT payload and the UPDATE patch come from it, so "what we write" and
+// "what we compare" can never drift — if they did, a freshly inserted row would
+// look changed on the very next save and every PUT would write forever.
+
+/** An incoming stage plus the `number` its array position assigns it. */
+type DesiredStage = { stage: IRouteStage; number: number };
+/** An incoming supply plus the `position` its array position assigns it. */
+type DesiredSupply = { supply: IStageSupply; position: number };
+
+/**
+ * Sentinel for the pairing pass. `diffKeyedRows` reports a matched pair only
+ * when its `changedColumns` are non-empty, but an *unchanged* stage can still
+ * own a changed supply, so the caller needs every pair back and computes the
+ * real patch itself with {@link diffColumns}.
+ */
+const PAIRED = { paired: true } as const;
+
+/** `undefined` and `null` are the same absent value once a row is stored. */
+const orNull = (value: unknown): unknown => value ?? null;
+
+/** float8/int columns can arrive as strings depending on the driver path. */
+const toNumber = (value: unknown, fallback: number | null): number | null => {
+  if (value === undefined || value === null) return fallback;
+  const parsed = typeof value === "number" ? value : parseFloat(String(value));
+  return Number.isNaN(parsed) ? fallback : parsed;
+};
+
+/** Columns whose stored value differs from the desired one; `{}` ⇒ nothing to do. */
+const diffColumns = (
+  desired: Record<string, unknown>,
+  stored: Record<string, unknown>,
+): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(desired).filter(
+      ([column, value]) => value !== stored[column],
+    ),
+  );
+
+const stageColumns = (target: DesiredStage): Record<string, unknown> => ({
+  number: target.number,
+  description: orNull(target.stage.description),
+  isCorrugation: orNull(target.stage.isCorrugation),
+  setupTimeMinutes: toNumber(target.stage.setupTimeMinutes, 0),
+  machineTypeId: toNumber(target.stage.machineTypeId, null),
+});
+
+const storedStageColumns = (row: any): Record<string, unknown> => ({
+  number: toNumber(row.number, null),
+  description: orNull(row.description),
+  isCorrugation: orNull(row.isCorrugation),
+  setupTimeMinutes: toNumber(row.setupTimeMinutes, 0),
+  machineTypeId: toNumber(row.machineTypeId, null),
+});
+
+const machineKey = (stageId: number, machineId: unknown): string =>
+  `${stageId}:${machineId}`;
+
+const machineColumns = (machine: IStageMachine): Record<string, unknown> => ({
+  isPrimary: machine.isPrimary ?? true,
+});
+
+const storedMachineColumns = (row: any): Record<string, unknown> => ({
+  isPrimary: row.isPrimary,
+});
+
+const supplyColumns = (target: DesiredSupply): Record<string, unknown> => ({
+  position: target.position,
+  direction: target.supply.direction,
+  supplyType: target.supply.supplyType,
+  supplyId: toNumber(target.supply.supplyId, null),
+  quantity: toNumber(target.supply.quantity, null),
+  quantityType: orNull(target.supply.quantityType),
+  repetitionsWidth: toNumber(target.supply.repetitionsWidth, 1.0),
+  repetitionsLength: toNumber(target.supply.repetitionsLength, 1.0),
+  allowsSimilar: target.supply.allowsSimilar ?? false,
+  notes: orNull(target.supply.notes),
+});
+
+const storedSupplyColumns = (row: any): Record<string, unknown> => ({
+  position: toNumber(row.position, null),
+  direction: row.direction,
+  supplyType: row.supplyType,
+  supplyId: toNumber(row.supplyId, null),
+  quantity: toNumber(row.quantity, null),
+  quantityType: orNull(row.quantityType),
+  repetitionsWidth: toNumber(row.repetitionsWidth, 1.0),
+  repetitionsLength: toNumber(row.repetitionsLength, 1.0),
+  allowsSimilar: row.allowsSimilar ?? false,
+  notes: orNull(row.notes),
+});
 
 export class ProductionRouteDAO {
   private tableName = "production_routes";
@@ -103,11 +200,268 @@ export class ProductionRouteDAO {
       await trx(this.tableName).where("id", id).update(updateData);
 
       if (item.stages !== undefined) {
-        await trx("production_route_stages").where("routeId", id).delete();
-        await this.insertStages(trx, id, item.stages);
+        await this.syncStages(trx, id, item.stages);
       }
     });
     return this.getByUuid(existing.uuid);
+  }
+
+  // ── Stage-tree upsert (audit P1b) ─────────────────────────────────────────
+
+  /**
+   * Reconcile the stored stage tree with `stages` instead of deleting and
+   * re-inserting it. Survivors keep their `id` and their `uuid`, so an
+   * identical payload writes nothing and a later row-level audit trigger
+   * records the column the user actually edited instead of a full rewrite.
+   *
+   * The statement order is mandatory, not stylistic:
+   *  (i)   DELETE the stages no incoming row claimed. Their machines and
+   *        supplies ride `ON DELETE CASCADE` — never delete those explicitly
+   *        (L-006); it doubles the very ledger rows this exists to shrink.
+   *  (ii)  If any survivor has to move, negate `number` for all movers in one
+   *        bulk UPDATE. `UNIQUE("routeId", "number")` is non-deferrable, so the
+   *        range must be vacated first; negatives are always free because real
+   *        numbers are 1..N.
+   *  (iii) Per-row UPDATE with the final `number` plus whatever else changed.
+   *  (iv)  INSERT the new stages, each with a server-generated `uuidv4()`.
+   *  (v)   Recurse into machines, then supplies.
+   *
+   * A client uuid is an identity *reference*: one that matches no stored stage
+   * is a brand-new row and gets a fresh server uuid, never the client's value.
+   * When the payload carries no uuids at all (today's web app) `diffKeyedRows`
+   * falls back to array ordinals against the `number`-ordered read.
+   */
+  private async syncStages(
+    trx: any,
+    routeId: number,
+    stages: IRouteStage[],
+  ): Promise<void> {
+    // Array order is the stage order (Procusto renumber semantics), exactly as
+    // in insertStages — `number` is derived here, never trusted from input.
+    const desired: DesiredStage[] = stages.map((stage, index) => ({
+      stage,
+      number: index + 1,
+    }));
+    const existing = await trx("production_route_stages")
+      .where("routeId", routeId)
+      .orderBy("number", "asc");
+
+    const paired = diffKeyedRows<DesiredStage, any>(desired, existing, {
+      keyOfIncoming: (target) => target.stage.uuid,
+      keyOfExisting: (row) => row.uuid,
+      changedColumns: () => PAIRED,
+    });
+    const matches = paired.updates.map((pair) => ({
+      target: pair.incoming,
+      row: pair.existing,
+      changes: diffColumns(
+        stageColumns(pair.incoming),
+        storedStageColumns(pair.existing),
+      ),
+    }));
+
+    // (i) removed stages — machines and supplies cascade (L-006).
+    if (paired.deletes.length) {
+      await trx("production_route_stages")
+        .whereIn(
+          "id",
+          paired.deletes.map((row: any) => row.id),
+        )
+        .delete();
+    }
+
+    // (ii) vacate the number range for every mover, in one statement.
+    const movers = matches
+      .filter((match) => match.changes.number !== undefined)
+      .map((match) => match.row.id);
+    if (movers.length) {
+      await trx("production_route_stages")
+        .where("routeId", routeId)
+        .whereIn("id", movers)
+        .update({ number: trx.raw('-"number"') });
+    }
+
+    // (iii) survivors: only the columns that differ, plus updatedAt — which is
+    // never a change on its own, or every save manufactures an audit row.
+    for (const match of matches) {
+      if (!Object.keys(match.changes).length) continue;
+      await trx("production_route_stages")
+        .where("id", match.row.id)
+        .update({ ...match.changes, updatedAt: trx.fn.now() });
+    }
+
+    // (iv) new stages.
+    const created: Array<{ stageId: number; target: DesiredStage }> = [];
+    for (const insert of paired.inserts) {
+      const [row] = await trx("production_route_stages")
+        .insert({
+          uuid: uuidv4(),
+          routeId,
+          ...stageColumns(insert.incoming),
+        })
+        .returning("id");
+      created.push({ stageId: row.id ?? row, target: insert.incoming });
+    }
+
+    // (v) children. Read both child tables once for the survivors; the stages
+    // just inserted have none by construction.
+    const survivorIds = matches.map((match) => match.row.id);
+    const existingMachines = survivorIds.length
+      ? await trx("production_route_stage_machines").whereIn(
+          "stageId",
+          survivorIds,
+        )
+      : [];
+    const existingSupplies = survivorIds.length
+      ? await trx("production_route_stage_supplies")
+          .whereIn("stageId", survivorIds)
+          .orderBy("position", "asc")
+      : [];
+    const ofStage = (rows: any[], stageId: number) =>
+      rows.filter((row: any) => row.stageId === stageId);
+
+    for (const match of matches) {
+      await this.syncStageMachines(
+        trx,
+        match.row.id,
+        match.target.stage.machines ?? [],
+        ofStage(existingMachines, match.row.id),
+      );
+      await this.syncStageSupplies(
+        trx,
+        match.row.id,
+        match.target.stage.supplies ?? [],
+        ofStage(existingSupplies, match.row.id),
+      );
+    }
+    for (const stage of created) {
+      await this.syncStageMachines(
+        trx,
+        stage.stageId,
+        stage.target.stage.machines ?? [],
+        [],
+      );
+      await this.syncStageSupplies(
+        trx,
+        stage.stageId,
+        stage.target.stage.supplies ?? [],
+        [],
+      );
+    }
+  }
+
+  /**
+   * `(stageId, machineId)` identity, no uuid and no `updatedAt` on the table.
+   * A keyed diff rather than a plain set because `isPrimary` is updatable —
+   * demoting the primary machine must be one UPDATE, not a delete + insert.
+   * No vacate pass: `UNIQUE("stageId", "machineId")` cannot be hit, since the
+   * inserted keys are by definition the ones no stored row holds.
+   */
+  private async syncStageMachines(
+    trx: any,
+    stageId: number,
+    machines: IStageMachine[],
+    existing: any[],
+  ): Promise<void> {
+    const diff = diffKeyedRows<IStageMachine, any>(machines, existing, {
+      keyOfIncoming: (machine) => machineKey(stageId, machine.machineId),
+      keyOfExisting: (row) => machineKey(stageId, row.machineId),
+      changedColumns: (machine, row) =>
+        diffColumns(machineColumns(machine), storedMachineColumns(row)),
+      // Ordinals are meaningless for a set-valued table: an unkeyed row is new.
+      ordinalFallback: false,
+    });
+
+    if (diff.deletes.length) {
+      await trx("production_route_stage_machines")
+        .whereIn(
+          "id",
+          diff.deletes.map((row: any) => row.id),
+        )
+        .delete();
+    }
+    for (const update of diff.updates) {
+      await trx("production_route_stage_machines")
+        .where("id", update.existing.id)
+        .update(update.changes);
+    }
+    if (diff.inserts.length) {
+      await trx("production_route_stage_machines").insert(
+        diff.inserts.map((insert) => ({
+          stageId,
+          machineId: insert.incoming.machineId,
+          ...machineColumns(insert.incoming),
+        })),
+      );
+    }
+  }
+
+  /**
+   * Same five steps as the stages themselves, vacating `position` instead of
+   * `number`: since T2a the table carries a NOT NULL `position` with a
+   * non-deferrable `UNIQUE("stageId", "position")`. `position` is derived from
+   * the array index inside the stage and is never accepted from a client. The
+   * table has no `updatedAt`, so a survivor's UPDATE carries only real columns.
+   */
+  private async syncStageSupplies(
+    trx: any,
+    stageId: number,
+    supplies: IStageSupply[],
+    existing: any[],
+  ): Promise<void> {
+    const desired: DesiredSupply[] = supplies.map((supply, index) => ({
+      supply,
+      position: index + 1,
+    }));
+
+    const paired = diffKeyedRows<DesiredSupply, any>(desired, existing, {
+      keyOfIncoming: (target) => target.supply.uuid,
+      keyOfExisting: (row) => row.uuid,
+      changedColumns: () => PAIRED,
+    });
+    const matches = paired.updates.map((pair) => ({
+      row: pair.existing,
+      changes: diffColumns(
+        supplyColumns(pair.incoming),
+        storedSupplyColumns(pair.existing),
+      ),
+    }));
+
+    if (paired.deletes.length) {
+      await trx("production_route_stage_supplies")
+        .whereIn(
+          "id",
+          paired.deletes.map((row: any) => row.id),
+        )
+        .delete();
+    }
+
+    const movers = matches
+      .filter((match) => match.changes.position !== undefined)
+      .map((match) => match.row.id);
+    if (movers.length) {
+      await trx("production_route_stage_supplies")
+        .where("stageId", stageId)
+        .whereIn("id", movers)
+        .update({ position: trx.raw('-"position"') });
+    }
+
+    for (const match of matches) {
+      if (!Object.keys(match.changes).length) continue;
+      await trx("production_route_stage_supplies")
+        .where("id", match.row.id)
+        .update(match.changes);
+    }
+
+    if (paired.inserts.length) {
+      await trx("production_route_stage_supplies").insert(
+        paired.inserts.map((insert) => ({
+          uuid: uuidv4(),
+          stageId,
+          ...supplyColumns(insert.incoming),
+        })),
+      );
+    }
   }
 
   /** Single-default invariant (app-level, per spec — not a DB constraint). */
@@ -117,7 +471,10 @@ export class ProductionRouteDAO {
       .update({ isDefault: false, updatedAt: trx.fn.now() });
   }
 
-  /** Stages renumbered 1..N by array order (Procusto renumber semantics). */
+  /**
+   * Stages renumbered 1..N by array order (Procusto renumber semantics);
+   * each stage's supplies get `position` 1..N the same way.
+   */
   private async insertStages(
     trx: any,
     routeId: number,
@@ -148,9 +505,11 @@ export class ProductionRouteDAO {
       }
       if (stage.supplies?.length) {
         await trx("production_route_stage_supplies").insert(
-          stage.supplies.map((s) => ({
+          stage.supplies.map((s, supplyIndex) => ({
             uuid: uuidv4(),
             stageId,
+            // NOT NULL since 20260831000001; array order is the display order.
+            position: supplyIndex + 1,
             direction: s.direction,
             supplyType: s.supplyType,
             supplyId: s.supplyId,
@@ -214,7 +573,7 @@ export class ProductionRouteDAO {
       .whereIn("sm.stageId", stageIds);
     const supplies = await knex("production_route_stage_supplies")
       .whereIn("stageId", stageIds)
-      .orderBy("id", "asc");
+      .orderBy("position", "asc");
 
     // Batch-resolve supply display objects per type.
     const supplyRefs = new Map<
@@ -347,10 +706,9 @@ export class ProductionRouteDAO {
         )
       : [];
     const supplies = stageIds.length
-      ? await knex("production_route_stage_supplies").whereIn(
-          "stageId",
-          stageIds,
-        )
+      ? await knex("production_route_stage_supplies")
+          .whereIn("stageId", stageIds)
+          .orderBy("position", "asc")
       : [];
     return stages.map((stage: any) => ({
       number: stage.number,
