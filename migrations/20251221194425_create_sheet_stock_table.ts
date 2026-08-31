@@ -60,10 +60,10 @@ export async function up(knex: Knex): Promise<void> {
 
   // Rename timestamps to camelCase
   await knex.schema.raw(
-    'ALTER TABLE sheet_stock RENAME COLUMN created_at TO "createdAt"'
+    'ALTER TABLE sheet_stock RENAME COLUMN created_at TO "createdAt"',
   );
   await knex.schema.raw(
-    'ALTER TABLE sheet_stock RENAME COLUMN updated_at TO "updatedAt"'
+    'ALTER TABLE sheet_stock RENAME COLUMN updated_at TO "updatedAt"',
   );
 }
 

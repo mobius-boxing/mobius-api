@@ -149,9 +149,11 @@ export class ConsumableStockController extends BaseCrudController<IConsumableSto
   ): Promise<any | null> {
     const updateData: Partial<IConsumableStock> = {};
 
-    if (inputDTO.comments !== undefined) updateData.comments = inputDTO.comments;
+    if (inputDTO.comments !== undefined)
+      updateData.comments = inputDTO.comments;
     if (inputDTO.price !== undefined) updateData.price = inputDTO.price;
-    if (inputDTO.quantity !== undefined) updateData.quantity = inputDTO.quantity;
+    if (inputDTO.quantity !== undefined)
+      updateData.quantity = inputDTO.quantity;
 
     if (inputDTO.warehouseUuid !== undefined) {
       const warehouseId = await this._warehouseDAO.getIdByUuid(
@@ -183,9 +185,10 @@ export class ConsumableStockController extends BaseCrudController<IConsumableSto
       if (inputDTO.warehouseLocationUuid === "") {
         updateData.warehouseLocationId = undefined;
       } else {
-        const warehouseLocationId = await this._warehouseLocationDAO.getIdByUuid(
-          inputDTO.warehouseLocationUuid,
-        );
+        const warehouseLocationId =
+          await this._warehouseLocationDAO.getIdByUuid(
+            inputDTO.warehouseLocationUuid,
+          );
         if (!warehouseLocationId) {
           res
             .status(400)

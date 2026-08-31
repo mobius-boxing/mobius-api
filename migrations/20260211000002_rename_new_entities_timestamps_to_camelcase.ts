@@ -1,11 +1,6 @@
 import type { Knex } from "knex";
 
-const tables = [
-  "glue_types",
-  "strapping_types",
-  "complements",
-  "trace_types",
-];
+const tables = ["glue_types", "strapping_types", "complements", "trace_types"];
 
 export async function up(knex: Knex): Promise<void> {
   for (const tableName of tables) {

@@ -145,9 +145,11 @@ export class ToolingStockController extends BaseCrudController<IToolingStock> {
   ): Promise<any | null> {
     const updateData: Partial<IToolingStock> = {};
 
-    if (inputDTO.comments !== undefined) updateData.comments = inputDTO.comments;
+    if (inputDTO.comments !== undefined)
+      updateData.comments = inputDTO.comments;
     if (inputDTO.price !== undefined) updateData.price = inputDTO.price;
-    if (inputDTO.quantity !== undefined) updateData.quantity = inputDTO.quantity;
+    if (inputDTO.quantity !== undefined)
+      updateData.quantity = inputDTO.quantity;
 
     if (inputDTO.warehouseUuid !== undefined) {
       const warehouseId = await this._warehouseDAO.getIdByUuid(
@@ -163,7 +165,9 @@ export class ToolingStockController extends BaseCrudController<IToolingStock> {
     }
 
     if (inputDTO.toolingUuid !== undefined) {
-      const toolingId = await this._toolingDAO.getIdByUuid(inputDTO.toolingUuid);
+      const toolingId = await this._toolingDAO.getIdByUuid(
+        inputDTO.toolingUuid,
+      );
       if (!toolingId) {
         res.status(400).json({ success: false, message: "Tooling not found" });
         return null;
@@ -175,9 +179,10 @@ export class ToolingStockController extends BaseCrudController<IToolingStock> {
       if (inputDTO.warehouseLocationUuid === "") {
         updateData.warehouseLocationId = undefined;
       } else {
-        const warehouseLocationId = await this._warehouseLocationDAO.getIdByUuid(
-          inputDTO.warehouseLocationUuid,
-        );
+        const warehouseLocationId =
+          await this._warehouseLocationDAO.getIdByUuid(
+            inputDTO.warehouseLocationUuid,
+          );
         if (!warehouseLocationId) {
           res
             .status(400)

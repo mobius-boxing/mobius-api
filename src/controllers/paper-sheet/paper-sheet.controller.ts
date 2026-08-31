@@ -21,10 +21,7 @@ export class PaperSheetController extends BaseCrudController<IPaperSheet> {
     fkCatchOnDelete: true,
   };
 
-  private async resolveForeignKeys(
-    data: any,
-    res: Response,
-  ): Promise<boolean> {
+  private async resolveForeignKeys(data: any, res: Response): Promise<boolean> {
     if (data.supplierId && typeof data.supplierId === "string") {
       const supplierDAO = new SupplierDAO();
       const id = await supplierDAO.getIdByUuid(data.supplierId);

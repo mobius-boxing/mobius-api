@@ -1,5 +1,9 @@
 import { validate, validateList } from "../../../services/formula-engine";
 import { IModelTextOnImage } from "../../../interfaces/model/model.interfaces";
+import {
+  collect,
+  FieldValidationError,
+} from "../shared/ValidationError";
 
 /**
  * Model DTOs — module 08. Every formula field is design-time validated
@@ -83,23 +87,32 @@ export class ModelCreateInputDTO {
       const formula = self[key];
       if (formula === undefined || formula === null) continue;
       if (typeof formula !== "string") {
-        throw new Error(`${key} must be a formula string`);
+        throw new FieldValidationError(
+          key,
+          `${key} must be a formula string`,
+        );
       }
       const result = validate(formula);
       if (!result.ok) {
-        throw new Error(`${key}: ${result.error}`);
+        throw new FieldValidationError(key, `${key}: ${result.error}`);
       }
     }
     for (const key of MODEL_LIST_FORMULA_FIELDS) {
       const text = self[key];
       if (text === undefined || text === null) continue;
       if (typeof text !== "string") {
-        throw new Error(`${key} must be a pipe-separated formula list`);
+        throw new FieldValidationError(
+          key,
+          `${key} must be a pipe-separated formula list`,
+        );
       }
       const result = validateList(text);
       if (!result.ok) {
         const bad = result.segments.find((segment) => !segment.ok);
-        throw new Error(`${key}[${bad?.index ?? 0}]: ${bad?.error}`);
+        throw new FieldValidationError(
+          key,
+          `${key}[${bad?.index ?? 0}]: ${bad?.error}`,
+        );
       }
     }
   }
@@ -107,7 +120,8 @@ export class ModelCreateInputDTO {
   protected validateCodeLength(): void {
     if (this.code === undefined || this.code === null) return;
     if (String(this.code).length > MAX_CODE_LENGTH) {
-      throw new Error(
+      throw new FieldValidationError(
+        "code",
         `Model code cannot be longer than ${MAX_CODE_LENGTH} characters`,
       );
     }
@@ -116,7 +130,10 @@ export class ModelCreateInputDTO {
   protected validateTextsOnImage(): void {
     if (this.textsOnImage === undefined) return;
     if (!Array.isArray(this.textsOnImage)) {
-      throw new Error("textsOnImage must be an array");
+      throw new FieldValidationError(
+        "textsOnImage",
+        "textsOnImage must be an array",
+      );
     }
     for (const entry of this.textsOnImage) {
       if (
@@ -129,43 +146,61 @@ export class ModelCreateInputDTO {
         typeof entry.texto !== "string" ||
         typeof entry.campo !== "string"
       ) {
-        throw new Error(
+        throw new FieldValidationError(
+          "textsOnImage",
           "textsOnImage entries must be {x: number, y: number, texto: string, campo: string}",
         );
       }
     }
   }
 
+  /**
+   * The rules are unchanged — every message below is byte-identical to what
+   * this DTO threw before. What changed is the SHAPE of the failure: these were
+   * bare `Error`s, which the middleware answers with a generic message and no
+   * field, so a form could not put "sheetLengthFormula: unexpected token" on
+   * the input that caused it. Wrapped in `collect`, a model with three broken
+   * formulas now reports all three, each against its own field.
+   */
+  protected validate(required: boolean): void {
+    collect((field) => {
+      // models.code is nullable at the column (future ETL) but the API
+      // requires it (divergence D-2); description is the hard NOT NULL.
+      if (required || this.code !== undefined) {
+        field("code", () => {
+          if (!this.code || !String(this.code).trim()) {
+            throw new FieldValidationError("code", "Model code is required");
+          }
+          return this.code;
+        });
+      }
+      if (required || this.description !== undefined) {
+        field("description", () => {
+          if (!this.description || !String(this.description).trim()) {
+            throw new FieldValidationError(
+              "description",
+              "Model description is required",
+            );
+          }
+          return this.description;
+        });
+      }
+      field("code", () => this.validateCodeLength());
+      // Each formula field reports under its own key from inside.
+      field("formulas", () => this.validateFormulas());
+      field("textsOnImage", () => this.validateTextsOnImage());
+    });
+  }
+
   public build(): this {
-    // models.code is nullable at the column (future ETL) but the API
-    // requires it (divergence D-2); description is the hard NOT NULL.
-    if (!this.code || !String(this.code).trim()) {
-      throw new Error("Model code is required");
-    }
-    if (!this.description || !String(this.description).trim()) {
-      throw new Error("Model description is required");
-    }
-    this.validateCodeLength();
-    this.validateFormulas();
-    this.validateTextsOnImage();
+    this.validate(true);
     return this;
   }
 }
 
 export class ModelUpdateInputDTO extends ModelCreateInputDTO {
   public build(): this {
-    if (this.code !== undefined && (!this.code || !String(this.code).trim())) {
-      throw new Error("Model code cannot be empty");
-    }
-    if (
-      this.description !== undefined &&
-      (!this.description || !String(this.description).trim())
-    ) {
-      throw new Error("Model description cannot be empty");
-    }
-    this.validateCodeLength();
-    this.validateFormulas();
-    this.validateTextsOnImage();
+    this.validate(false);
     const self = this as Record<string, unknown>;
     Object.keys(self).forEach((key) => {
       if (self[key] === undefined) delete self[key];

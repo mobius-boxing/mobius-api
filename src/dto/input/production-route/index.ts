@@ -5,6 +5,11 @@ import {
   StageSupplyType,
 } from "../../../interfaces/production-route/production-route.interfaces";
 import { toNumberInput } from "../../../utils/numbers";
+import { requiredText } from "../shared/fieldValidators";
+import {
+  collect,
+  FieldValidationError,
+} from "../shared/ValidationError";
 
 export interface IStageSupplyInput {
   direction: StageSupplyDirection;
@@ -64,24 +69,63 @@ const sanitizeStages = (stages: any): IStageInput[] | undefined => {
   }));
 };
 
-/** Physically-nonsensical numerics rejected here; V-rules run at save. */
-const validateStages = (stages: IStageInput[] | undefined): void => {
+/**
+ * Physically-nonsensical numerics rejected here; V-rules run at save.
+ *
+ * Same rules and same messages as before — but each failure is now keyed to the
+ * stage and supply it came from (`stages.2.supplies.0.quantity`) instead of a
+ * bare `Error`. A route with eight stages used to answer with one unattributed
+ * sentence; the client can now point at the row.
+ */
+const validateStages = (
+  stages: IStageInput[] | undefined,
+  field: <V>(name: string, fn: () => V) => V,
+): void => {
   if (!stages) return;
-  for (const stage of stages) {
-    if (stage.setupTimeMinutes !== undefined && stage.setupTimeMinutes < 0)
-      throw new Error("Stage setup time must be non-negative");
-    for (const supply of stage.supplies ?? []) {
-      if (supply.quantity !== undefined && supply.quantity < 0)
-        throw new Error("Stage supply quantity must be non-negative");
+  stages.forEach((stage, stageIndex) => {
+    if (stage.setupTimeMinutes !== undefined && stage.setupTimeMinutes < 0) {
+      field(`stages.${stageIndex}.setupTimeMinutes`, () => {
+        throw new FieldValidationError(
+          `stages.${stageIndex}.setupTimeMinutes`,
+          "Stage setup time must be non-negative",
+        );
+      });
+    }
+    (stage.supplies ?? []).forEach((supply, supplyIndex) => {
+      const at = `stages.${stageIndex}.supplies.${supplyIndex}`;
+      if (supply.quantity !== undefined && supply.quantity < 0) {
+        field(`${at}.quantity`, () => {
+          throw new FieldValidationError(
+            `${at}.quantity`,
+            "Stage supply quantity must be non-negative",
+          );
+        });
+      }
       if (
         (supply.repetitionsWidth !== undefined && supply.repetitionsWidth < 0) ||
         (supply.repetitionsLength !== undefined && supply.repetitionsLength < 0)
-      )
-        throw new Error("Stage supply repetitions must be non-negative");
-      if (!supply.supplyUuid) throw new Error("Stage supply must reference a supply");
-    }
-  }
+      ) {
+        field(`${at}.repetitions`, () => {
+          throw new FieldValidationError(
+            `${at}.repetitions`,
+            "Stage supply repetitions must be non-negative",
+          );
+        });
+      }
+      if (!supply.supplyUuid) {
+        field(`${at}.supplyUuid`, () => {
+          throw new FieldValidationError(
+            `${at}.supplyUuid`,
+            "Stage supply must reference a supply",
+          );
+        });
+      }
+    });
+  });
 };
+
+/** `production_routes.name` is varchar(400) NOT NULL on the live schema. */
+const ROUTE_NAME_MAX = 400;
 
 export class ProductionRouteCreateInputDTO {
   name!: string;
@@ -99,12 +143,21 @@ export class ProductionRouteCreateInputDTO {
     if (stages !== undefined) this.stages = stages;
   }
 
+  protected validate(required: boolean): void {
+    collect((field) => {
+      // V1 (name required) is also a save-time Critico, but reject the obvious
+      // case up front — inputValidator itself checks nothing.
+      if (required || this.name !== undefined) {
+        this.name = field("name", () =>
+          requiredText(this.name, ROUTE_NAME_MAX, "El nombre"),
+        );
+      }
+      validateStages(this.stages, field);
+    });
+  }
+
   public build(): this {
-    // V1 (name required) is also a save-time Critico, but reject the obvious
-    // case up front — inputValidator itself checks nothing.
-    if (!this.name || !String(this.name).trim())
-      throw new Error("Route name is required");
-    validateStages(this.stages);
+    this.validate(true);
     return this;
   }
 }
@@ -116,9 +169,7 @@ export class ProductionRouteUpdateInputDTO extends ProductionRouteCreateInputDTO
   }
 
   public build(): this {
-    if (this.name !== undefined && !String(this.name).trim())
-      throw new Error("Route name cannot be empty");
-    validateStages(this.stages);
+    this.validate(false);
     const self = this as Record<string, unknown>;
     Object.keys(self).forEach((key) => {
       if (self[key] === undefined) delete self[key];
