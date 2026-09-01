@@ -20,13 +20,13 @@ import { getCompanyFilterUuid } from "../../utils/companyScope";
 export class PaperSupplyController implements IBaseController {
   private _audit = new AuditService();
 
-  /** Best-effort audit hook (audit_logs) — fire-and-forget. */
-  private recordAudit(
+  /** Best-effort audit hook (audit_logs) — awaited; AuditService swallows its own errors. */
+  private async recordAudit(
     req: any,
     op: "Alta" | "Baja" | "Modificacion",
     entity: any,
-  ): void {
-    void this._audit.record(req, "Paper supply", op, entity ?? null);
+  ): Promise<void> {
+    await this._audit.record(req, "Paper supply", op, entity ?? null);
   }
 
   private _paperSupplyDAO: PaperSupplyDAO = new PaperSupplyDAO();
@@ -215,7 +215,7 @@ export class PaperSupplyController implements IBaseController {
 
       const result = await this._paperSupplyDAO.create(dataToCreate);
 
-      this.recordAudit(req, "Alta", result);
+      await this.recordAudit(req, "Alta", result);
 
       res.status(201).json({
         success: true,
@@ -317,7 +317,7 @@ export class PaperSupplyController implements IBaseController {
 
       const result = await this._paperSupplyDAO.update(existingId, inputDTO);
 
-      this.recordAudit(req, "Modificacion", result);
+      await this.recordAudit(req, "Modificacion", result);
 
       res.status(200).json({
         success: true,
@@ -355,7 +355,11 @@ export class PaperSupplyController implements IBaseController {
       const result = await this._paperSupplyDAO.delete(existingId);
 
       if (result)
-        this.recordAudit(req, "Baja", existing ?? { uuid: req.params.uuid });
+        await this.recordAudit(
+          req,
+          "Baja",
+          existing ?? { uuid: req.params.uuid },
+        );
 
       if (result) {
         res.status(200).json({

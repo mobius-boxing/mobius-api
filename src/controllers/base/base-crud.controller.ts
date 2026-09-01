@@ -46,14 +46,14 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
 
   private static auditService = new AuditService();
 
-  /** Best-effort audit record — fire-and-forget, never blocks the response. */
-  protected recordAudit(
+  /** Best-effort audit record — awaited; AuditService swallows its own errors. */
+  protected async recordAudit(
     req: Request,
     operation: "Alta" | "Baja" | "Modificacion",
     entity: Record<string, any> | null,
-  ): void {
+  ): Promise<void> {
     if (this.options.audit === false) return;
-    void BaseCrudController.auditService.record(
+    await BaseCrudController.auditService.record(
       req,
       this.options.entityLabel,
       operation,
@@ -226,7 +226,7 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
 
       const result = await this.dao.create(dataToCreate as TEntity);
 
-      this.recordAudit(req, "Alta", result as Record<string, any>);
+      await this.recordAudit(req, "Alta", result as Record<string, any>);
 
       res.status(201).json({
         success: true,
@@ -261,7 +261,11 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
 
       const result = await this.dao.update(existingId, payload);
 
-      this.recordAudit(req, "Modificacion", result as Record<string, any> | null);
+      await this.recordAudit(
+        req,
+        "Modificacion",
+        result as Record<string, any> | null,
+      );
 
       res.status(200).json({
         success: true,
@@ -298,7 +302,11 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
       const result = await this.dao.delete(existingId);
 
       if (result) {
-        this.recordAudit(req, "Baja", (existing as Record<string, any>) ?? { uuid });
+        await this.recordAudit(
+          req,
+          "Baja",
+          (existing as Record<string, any>) ?? { uuid },
+        );
         res.status(200).json({
           success: true,
           message: `${this.options.entityLabel} deleted successfully`,

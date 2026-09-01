@@ -11,6 +11,7 @@ import {
 } from "./common/config/origins/origins.config";
 import { globalRateLimiter } from "./middlewares/rate-limit.middleware";
 import { sanitizeResponse } from "./middlewares/sanitize-response.middleware";
+import { auditContext } from "./middlewares/audit-context.middleware";
 dotenv.config();
 
 // SECURITY (H4): fail fast if the CORS allowlist is missing in production.
@@ -49,10 +50,14 @@ app.use(
     // plain <a href>, so the SPA reads the server-chosen filename and the
     // truncation flag off the response — without this they are silently
     // invisible and the download lands with a guessed name.
+    // `X-Request-Id` (audit P1) identifies the request in the audit trail and in
+    // the API log; without it here the browser cannot read it off the response,
+    // so a support conversation has no id to quote.
     exposedHeaders: [
       "Content-Disposition",
       "X-Export-Rows",
       "X-Export-Truncated",
+      "X-Request-Id",
     ],
   }),
 );
@@ -66,6 +71,14 @@ app.use(globalRateLimiter);
 
 // SECURITY (M3): strip internal numeric ids (PK `id` + numeric `*Id` FKs) from every response.
 app.use(sanitizeResponse);
+
+// AUDIT (P1): opens the per-request audit state and, for a mutating request,
+// commits or rolls back everything it opened before the response is written.
+// Position is load-bearing: AFTER `sanitizeResponse` (which wraps `res.json`,
+// while this wraps `res.end` — the two never see each other) and BEFORE the
+// routers, so every route is covered and `X-Request-Id` is on every response.
+// Kill switch: `AUDIT_AMBIENT_TX=off`.
+app.use(auditContext);
 
 const indexRouter = new IndexRouter().router;
 app.use("/api", indexRouter);

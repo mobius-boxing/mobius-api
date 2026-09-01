@@ -49,3 +49,5 @@ export {
   clearAllRateLimits,
   getRateLimitStatus,
 } from "./rate-limit.middleware";
+
+export { auditContext, detachAudit } from "./audit-context.middleware";

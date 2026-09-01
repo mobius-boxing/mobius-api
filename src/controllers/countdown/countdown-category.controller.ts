@@ -96,7 +96,7 @@ export class CountdownCategoryController {
         input.name,
       );
 
-      void this._audit.record(req, "CountdownCategory", "Alta", {
+      await this._audit.record(req, "CountdownCategory", "Alta", {
         uuid: category.uuid,
         name: category.name,
         companyId,
@@ -123,7 +123,7 @@ export class CountdownCategoryController {
         input.name,
       );
 
-      void this._audit.record(req, "CountdownCategory", "Modificacion", {
+      await this._audit.record(req, "CountdownCategory", "Modificacion", {
         uuid: category.uuid,
         name: category.name,
         companyId,
@@ -145,7 +145,7 @@ export class CountdownCategoryController {
 
       const removed = await this._service.remove(companyId, req.params.uuid);
 
-      void this._audit.record(req, "CountdownCategory", "Baja", {
+      await this._audit.record(req, "CountdownCategory", "Baja", {
         uuid: removed.uuid,
         name: removed.name,
         companyId,
@@ -175,7 +175,7 @@ export class CountdownCategoryController {
         input.name,
       );
 
-      void this._audit.record(req, "CountdownCategory", "Alta", {
+      await this._audit.record(req, "CountdownCategory", "Alta", {
         uuid: subcategoryUuid,
         name: input.name,
         companyId,
@@ -202,7 +202,7 @@ export class CountdownCategoryController {
         input.name,
       );
 
-      void this._audit.record(req, "CountdownCategory", "Modificacion", {
+      await this._audit.record(req, "CountdownCategory", "Modificacion", {
         uuid: req.params.uuid,
         name: input.name,
         companyId,
@@ -227,7 +227,7 @@ export class CountdownCategoryController {
         req.params.uuid,
       );
 
-      void this._audit.record(req, "CountdownCategory", "Baja", {
+      await this._audit.record(req, "CountdownCategory", "Baja", {
         uuid: removed.uuid,
         name: removed.name,
         companyId,

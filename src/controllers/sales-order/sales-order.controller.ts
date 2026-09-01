@@ -656,7 +656,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
           .json({ success: false, message: "Sales order not found" });
         return;
       }
-      this.recordAudit(req, "Modificacion", updated);
+      await this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -707,7 +707,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
         action as FulfillmentAction,
         req.user?.email ?? "unknown",
       );
-      this.respondLifecycle(req, res, outcome);
+      await this.respondLifecycle(req, res, outcome);
     } catch (err: any) {
       next(err);
     }
@@ -780,7 +780,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
         req.user?.email ?? "unknown",
         body.includeProductionOrders === true,
       );
-      this.respondLifecycle(req, res, outcome);
+      await this.respondLifecycle(req, res, outcome);
     } catch (err: any) {
       next(err);
     }
@@ -803,11 +803,11 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
    * pedido was deleted between the uuid→id resolution and the locked re-read,
    * so nothing was stamped and the response must not be a 200 `{data: null}`.
    */
-  private respondLifecycle(
+  private async respondLifecycle(
     req: Request,
     res: Response,
     outcome: ILifecycleOutcome,
-  ): void {
+  ): Promise<void> {
     if (outcome.missing) {
       this.sendLifecycleNotFound(res);
       return;
@@ -820,7 +820,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
       return;
     }
     if (outcome.changed) {
-      this.recordAudit(req, "Modificacion", outcome.order);
+      await this.recordAudit(req, "Modificacion", outcome.order);
     }
     res.status(200).json({
       success: true,

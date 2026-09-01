@@ -45,13 +45,13 @@ export class CountdownDocumentController {
 
   // ---- helpers ----------------------------------------------------------
 
-  /** Best-effort audit hook (audit_logs) — fire-and-forget, never blocks. */
-  private recordAudit(
+  /** Best-effort audit hook (audit_logs) — awaited; AuditService swallows its own errors. */
+  private async recordAudit(
     req: Request,
     operation: "Alta" | "Modificacion" | "Baja",
     entity: ICountdownDocument | null,
-  ): void {
-    void this._audit.record(
+  ): Promise<void> {
+    await this._audit.record(
       req,
       "CountdownDocument",
       operation,
@@ -290,7 +290,7 @@ export class CountdownDocumentController {
       // Host rule: the uuid is minted here, never by the client (the column's DB
       // default is only a backstop).
       const data = await this._service.create(uuidv4(), inputDTO, context.ctx);
-      this.recordAudit(req, "Alta", data);
+      await this.recordAudit(req, "Alta", data);
       res.status(201).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -323,7 +323,7 @@ export class CountdownDocumentController {
         inputDTO,
         context.ctx,
       );
-      this.recordAudit(req, "Modificacion", data);
+      await this.recordAudit(req, "Modificacion", data);
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -357,7 +357,7 @@ export class CountdownDocumentController {
         inputDTO,
         context.ctx,
       );
-      this.recordAudit(req, "Modificacion", data);
+      await this.recordAudit(req, "Modificacion", data);
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -394,8 +394,8 @@ export class CountdownDocumentController {
         uuidv4(),
         context.ctx,
       );
-      this.recordAudit(req, "Modificacion", result.document);
-      if (result.renewed) this.recordAudit(req, "Alta", result.renewed);
+      await this.recordAudit(req, "Modificacion", result.document);
+      if (result.renewed) await this.recordAudit(req, "Alta", result.renewed);
       res.status(200).json({ success: true, data: result });
     } catch (err) {
       this.fail(req, next, err);
@@ -414,7 +414,7 @@ export class CountdownDocumentController {
         return next(new Error(context.message));
       }
       const removed = await this._service.remove(req.params.uuid, context.ctx);
-      this.recordAudit(req, "Baja", removed);
+      await this.recordAudit(req, "Baja", removed);
       res
         .status(200)
         .json({ success: true, message: "Documento eliminado correctamente" });

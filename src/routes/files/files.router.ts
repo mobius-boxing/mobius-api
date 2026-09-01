@@ -1,6 +1,9 @@
 import { Router } from "express";
 import multer from "multer";
-import { FileController, MAX_FILE_SIZE_BYTES } from "../../controllers/file/file.controller";
+import {
+  FileController,
+  MAX_FILE_SIZE_BYTES,
+} from "../../controllers/file/file.controller";
 import {
   authenticate,
   requireAdmin,
@@ -9,6 +12,7 @@ import {
   apiRateLimiter,
   sensitiveRateLimiter,
 } from "../../middlewares";
+import { detachAudit } from "../../middlewares/audit-context.middleware";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -35,6 +39,10 @@ export class FilesRouter {
     this.router.post(
       "/",
       authenticate,
+      // AUDIT (P1): the upload streams the bytes to S3 inside the request. A
+      // pooled Postgres connection may not be held across that round trip
+      // (risk R1), so this route stays on autocommit.
+      detachAudit,
       apiRateLimiter,
       upload.single("file"),
       this.controller.upload.bind(this.controller),
@@ -56,6 +64,9 @@ export class FilesRouter {
     this.router.post(
       "/:uuid/copy",
       authenticate,
+      // AUDIT (P1, ruling D2): `copy` does an S3 `copyObject` — same class as
+      // the upload above, same reason to stay outside the ambient transaction.
+      detachAudit,
       validateUUID(),
       apiRateLimiter,
       this.controller.copy.bind(this.controller),

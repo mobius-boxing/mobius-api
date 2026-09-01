@@ -11,6 +11,7 @@ import {
   apiRateLimiter,
   sensitiveRateLimiter,
 } from "../../middlewares";
+import { detachAudit } from "../../middlewares/audit-context.middleware";
 
 /**
  * Memory storage: the bytes go straight to the storage driver and are never
@@ -145,6 +146,10 @@ export class NodeFilesRouter {
     this.router.post(
       "/workflows/:uuid/documents",
       authenticate,
+      // AUDIT (P1): the upload pushes the document to the storage driver inside
+      // the request. Holding a pooled Postgres connection across that round trip
+      // is risk R1, so this route stays on autocommit.
+      detachAudit,
       gate,
       validateUUID(),
       apiRateLimiter,

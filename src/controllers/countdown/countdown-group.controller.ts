@@ -90,7 +90,7 @@ export class CountdownGroupController {
       );
       const group = await this._service.create(companyId, uuidv4(), input.name);
 
-      void this._audit.record(req, "CountdownGroup", "Alta", {
+      await this._audit.record(req, "CountdownGroup", "Alta", {
         uuid: group.uuid,
         name: group.name,
         companyId,
@@ -119,7 +119,7 @@ export class CountdownGroupController {
         input.name,
       );
 
-      void this._audit.record(req, "CountdownGroup", "Modificacion", {
+      await this._audit.record(req, "CountdownGroup", "Modificacion", {
         uuid: group.uuid,
         name: group.name,
         companyId,
@@ -149,7 +149,7 @@ export class CountdownGroupController {
         input.members,
       );
 
-      void this._audit.record(req, "CountdownGroup", "Modificacion", {
+      await this._audit.record(req, "CountdownGroup", "Modificacion", {
         uuid: group.uuid,
         name: group.name,
         companyId,
@@ -172,7 +172,7 @@ export class CountdownGroupController {
 
       const removed = await this._service.remove(companyId, req.params.uuid);
 
-      void this._audit.record(req, "CountdownGroup", "Baja", {
+      await this._audit.record(req, "CountdownGroup", "Baja", {
         uuid: removed.uuid,
         name: removed.name,
         companyId,

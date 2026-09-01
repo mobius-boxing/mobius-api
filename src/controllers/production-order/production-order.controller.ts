@@ -528,7 +528,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
       });
 
       if (outcome.ok) {
-        this.recordAudit(req, "Alta", {
+        await this.recordAudit(req, "Alta", {
           generated: outcome.generated.length,
           salesOrderUuid: inputDTO.salesOrderUuid,
         });
@@ -691,30 +691,32 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
         const updated = row
           ? await this.dao.getByUuid(row.uuid, companyUuid)
           : null;
-        // EVERYTHING below the commit is best-effort. The transition is already
-        // durable, so a failure here must not turn committed work into a 500:
-        // the client would retry and re-stamp the completion, and the roll-up
-        // would run a second time. Audit is a side record, not the outcome.
-        try {
-          this.recordAudit(req, "Modificacion", updated);
-          // The pedido's own audit row is written AFTER the commit and only when
-          // the roll-up actually stamped it (spec §Audit; the response body is
-          // unchanged either way).
-          if (autoFulfilled.fulfilled && autoFulfilled.salesOrderUuid) {
-            const order = await this.salesOrderDAO.getByUuid(
-              autoFulfilled.salesOrderUuid,
-            );
-            await this.auditService.record(
-              req,
-              "Sales order",
-              "Modificacion",
-              order,
-            );
-          }
-        } catch (auditErr: any) {
-          console.error(
-            "[production-order] post-commit audit failed:",
-            auditErr,
+        // AUDIT (P1, ruling D1): nothing above is durable yet. Under the ambient
+        // request transaction the `this.dao.transaction(...)` block is a
+        // SAVEPOINT, and the real COMMIT happens in the middleware when the
+        // response ends — so these audit writes are part of the same transaction
+        // as the transition itself and must NOT be swallowed. A swallowed
+        // database error leaves the transaction aborted (25P02, §0 rules 4 and
+        // 5); the handler would answer 200 and the commit would then rewrite it
+        // to a 500 COMMIT_FAILED, which is strictly worse than failing here.
+        //
+        // ACCEPTED CONSEQUENCE, decided at the P1 gate: an audit failure now
+        // fails the whole production-order completion — including the path that
+        // auto-fulfils pedidos — instead of being logged and ignored. The
+        // request rolls back cleanly and is retryable. That is the phase working
+        // as designed, not a regression.
+        await this.recordAudit(req, "Modificacion", updated);
+        // The pedido's own audit row is written only when the roll-up actually
+        // stamped it (spec §Audit; the response body is unchanged either way).
+        if (autoFulfilled.fulfilled && autoFulfilled.salesOrderUuid) {
+          const order = await this.salesOrderDAO.getByUuid(
+            autoFulfilled.salesOrderUuid,
+          );
+          await this.auditService.record(
+            req,
+            "Sales order",
+            "Modificacion",
+            order,
           );
         }
         res.status(200).json({ success: true, data: updated });

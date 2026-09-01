@@ -177,14 +177,14 @@ export class NodeFilesController {
     next(err);
   }
 
-  /** Best-effort audit hook (audit_logs) — fire-and-forget, never blocks. */
-  private recordAudit(
+  /** Best-effort audit hook (audit_logs) — awaited; AuditService swallows its own errors. */
+  private async recordAudit(
     req: Request,
     entityName: "NodeFilesWorkflow" | "NodeFilesRun" | "NodeFilesCredential",
     operation: "Alta" | "Modificacion" | "Baja",
     entity: Record<string, unknown> | null,
-  ): void {
-    void this._audit.record(req, entityName, operation, entity);
+  ): Promise<void> {
+    await this._audit.record(req, entityName, operation, entity);
   }
 
   // ---- workflows --------------------------------------------------------
@@ -257,7 +257,7 @@ export class NodeFilesController {
         inputDTO,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesWorkflow", "Alta", { ...data });
+      await this.recordAudit(req, "NodeFilesWorkflow", "Alta", { ...data });
       res.status(201).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -290,7 +290,9 @@ export class NodeFilesController {
         inputDTO,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesWorkflow", "Modificacion", { ...data });
+      await this.recordAudit(req, "NodeFilesWorkflow", "Modificacion", {
+        ...data,
+      });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -312,7 +314,7 @@ export class NodeFilesController {
         req.params.uuid as string,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesWorkflow", "Baja", { ...removed });
+      await this.recordAudit(req, "NodeFilesWorkflow", "Baja", { ...removed });
       res
         .status(200)
         .json({ success: true, message: "Flujo eliminado correctamente" });
@@ -359,7 +361,9 @@ export class NodeFilesController {
         inputDTO.status,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesWorkflow", "Modificacion", { ...data });
+      await this.recordAudit(req, "NodeFilesWorkflow", "Modificacion", {
+        ...data,
+      });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -389,7 +393,9 @@ export class NodeFilesController {
         uuidv4(),
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesRun", "Alta", { ...result.document });
+      await this.recordAudit(req, "NodeFilesRun", "Alta", {
+        ...result.document,
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err) {
       this.fail(req, next, err);
@@ -468,7 +474,7 @@ export class NodeFilesController {
         inputDTO,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
+      await this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -490,7 +496,7 @@ export class NodeFilesController {
         req.params.uuid as string,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
+      await this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -543,7 +549,7 @@ export class NodeFilesController {
         inputDTO,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesCredential", "Alta", { ...data });
+      await this.recordAudit(req, "NodeFilesCredential", "Alta", { ...data });
       res.status(201).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -565,7 +571,9 @@ export class NodeFilesController {
         req.params.uuid as string,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesCredential", "Baja", { ...removed });
+      await this.recordAudit(req, "NodeFilesCredential", "Baja", {
+        ...removed,
+      });
       res
         .status(200)
         .json({ success: true, message: "Credencial eliminada correctamente" });
@@ -589,7 +597,7 @@ export class NodeFilesController {
         req.params.uuid as string,
         context.ctx,
       );
-      this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
+      await this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);

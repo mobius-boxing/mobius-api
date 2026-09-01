@@ -3,6 +3,12 @@ import pg from "pg";
 import { DB_KEYS, DbKey } from "./keys";
 import { connectionFor } from "./env";
 import { DOMAIN_OWNER, ownerOf } from "./ownership";
+import {
+  applyAuditSetting,
+  getAuditState,
+  isAmbientAuditActive,
+  type AuditRequestState,
+} from "./audit-context";
 
 /**
  * Keep PG `DATE` (oid 1082) as the 'YYYY-MM-DD' string it already is.
@@ -215,13 +221,200 @@ const instances = new Map<DbKey, Knex>();
 const facades = new Map<DbKey, Knex>();
 
 /**
+ * The ambient (per-request) transaction facade — audit P1, handbook §P1.3.
+ *
+ * `db(key)` is synchronous and every DAO calls it per method; opening a
+ * transaction is asynchronous. So the request's transaction cannot be handed to
+ * a DAO at `db()` time — instead the builders `db()` hands out **defer binding
+ * to the transaction until they are awaited**. This is the whole design: no DAO
+ * signature changes, and no request holds a pooled connection it has not yet
+ * used. Do not replace it with "open a transaction at request start" (that
+ * spends one connection on all four pools for every mutating request, against
+ * budgets of 12/15/5/5) or with "pass `trx` into every DAO" (the change this
+ * exists to avoid).
+ *
+ * **How it composes with the wrong-database guard.** There are two Proxies, and
+ * the order matters: `ambientFacade` wraps the **guarded** facade, never the raw
+ * instance. Its `apply` trap calls `guarded(...args)`, so `rejectWrongDatabase`
+ * still runs — and still throws — *before* anything is deferred; its `get` trap
+ * reads through the guarded object, so `from`/`table`/`into` keep the guard's
+ * table check and `transaction` keeps `wrapTransaction`. A `WrongDatabaseError`
+ * that stops firing under an armed request is a stop condition, not a
+ * behaviour change (§P1.8). `ensureTrx`, by contrast, opens on the **raw**
+ * instance: `wrapTransaction` re-guards the handle it resolves, so opening
+ * through the guarded facade would guard it twice.
+ *
+ * **Deliberate exemptions**, stated rather than discovered:
+ * - `fn` (61 files reach `knex.fn.now()`) is a non-function member used as a
+ *   *value* inside an update payload and never awaited. It passes straight
+ *   through, unbound: deferring it would put a promise where the column value
+ *   goes and the write would silently store garbage.
+ * - `schema` (`sales-order-lifecycle.dao.ts:136,139`,
+ *   `production-route.dao.ts:655`) also passes through, so `hasTable`/
+ *   `hasColumn` probe on the plain pool, outside the request's transaction.
+ *   Accepted: they are read-only introspection, and DDL-shaped probes have no
+ *   business in a request's write transaction.
+ * - `batchInsert`, `queryBuilder` and `ref` are not bound either. None appears
+ *   anywhere in `src/` (verified); a future `batchInsert` call site would
+ *   execute outside the ambient transaction and must be bound here first.
+ *
+ * **Two assumptions the design rests on.** (1) No DAO caches `db(key)` in a
+ * class field or a module-level const — verified by grep; a cached facade would
+ * be held across requests and bind queries to a finished transaction. (2) knex
+ * query-builder methods mutate and return `this`, so the own `then` installed on
+ * the builder survives the whole chain, and `catch`/`finally` route through it
+ * (`knex/lib/builder-interface-augmenter.js:107`, `util/finally-mixin.js`).
+ */
+const ambientFacades = new WeakMap<AuditRequestState, Map<DbKey, Knex>>();
+
+/**
+ * One transaction per key per request, opened on the first awaited query.
+ *
+ * The **promise** is memoised, never the resolved handle: two builders awaited
+ * concurrently both arrive here before either transaction exists, and memoising
+ * the handle would let both open one — the request would then write through two
+ * transactions, only one of which the middleware commits.
+ */
+const ensureTrx = (
+  instance: Knex,
+  key: DbKey,
+  state: AuditRequestState,
+): Promise<Knex.Transaction> => {
+  const pending = state.trx.get(key);
+  if (pending) return pending;
+  const opening = (async (): Promise<Knex.Transaction> => {
+    // Callback-less: a bare handle the middleware commits or rolls back itself.
+    const trx = await instance.transaction();
+    await applyAuditSetting(trx, state);
+    return trx;
+  })();
+  state.trx.set(key, opening);
+  return opening;
+};
+
+type Fulfilled = ((value: unknown) => unknown) | undefined | null;
+type Rejected = ((reason: unknown) => unknown) | undefined | null;
+
+/** A knex query builder or raw, seen only as "awaitable and bindable". */
+type DeferrableQuery = {
+  then: (onFulfilled?: Fulfilled, onRejected?: Rejected) => unknown;
+  transacting: (trx: Knex.Transaction) => unknown;
+};
+
+/**
+ * Defer binding a builder/raw to the request's transaction until it is awaited.
+ *
+ * Knex builders are thenables whose `then` lives on the prototype; an own `then`
+ * shadows it. `catch`/`finally` delegate to `this.then()`, so they follow.
+ * `transacting()` is idempotent (it re-points `this.client`), so a builder
+ * awaited twice is safe.
+ */
+const bindLazily = <T>(
+  target: T,
+  instance: Knex,
+  key: DbKey,
+  state: AuditRequestState,
+): T => {
+  const query = target as DeferrableQuery;
+  const originalThen = query.then.bind(query);
+  query.then = (onFulfilled?: Fulfilled, onRejected?: Rejected): unknown => {
+    // Read at AWAIT time, not at build time: after the response ended, a late
+    // query must run on the pool rather than on a closed transaction.
+    const bound = state.finished
+      ? Promise.resolve()
+      : ensureTrx(instance, key, state).then((trx) => {
+          query.transacting(trx);
+        });
+    return bound.then(() => originalThen()).then(onFulfilled, onRejected);
+  };
+  return target;
+};
+
+const ambientFacade = (
+  instance: Knex,
+  guarded: Knex,
+  key: DbKey,
+  state: AuditRequestState,
+): Knex =>
+  new Proxy(guarded, {
+    apply(_fn, _thisArg, args: unknown[]) {
+      // `guarded(table)` first: the wrong-database check must still throw, and
+      // must throw synchronously. Only the execution is deferred.
+      return bindLazily(
+        (guarded as unknown as Callable)(...args),
+        instance,
+        key,
+        state,
+      );
+    },
+    get(obj, prop) {
+      if (prop === "transaction") {
+        // A DAO that opens its own transaction (35 sites) becomes a SAVEPOINT on
+        // the request's transaction — knex 3.1 does this natively
+        // (`execution/transaction.js:118,293-295,318`: nested `commit` is
+        // `RELEASE SAVEPOINT`, nested `rollback` is `ROLLBACK TO SAVEPOINT`, so
+        // an inner rollback leaves the outer transaction alive). `wrapTransaction`
+        // guards the handle exactly as it does off the plain facade.
+        return (...args: unknown[]): Promise<unknown> =>
+          ensureTrx(instance, key, state).then((trx) =>
+            wrapTransaction(trx as unknown as Knex, key)(...args),
+          );
+      }
+      if (prop === "raw") {
+        return (...args: unknown[]): unknown =>
+          bindLazily(
+            (Reflect.get(obj, prop) as Callable)(...args),
+            instance,
+            key,
+            state,
+          );
+      }
+      if (typeof prop === "string" && TABLE_NAMING_METHODS.has(prop)) {
+        // Reached through `obj`, so the guard's own table check runs first.
+        return (...args: unknown[]): unknown =>
+          bindLazily(
+            (Reflect.get(obj, prop) as Callable)(...args),
+            instance,
+            key,
+            state,
+          );
+      }
+      // Everything else — `fn`, `schema`, `client`, … — exactly as the guard
+      // hands it out. See the exemptions in the block comment above.
+      return Reflect.get(obj, prop);
+    },
+  });
+
+/**
  * The connection for `key`. Throws before `connectAll()` has resolved, exactly
  * as the single `KnexManager.getConnection()` it replaces did (AC-3).
+ *
+ * Outside an armed mutating request this is byte-for-byte what it always was —
+ * the plain guarded facade, autocommit, no Proxy layer. That is what makes the
+ * facade inert until the middleware (P1 track T3) arms a request.
  */
 export function db(key: DbKey): Knex {
   const facade = facades.get(key);
   if (!facade) throw new DatabaseNotConnectedError(key);
-  return facade;
+  const state = getAuditState();
+  // One question, one home: `isAmbientAuditActive` owns the whole condition
+  // (mutating && armed && !detached && !finished). Re-deriving the flags here
+  // is how one of them goes missing without a test noticing.
+  if (!isAmbientAuditActive(state)) return facade;
+  const instance = instances.get(key);
+  if (!instance) throw new DatabaseNotConnectedError(key);
+
+  let perKey = ambientFacades.get(state);
+  if (!perKey) {
+    perKey = new Map();
+    ambientFacades.set(state, perKey);
+  }
+  let ambient = perKey.get(key);
+  if (!ambient) {
+    ambient = ambientFacade(instance, facade, key, state);
+    perKey.set(key, ambient);
+  }
+  return ambient;
 }
 
 /**

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import * as jwt from "jsonwebtoken";
 import { UserDAO } from "../dao";
 import { CompanyDAO } from "../dao/company/company.dao";
+import { armAudit } from "../database/audit-context";
 
 interface IJWTPayload {
   userId: string;
@@ -111,6 +112,13 @@ export const authenticate = async (
 
     if (!(await rejectMissingTargetCompany(req, res))) return;
 
+    // AUDIT (P1): arm the request here and nowhere earlier. `req.user` is set
+    // and `rejectMissingTargetCompany` has already resolved the superAdmin's
+    // target company, so `armAudit` records the EFFECTIVE tenant (L-009) rather
+    // than the token's own. From this line on, `db(key)` hands a mutating
+    // request the ambient transaction.
+    await armAudit(req);
+
     next();
   } catch (error: any) {
     next(error);
@@ -153,6 +161,13 @@ export const optionalAuth = async (
         companyId: decoded.companyId,
       };
     }
+
+    // AUDIT (P1): same arming as `authenticate`. `optionalAuth` is exported but
+    // mounted on no route today — wired for symmetry so a future route that
+    // adopts it is audited by default rather than silently unarmed. With no
+    // valid token `req.user` is unset and `armAudit` still arms the request,
+    // recording an anonymous actor.
+    await armAudit(req);
 
     next();
   } catch (error: any) {

@@ -1,5 +1,6 @@
 import { Request } from "express";
 import { getIdByUuid } from "../utils/foreignKeyResolver";
+import { getAuditState } from "../database/audit-context";
 import { AuditLogDAO } from "../dao/audit-log/audit-log.dao";
 import {
   AuditOperation,
@@ -34,9 +35,25 @@ export class AuditService {
   ): Promise<void> {
     try {
       const user = (req as any).user;
+      // `armAudit` already resolved this request's user and effective company to
+      // numeric ids and parked them on the ambient state. Re-resolving them here
+      // costs a SECOND pooled connection per audited write — the lookups hit
+      // `core` while the entity's write holds `erp` — which measured as a
+      // high-water of 24 concurrent connections against a core:12/erp:15 budget,
+      // i.e. a ceiling near 13 concurrent audited writes. Reuse them, and keep
+      // the lookups only for callers with no ambient state (jobs, seeds, tests).
+      const actor = getAuditState()?.actor ?? null;
       const [userId, companyId] = await Promise.all([
-        user?.userId ? this.resolveUserId(user.userId) : Promise.resolve(null),
-        this.resolveCompanyId(entity, user?.companyId),
+        actor?.userId != null
+          ? Promise.resolve(actor.userId)
+          : user?.userId
+            ? this.resolveUserId(user.userId)
+            : Promise.resolve(null),
+        this.resolveCompanyId(
+          entity,
+          user?.companyId,
+          actor?.companyId ?? null,
+        ),
       ]);
       const row: IAuditLog = {
         entityName,
@@ -74,9 +91,18 @@ export class AuditService {
   private async resolveCompanyId(
     entity: Record<string, any> | null,
     companyUuid?: string,
+    /**
+     * The EFFECTIVE company `armAudit` already resolved (i.e. `actor.companyId`,
+     * the operated-as company for a superAdmin) — deliberately NOT
+     * `AuditActor.actorCompanyId`, which is the token's own company and would
+     * attribute the write to the wrong tenant.
+     */
+    effectiveCompanyId: number | null = null,
   ): Promise<number | null> {
     const own = entity?.companyId;
     if (typeof own === "number") return own;
+    // Already resolved once per request — preferred over re-resolving the JWT uuid.
+    if (effectiveCompanyId !== null) return effectiveCompanyId;
     if (!companyUuid) return null;
     try {
       return await getIdByUuid(companyUuid, "companies");

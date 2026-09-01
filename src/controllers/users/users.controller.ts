@@ -640,8 +640,12 @@ export class UsersController implements IBaseController {
 
       const result = await this._invitationDAO.create(invitationData);
 
-      // Tradeoff: invitation row is already committed; we swallow email failures so the inviter
-      // sees success and we don't have to roll back. They can resend via UI if the email never arrived.
+      // Tradeoff: we swallow email failures so the inviter sees success — they can resend via UI
+      // if the mail never arrived. Under P1 the invitation row is NOT committed yet (the request's
+      // ambient transaction commits at response end), but swallowing is still correct: an SES
+      // failure is not a database error, so it never aborts the transaction, and the row lands on
+      // the 201. Decision D2 kept this route armed rather than detached, so the invitation is
+      // covered by the request's audit context.
       try {
         let companyName = "Mobius";
         if (targetCompanyId) {

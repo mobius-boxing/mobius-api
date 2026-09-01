@@ -110,7 +110,7 @@ export class RoleController {
         hasAccessToAllMachines: hasAccessToAllMachines ?? true,
         isProtected: false,
       });
-      void this.audit.record(req, "Role", "Alta", role as any);
+      await this.audit.record(req, "Role", "Alta", role as any);
       res.status(201).json({ success: true, data: role });
     } catch (err: any) {
       if (err?.code === "23505") {
@@ -153,7 +153,7 @@ export class RoleController {
       if (hasAccessToAllMachines !== undefined)
         payload.hasAccessToAllMachines = hasAccessToAllMachines;
       const updated = await this.dao.update(existing.id, payload);
-      void this.audit.record(req, "Role", "Modificacion", updated as any);
+      await this.audit.record(req, "Role", "Modificacion", updated as any);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -187,7 +187,7 @@ export class RoleController {
         existing.companyId,
         codes,
       );
-      void this.audit.record(req, "Role", "Modificacion", {
+      await this.audit.record(req, "Role", "Modificacion", {
         ...existing,
         permissionCodes: applied,
       } as any);
@@ -242,7 +242,7 @@ export class RoleController {
       }
 
       await this.dao.assignToUser((user as any).id, roleId);
-      void this.audit.record(req, "User", "Modificacion", {
+      await this.audit.record(req, "User", "Modificacion", {
         uuid: userUuid,
         roleId,
       } as any);
@@ -269,7 +269,7 @@ export class RoleController {
       // No FK can block this: users.roleId is ON DELETE SET NULL (assigned users
       // fall back to the legacy enum) and role_permissions cascades.
       await this.dao.delete(existing.id);
-      void this.audit.record(req, "Role", "Baja", existing as any);
+      await this.audit.record(req, "Role", "Baja", existing as any);
       res.status(200).json({ success: true, message: "Role deleted successfully" });
     } catch (err: any) {
       next(err);

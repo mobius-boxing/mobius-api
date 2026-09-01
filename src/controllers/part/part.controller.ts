@@ -49,8 +49,12 @@ export class PartController {
   private dao = new PartDAO();
   private audit = new AuditService();
 
-  private recordAudit(req: any, op: "Alta" | "Baja" | "Modificacion", entity: any): void {
-    void this.audit.record(req, "Part", op, entity ?? null);
+  private async recordAudit(
+    req: any,
+    op: "Alta" | "Baja" | "Modificacion",
+    entity: any,
+  ): Promise<void> {
+    await this.audit.record(req, "Part", op, entity ?? null);
   }
 
   /** Res-free ref resolution; returns an error message instead of writing the response. */
@@ -208,7 +212,7 @@ export class PartController {
         return;
       }
 
-      this.recordAudit(req, "Alta", outcome.part);
+      await this.recordAudit(req, "Alta", outcome.part);
       res.status(201).json({ success: true, data: outcome.part });
     } catch (err: any) {
       next(err);
@@ -243,7 +247,7 @@ export class PartController {
       delete payload.code; // derived — immutable via update
 
       const updated = await this.dao.update(existingId, payload);
-      this.recordAudit(req, "Modificacion", updated);
+      await this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -260,7 +264,7 @@ export class PartController {
       }
       const deleted = await this.dao.delete(existing.id);
       if (deleted) {
-        this.recordAudit(req, "Baja", existing);
+        await this.recordAudit(req, "Baja", existing);
         res.status(200).json({ success: true, message: "Part deleted successfully" });
       } else {
         res.status(404).json({ success: false, message: "Failed to delete part" });
@@ -303,7 +307,7 @@ export class PartController {
       }
       const username = req.user?.email ?? "unknown";
       const updated = await this.dao.setApproval(existingId, machine, action, username);
-      this.recordAudit(req, "Modificacion", updated);
+      await this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -330,7 +334,7 @@ export class PartController {
           action === "approve"
             ? await this.dao.bulkApprove(ids, username)
             : await this.dao.bulkUnapprove(ids, username);
-        this.recordAudit(req, "Modificacion", { bulk: action, count });
+        await this.recordAudit(req, "Modificacion", { bulk: action, count });
         res.status(200).json({ success: true, data: { updated: count } });
       } catch (err: any) {
         next(err);

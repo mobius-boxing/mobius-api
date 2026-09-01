@@ -161,3 +161,24 @@ Check these on every review; each has already been found at least once.
   payload writes nothing" test red (writeLog counts the empty UPDATE), so the
   guard is real, but it is a second, easy-to-miss place doing the same job
   the shared helper does everywhere else.
+- **A brief's "not modified" file gets modified anyway, correctly, and with zero
+  direct test coverage.** In the audit-P1 request-context diff,
+  `src/services/audit.service.ts` was explicitly listed as "not modified" under
+  its track (T4) yet was rewritten (new id-reuse precedence via
+  `getAuditState()?.actor`) as an ad hoc, undocumented perf follow-up. The logic
+  was correct on manual trace and every relevant unit test mocks
+  `AuditService` wholesale (`jest.mock("../../../services/audit.service", ...)`
+  in every controller test), so the new precedence branch is invisible to
+  `npm test` and to any db-guarded suite. Always grep
+  `jest.mock.*<changed-service>` across `__tests__` before trusting "tests are
+  green" as coverage for a service-level change — a mocked-everywhere service
+  can carry an untested regression through a fully green suite.
+- **`AsyncLocalStorage`-gated feature flags need the exact single-line mutation
+  checked, not just the surrounding logic.** For ambient-transaction-style P1
+  designs, the single highest-value mutation is dropping one flag
+  (`!state.detached`, `!state.finished`, etc.) from the one-line boolean gate
+  that decides "does this request get the special facade." It reliably flips
+  3+ tests red across two files (unit + db-guarded) when done right — a good
+  canary that the invariant is actually tested, and a real prior incident (a
+  previous reviewer session left this exact mutation live in untracked source
+  after an infra failure).
