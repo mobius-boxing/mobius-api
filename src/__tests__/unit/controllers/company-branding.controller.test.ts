@@ -26,10 +26,6 @@ const mockCompanyDAO = {
   getIdByUuid: jest.fn() as AsyncStub,
   updateBranding: jest.fn() as AsyncStub,
 };
-const mockAudit = {
-  record: jest.fn() as AsyncStub,
-};
-
 jest.mock("../../../dao/company/company.dao", () => ({
   CompanyDAO: function CompanyDAO() {
     return {
@@ -54,12 +50,6 @@ jest.mock("../../../dao/user/user.dao", () => ({
     return {};
   },
 }));
-jest.mock("../../../services/audit.service", () => ({
-  AuditService: function AuditService() {
-    return { record: (...args: unknown[]) => mockAudit.record(...args) };
-  },
-}));
-
 import { CompaniesController } from "../../../controllers/companies/companies.controller";
 
 const COMPANY_UUID = "0b0e2a54-1d61-4a4c-8a3f-1b2c3d4e5f60";
@@ -76,8 +66,6 @@ describe("CompaniesController.updateBranding", () => {
   beforeEach(() => {
     mockCompanyDAO.getIdByUuid.mockReset();
     mockCompanyDAO.updateBranding.mockReset();
-    mockAudit.record.mockReset();
-    mockAudit.record.mockResolvedValue(undefined);
     res = createMockResponse();
     next = createMockNext();
     controller = new CompaniesController();
@@ -143,29 +131,6 @@ describe("CompaniesController.updateBranding", () => {
     });
   });
 
-  it("records one audit entry for the company", async () => {
-    mockCompanyDAO.getIdByUuid.mockResolvedValue(7);
-    mockCompanyDAO.updateBranding.mockResolvedValue({
-      uuid: COMPANY_UUID,
-      name: "QA Demo Co",
-      branding: { displayName: "QA Demo" },
-    });
-
-    await controller.updateBranding(
-      brandingRequest({ displayName: "QA Demo" }),
-      res as Response,
-      next,
-    );
-
-    expect(mockAudit.record).toHaveBeenCalledTimes(1);
-    expect(mockAudit.record).toHaveBeenCalledWith(
-      expect.anything(),
-      "Company",
-      "Modificacion",
-      expect.objectContaining({ uuid: COMPANY_UUID, companyId: 7 }),
-    );
-  });
-
   it("404s for an unknown company without writing anything", async () => {
     mockCompanyDAO.getIdByUuid.mockResolvedValue(null);
 
@@ -203,7 +168,6 @@ describe("CompaniesController.updateBranding", () => {
       expect(req.statusCode).toBe(400);
       expect(localNext).toHaveBeenCalledWith(expect.any(Error));
       expect(mockCompanyDAO.updateBranding).not.toHaveBeenCalled();
-      expect(mockAudit.record).not.toHaveBeenCalled();
     }
   });
 

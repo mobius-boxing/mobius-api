@@ -23,6 +23,23 @@ import { ADMIN_ROLE_NAME } from "../src/common/constants/permissions-catalog";
  * `ON DELETE CASCADE` from `companies`, which every table below is rooted in.
  */
 
+/**
+ * Switch the audit triggers (audit P2) off for one transaction.
+ *
+ * A seed writes tens of thousands of rows in two statements-per-table bursts;
+ * captured, that is tens of thousands of meaningless ledger rows describing a
+ * fixture nobody will ever audit. `set_config(..., true)` is **transaction
+ * local**, so the triggers stay on for everything else — this is the only
+ * reason the call has to be the first statement inside each transaction rather
+ * than a session-wide flag.
+ *
+ * `withAuditContext` is NOT usable here: a seed receives its `knex` handle from
+ * the CLI and never calls `db(key)`, so the ambient facade never sees its
+ * writes and there is no state to arm.
+ */
+const skipAudit = (trx: Knex.Transaction): Promise<unknown> =>
+  trx.raw("select set_config('mobius.audit_skip', 'on', true)");
+
 const COMPANY_NAME = "QA Demo CO";
 const COMPANY_SLUG = "qa-demo-co";
 const ADMIN_EMAIL = "admin@qa-demo-co.local";
@@ -248,9 +265,18 @@ export async function seed(knex: Knex): Promise<void> {
     console.log(
       `· RESET: deleting and rebuilding "${COMPANY_NAME}" (id ${existing.id}), keeping uuid ${keepUuid}`,
     );
-    await knex("companies").where({ id: existing.id }).delete();
+    // The delete gets a transaction of its own purely so it can be skipped:
+    // it cascades through every table the company owns, and each cascaded row
+    // would otherwise write a `Baja` for data that only ever existed as a
+    // fixture.
+    const doomedId = existing.id as number;
+    await knex.transaction(async (trx) => {
+      await skipAudit(trx);
+      await trx("companies").where({ id: doomedId }).delete();
+    });
     existing = undefined;
     await knex.transaction(async (trx) => {
+      await skipAudit(trx);
       await runSeed(trx, await seedCompany(trx, keepUuid));
     });
     console.log(
@@ -285,6 +311,7 @@ export async function seed(knex: Knex): Promise<void> {
   }
 
   await knex.transaction(async (trx) => {
+    await skipAudit(trx);
     const companyId = existing
       ? await adoptCompany(trx, existing.id as number)
       : await seedCompany(trx);

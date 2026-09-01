@@ -65,12 +65,6 @@ jest.mock("../../../services/rbac.service", () => ({
       Promise.resolve(grantedCodes.includes(code)),
   },
 }));
-jest.mock("../../../services/audit.service", () => ({
-  AuditService: function () {
-    return { record: () => Promise.resolve(undefined) };
-  },
-}));
-
 import { SalesOrderController } from "../../../controllers/sales-order/sales-order.controller";
 
 const CUSTOMER_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

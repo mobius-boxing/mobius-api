@@ -20,6 +20,7 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 import { getCompanyFilterUuid } from "../../utils/companyScope";
+import { setAuditAction } from "../../database/audit-context";
 import { RbacService } from "../../services/rbac.service";
 import {
   FulfillmentAction,
@@ -641,6 +642,9 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
       }
 
       const username = req.user?.email ?? "unknown";
+      // A domain verb: the trigger sees an UPDATE of `sales_orders` and an
+      // INSERT into `sales_order_approval_events`, not the intent behind them.
+      await setAuditAction("sales_order.approval");
       const updated = await this.dao.setApproval(
         existingId,
         machine,
@@ -656,7 +660,6 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
           .json({ success: false, message: "Sales order not found" });
         return;
       }
-      await this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -702,12 +705,17 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
         return;
       }
 
+      await setAuditAction(
+        action === "cancel"
+          ? "sales_order.fulfill.cancel"
+          : "sales_order.fulfill",
+      );
       const outcome = await this.lifecycleDAO.setFulfillment(
         existingId,
         action as FulfillmentAction,
         req.user?.email ?? "unknown",
       );
-      await this.respondLifecycle(req, res, outcome);
+      await this.respondLifecycle(res, outcome);
     } catch (err: any) {
       next(err);
     }
@@ -774,13 +782,14 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
         return;
       }
 
+      await setAuditAction("sales_order.void");
       const outcome = await this.lifecycleDAO.setVoid(
         existingId,
         action as VoidAction,
         req.user?.email ?? "unknown",
         body.includeProductionOrders === true,
       );
-      await this.respondLifecycle(req, res, outcome);
+      await this.respondLifecycle(res, outcome);
     } catch (err: any) {
       next(err);
     }
@@ -796,15 +805,15 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
    * and the cascade count. `productionOrdersAffected` is a SIBLING of `data`,
    * never a DTO field — the DTO belongs to the create feature (plan P-2).
    *
-   * A no-op records NO audit row (AC-3, AC-4, AC-20): `changed` is the DAO's
-   * report that a column was actually written.
+   * A no-op still records NO audit row (AC-3, AC-4, AC-20) — that is now the
+   * trigger's no-op guard rather than this method's `changed` check: an UPDATE
+   * that writes nothing is not history.
    *
    * `missing` is the TOCTOU window `setApproval` already answers 404 for: the
    * pedido was deleted between the uuid→id resolution and the locked re-read,
    * so nothing was stamped and the response must not be a 200 `{data: null}`.
    */
   private async respondLifecycle(
-    req: Request,
     res: Response,
     outcome: ILifecycleOutcome,
   ): Promise<void> {
@@ -818,9 +827,6 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
         message: LIFECYCLE_REJECTION_MESSAGES[outcome.rejected],
       });
       return;
-    }
-    if (outcome.changed) {
-      await this.recordAudit(req, "Modificacion", outcome.order);
     }
     res.status(200).json({
       success: true,

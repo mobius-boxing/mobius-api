@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from "uuid";
 import { IBaseController } from "../../types.d";
 import { IDataPaginator } from "../../database/d.types";
 import { getCompanyFilterUuid } from "../../utils/companyScope";
-import { AuditService } from "../../services/audit.service";
 import { getCompanyForCreate } from "../../utils/companyScope";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
 
@@ -30,9 +29,6 @@ export interface BaseCrudOptions {
   fkCatchOnDelete?: boolean;
   fkCatchMessage?: string;
   autoGenerateUuid?: boolean;
-  // Audit trail (audit_logs). Defaults to true — nearly every entity gets history
-  // (decision 2026-07-18, module 01 audit-log.md). Set false to opt out.
-  audit?: boolean;
   // Inject the caller's numeric companyId into create payloads that lack one
   // (default true). 17 subclasses never resolved it, so creates hit NOT NULL
   // violations or silently inserted NULL (rows invisible to scoped lists).
@@ -43,23 +39,6 @@ export interface BaseCrudOptions {
 export abstract class BaseCrudController<TEntity> implements IBaseController {
   protected abstract dao: ICrudDAO<TEntity>;
   protected abstract options: BaseCrudOptions;
-
-  private static auditService = new AuditService();
-
-  /** Best-effort audit record — awaited; AuditService swallows its own errors. */
-  protected async recordAudit(
-    req: Request,
-    operation: "Alta" | "Baja" | "Modificacion",
-    entity: Record<string, any> | null,
-  ): Promise<void> {
-    if (this.options.audit === false) return;
-    await BaseCrudController.auditService.record(
-      req,
-      this.options.entityLabel,
-      operation,
-      entity,
-    );
-  }
 
   /**
    * On validation failure: set `req.statusCode = 400`, call `next(new Error(msg))`,
@@ -226,8 +205,6 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
 
       const result = await this.dao.create(dataToCreate as TEntity);
 
-      await this.recordAudit(req, "Alta", result as Record<string, any>);
-
       res.status(201).json({
         success: true,
         data: result,
@@ -261,12 +238,6 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
 
       const result = await this.dao.update(existingId, payload);
 
-      await this.recordAudit(
-        req,
-        "Modificacion",
-        result as Record<string, any> | null,
-      );
-
       res.status(200).json({
         success: true,
         data: result,
@@ -292,21 +263,12 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
         return;
       }
 
-      // Snapshot before the delete so the Baja audit row keeps the entity's
-      // code/description, as Procusto's GenericLogger does.
-      const existing =
-        this.options.audit === false
-          ? null
-          : await this.dao.getByUuid(uuid, companyUuid);
-
+      // No pre-delete read: the `Baja` row is written by the database trigger,
+      // which has OLD. `entityLabel` survives — it is the user-facing message
+      // below and the 404 text, not an audit field.
       const result = await this.dao.delete(existingId);
 
       if (result) {
-        await this.recordAudit(
-          req,
-          "Baja",
-          (existing as Record<string, any>) ?? { uuid },
-        );
         res.status(200).json({
           success: true,
           message: `${this.options.entityLabel} deleted successfully`,

@@ -33,9 +33,10 @@ const DOMAIN_COUNTS: Record<DbKey, number> = {
 };
 /**
  * The two names that deliberately live in more than one database (AC-2).
- * node-files deliberately adds no fourth copy of either: it calls the existing
- * AuditService (which writes through the erp `audit_logs`) and owns its own byte
- * metadata in `nf_documents` rather than borrowing `files` (brief D-4).
+ * node-files deliberately adds no fourth copy of either: its rows are audited
+ * by the same `audit_row_change` trigger, which writes through the erp
+ * `audit_logs`, and it owns its own byte metadata in `nf_documents` rather than
+ * borrowing `files` (brief D-4).
  */
 const FANNED_OUT_COPIES: Record<string, number> = { files: 3, audit_logs: 3 };
 
@@ -109,11 +110,20 @@ describeIfLocalDb("TABLE_OWNER vs the live schema (AC-1 c)", () => {
     });
     await client.connect();
     try {
+      // `pg_class`, not `information_schema.tables`: since the audit P2
+      // cutover `audit_logs` is partitioned, and every monthly partition is a
+      // BASE TABLE. A partition is storage for a table already in the manifest,
+      // not a table of its own — `relispartition` is what says so. `relkind`
+      // keeps both ordinary tables ('r') and partitioned parents ('p').
       const result = await client.query<{ table_name: string }>(
-        `SELECT table_name FROM information_schema.tables
-          WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-            AND table_name NOT IN ('knex_migrations', 'knex_migrations_lock')
-          ORDER BY table_name`,
+        `SELECT c.relname AS table_name
+           FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public'
+            AND c.relkind IN ('r', 'p')
+            AND NOT c.relispartition
+            AND c.relname NOT IN ('knex_migrations', 'knex_migrations_lock')
+          ORDER BY c.relname`,
       );
       return result.rows.map((row) => row.table_name);
     } finally {

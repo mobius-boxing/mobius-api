@@ -584,7 +584,11 @@ export class CountdownDocumentsService {
     };
   }
 
-  /** Returns what was deleted, so the caller can audit the snapshot. */
+  /**
+   * Returns what was deleted. The caller no longer audits it — P2's trigger
+   * captures the `Baja` with the whole row — but the return value is still the
+   * controller's 200-vs-404 signal.
+   */
   async remove(
     uuid: string,
     ctx: ICountdownRequestContext,

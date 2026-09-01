@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { CountdownGroupMembersInputDTO } from "../../dto/input/countdown/CountdownGroupMembersInputDTO";
 import { CountdownNameInputDTO } from "../../dto/input/countdown/CountdownNameInputDTO";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 import { CountdownServiceError } from "../../services/countdown/countdown-categories.service";
 import { CountdownGroupsService } from "../../services/countdown/countdown-groups.service";
 import { getCompanyScope } from "../../utils/companyScope";
@@ -16,7 +16,6 @@ import { getCompanyScope } from "../../utils/companyScope";
 export class CountdownGroupController {
   private _service = new CountdownGroupsService();
   private _companyDAO = new CompanyDAO();
-  private _audit = new AuditService();
 
   /**
    * The tenant every query is scoped to. Non-superAdmins get their JWT company;
@@ -90,11 +89,6 @@ export class CountdownGroupController {
       );
       const group = await this._service.create(companyId, uuidv4(), input.name);
 
-      await this._audit.record(req, "CountdownGroup", "Alta", {
-        uuid: group.uuid,
-        name: group.name,
-        companyId,
-      });
       res.status(201).json({ success: true, data: group });
     } catch (err) {
       this.forward(req, next, err);
@@ -119,11 +113,6 @@ export class CountdownGroupController {
         input.name,
       );
 
-      await this._audit.record(req, "CountdownGroup", "Modificacion", {
-        uuid: group.uuid,
-        name: group.name,
-        companyId,
-      });
       res.status(200).json({ success: true, data: group });
     } catch (err) {
       this.forward(req, next, err);
@@ -143,18 +132,15 @@ export class CountdownGroupController {
       const input = this.parse(() =>
         new CountdownGroupMembersInputDTO(req.body).build(),
       );
+      // A domain verb: the membership is replaced as a set, so the trigger
+      // sees only the `countdown_group_members` rows that actually moved.
+      await setAuditAction("countdown_group.members");
       const group = await this._service.setMembers(
         companyId,
         req.params.uuid,
         input.members,
       );
 
-      await this._audit.record(req, "CountdownGroup", "Modificacion", {
-        uuid: group.uuid,
-        name: group.name,
-        companyId,
-        members: group.members,
-      });
       res.status(200).json({ success: true, data: group });
     } catch (err) {
       this.forward(req, next, err);
@@ -170,13 +156,8 @@ export class CountdownGroupController {
       const companyId = await this.resolveCompanyId(req);
       if (companyId === null) return this.noCompany(req, next);
 
-      const removed = await this._service.remove(companyId, req.params.uuid);
+      await this._service.remove(companyId, req.params.uuid);
 
-      await this._audit.record(req, "CountdownGroup", "Baja", {
-        uuid: removed.uuid,
-        name: removed.name,
-        companyId,
-      });
       res.status(200).json({ success: true, message: "Grupo eliminado" });
     } catch (err) {
       this.forward(req, next, err);

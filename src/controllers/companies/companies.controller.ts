@@ -12,15 +12,15 @@ import {
   CompanyCreateInputDTO,
   CompanyUpdateInputDTO,
 } from "../../dto/input/company";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 import { db } from "../../database/registry";
+import { purgeCompany } from "../../services/company-purge.service";
 
 export class CompaniesController implements IBaseController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
   private _moduleDAO: ModuleDAO = new ModuleDAO();
   private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
   private _userDAO: UserDAO = new UserDAO();
-  private _auditService: AuditService = new AuditService();
 
   public async getAll(
     req: Request,
@@ -219,6 +219,9 @@ export class CompaniesController implements IBaseController {
         return next(new Error(dtoErr?.message ?? "Datos inválidos"));
       }
 
+      // A domain verb: the trigger sees an UPDATE of `companies` like any
+      // other. The row is attributed to the company being edited (ruling R-A).
+      await setAuditAction("company.branding");
       const result = await this._companyDAO.updateBranding(
         companyId,
         inputDTO.toBranding(),
@@ -227,14 +230,6 @@ export class CompaniesController implements IBaseController {
         res.status(404).json({ success: false, message: "Company not found" });
         return;
       }
-
-      // Best-effort by contract (AuditService swallows its own failures).
-      await this._auditService.record(req, "Company", "Modificacion", {
-        uuid: result.uuid,
-        name: result.name,
-        companyId,
-        branding: result.branding,
-      });
 
       res.status(200).json({ success: true, data: result });
     } catch (err: any) {
@@ -259,9 +254,12 @@ export class CompaniesController implements IBaseController {
         return;
       }
 
-      const result = await this._companyDAO.delete(existing.id);
+      // NOT `CompanyDAO.delete`: the ledger is append-only in the database, so
+      // removing a company is only possible through the purge path, which turns
+      // maintenance mode on for its own transaction (see company-purge.service).
+      const result = await purgeCompany(existing.id);
 
-      if (result) {
+      if (result.companyDeleted) {
         res.status(200).json({
           success: true,
           message: "Company deleted successfully",

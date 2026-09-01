@@ -36,30 +36,24 @@ const AUDIT_LOG_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   },
 );
 
+/**
+ * Reads of the audit ledger. There is no write half: since P2 every row is
+ * written by the database trigger `audit_row_change`, and `audit_logs` is
+ * append-only in the database itself (`audit_logs_protect`), so an INSERT from
+ * here would be both redundant and, for UPDATE/DELETE, `P0001`. The one
+ * sanctioned door for removing rows is `company-purge.service.ts`.
+ *
+ * `audit_logs` is a FANNED-OUT table (D-2 / AC-2): one per database. All four
+ * keys resolve to one physical database today, so `db("erp")` below and the
+ * `companies` join it makes possible are correct as written. Once they do not,
+ * a read must fan out across all four — there is deliberately no cross-module
+ * audit view (non-goal 14). **That fan-out belongs to P3**, which owns the read
+ * API; the Amendment of 2026-09-01 deferred D-2 to the split's cutover, so
+ * nothing here is a placeholder for P2 to have resolved.
+ */
 export class AuditLogDAO {
-  /**
-   * `audit_logs` is a FANNED-OUT table (D-2 / AC-2): one per database, because
-   * the audit write is fire-and-forget, never runs inside a transaction and has
-   * no inbound FKs. `ownership.ts` names `erp` its primary owner, so `ownerOf`
-   * returns `undefined` and the registry's wrong-database guard cannot arbitrate
-   * here — nothing will flag a wrong choice.
-   *
-   * `db("erp")` below is therefore a PLACEHOLDER, correct only while all four
-   * keys resolve to one physical database (state S1). Once they do not, a write
-   * must land in the database of the entity it describes and a read must fan out
-   * across all four — there is deliberately no cross-module audit view
-   * (non-goal 14). Routing belongs to the deletion/audit work, not here.
-   */
   private tableName = "audit_logs";
   private queryConfig = AUDIT_LOG_QUERY_CONFIG;
-
-  async insert(item: IAuditLog): Promise<void> {
-    const knex = db("erp");
-    await knex(this.tableName).insert({
-      ...item,
-      snapshot: item.snapshot ? JSON.stringify(item.snapshot) : null,
-    });
-  }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IAuditLog>> {
     const knex = db("erp");

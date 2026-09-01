@@ -5,14 +5,13 @@ import { CompanyModuleDAO } from "../../dao/company-module/company-module.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { ICompanyModuleWithModule } from "../../interfaces/company-module/company-module.interfaces";
 import { CompanyModuleConfigInputDTO } from "../../dto/input/company";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 
 export class CompanyModulesController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
   private _moduleDAO: ModuleDAO = new ModuleDAO();
   private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
   private _userDAO: UserDAO = new UserDAO();
-  private _auditService: AuditService = new AuditService();
 
   /**
    * Reshape the DAO's flat ICompanyModuleWithModule row into the nested response
@@ -143,6 +142,8 @@ export class CompanyModulesController {
         return next(new Error(dtoErr?.message ?? "Datos inválidos"));
       }
 
+      // A domain verb: the trigger sees an UPDATE of `company_modules`.
+      await setAuditAction("company_module.config");
       const row = await this._companyModuleDAO.updateConfig(
         companyId,
         module.id,
@@ -156,14 +157,6 @@ export class CompanyModulesController {
         });
         return;
       }
-
-      // Best-effort by contract (AuditService swallows its own failures).
-      await this._auditService.record(req, "CompanyModule", "Modificacion", {
-        uuid: row.moduleUuid,
-        name: `${row.slug} config`,
-        companyId,
-        config: row.config,
-      });
 
       res.status(200).json({ success: true, data: this.toResponse(row) });
     } catch (err: any) {

@@ -37,6 +37,20 @@ const mockCompanyDAO = {
   getCompanyWithUserCount: jest.fn(),
 };
 
+/**
+ * Company deletion goes through the purge service, never `CompanyDAO.delete`
+ * (audit P2 / §P2.7): the ledger is append-only in the database, so the delete
+ * only succeeds inside a transaction that turned maintenance mode on. Asserting
+ * the call here is what stops the raw DAO delete from creeping back.
+ */
+export const mockPurgeCompany = jest.fn();
+
+jest.mock("../../../services/company-purge.service", () => ({
+  __esModule: true,
+  purgeCompany: (...args) =>
+    require("./companies.controller.test").mockPurgeCompany(...args),
+}));
+
 // Mock uuid module
 jest.mock("uuid", () => ({
   v4: () => "generated-uuid",
@@ -283,14 +297,18 @@ describe("CompaniesController", () => {
       });
 
       mockCompanyDAO.getByUuid.mockResolvedValue(existingCompany);
-      mockCompanyDAO.delete.mockResolvedValue(true);
+      mockPurgeCompany.mockResolvedValue({
+        companyDeleted: true,
+        ledgerRowsDeleted: 7,
+      });
 
       const mockReq = createUuidParamRequest("existing-uuid") as Request;
 
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
       expect(mockCompanyDAO.getByUuid).toHaveBeenCalledWith("existing-uuid");
-      expect(mockCompanyDAO.delete).toHaveBeenCalledWith(1);
+      expect(mockPurgeCompany).toHaveBeenCalledWith(1);
+      expect(mockCompanyDAO.delete).not.toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
@@ -316,7 +334,10 @@ describe("CompaniesController", () => {
       const existingCompany = createTestCompany({ id: 1 });
 
       mockCompanyDAO.getByUuid.mockResolvedValue(existingCompany);
-      mockCompanyDAO.delete.mockResolvedValue(false);
+      mockPurgeCompany.mockResolvedValue({
+        companyDeleted: false,
+        ledgerRowsDeleted: 0,
+      });
 
       const mockReq = createUuidParamRequest("test-uuid") as Request;
 

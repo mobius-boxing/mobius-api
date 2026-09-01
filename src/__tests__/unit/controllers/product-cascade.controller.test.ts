@@ -38,11 +38,6 @@ jest.mock("../../../services/rbac.service", () => ({
     userHasPermission: (...args) => mockUserHasPermission(...args),
   },
 }));
-jest.mock("../../../services/audit.service", () => ({
-  AuditService: function () {
-    return { record: () => Promise.resolve(undefined) };
-  },
-}));
 jest.mock("../../../database/registry", () => ({
   __esModule: true,
   db: () => mockKnex,

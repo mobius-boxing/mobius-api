@@ -1,6 +1,10 @@
 // @ts-nocheck
 /**
- * SalesOrderController.setApproval — AC-8..AC-11 and the audit expectation.
+ * SalesOrderController.setApproval — AC-8..AC-11.
+ *
+ * Nothing here asserts on the audit trail any more: since P2 the ledger row
+ * is written by the `sales_orders` trigger, so the controller has no audit
+ * path left to mock.
  *
  * The two invariants worth a mutation check live here (AC-20): the uuid→id
  * resolution is company-scoped (L-009 — dropping the argument must redden
@@ -14,7 +18,6 @@ const salesOrderDAO = {
   getIdByUuid: jest.fn(),
   setApproval: jest.fn(),
 };
-const auditRecord = jest.fn();
 const userHasPermission = jest.fn(() => Promise.resolve(true));
 
 jest.mock("../../../dao/sales-order/sales-order.dao", () => ({
@@ -28,13 +31,6 @@ jest.mock("../../../dao/sales-order/sales-order.dao", () => ({
 jest.mock("../../../services/rbac.service", () => ({
   RbacService: {
     userHasPermission: (...a) => userHasPermission(...a),
-  },
-}));
-jest.mock("../../../services/audit.service", () => ({
-  AuditService: function () {
-    return {
-      record: (...a) => (auditRecord(...a), Promise.resolve(undefined)),
-    };
   },
 }));
 
@@ -186,7 +182,7 @@ describe("SalesOrderController.setApproval tenancy (AC-9, L-009)", () => {
   });
 });
 
-describe("SalesOrderController.setApproval success path (AC-1, AC-11, audit)", () => {
+describe("SalesOrderController.setApproval success path (AC-1, AC-11)", () => {
   it("stamps through the DAO with the caller's email and returns the DTO", async () => {
     const res = makeRes();
 
@@ -217,11 +213,12 @@ describe("SalesOrderController.setApproval success path (AC-1, AC-11, audit)", (
     );
   });
 
-  it("404s without auditing when the row vanished mid-request", async () => {
+  it("404s when the row vanished mid-request", async () => {
     // The DAO answers null when its UPDATE matched nothing (the order was
     // deleted between the uuid→id resolution and the write). A 200 with
-    // `data: null` plus an audit row would claim a modification that the
-    // database never made.
+    // `data: null` would claim a modification the database never made — and
+    // since P2 the ledger row is written by the trigger, so nothing was
+    // recorded either.
     salesOrderDAO.setApproval.mockResolvedValue(null);
     const res = makeRes();
 
@@ -232,16 +229,6 @@ describe("SalesOrderController.setApproval success path (AC-1, AC-11, audit)", (
       success: false,
       message: "Sales order not found",
     });
-    expect(auditRecord).not.toHaveBeenCalled();
-  });
-
-  it("records one Modificacion audit entry for the updated order", async () => {
-    await controller.setApproval(makeReq(), makeRes(), jest.fn());
-
-    expect(auditRecord).toHaveBeenCalledTimes(1);
-    expect(auditRecord.mock.calls[0][1]).toBe("Sales order");
-    expect(auditRecord.mock.calls[0][2]).toBe("Modificacion");
-    expect(auditRecord.mock.calls[0][3]).toBe(updatedOrder);
   });
 
   it("drives the financial machine with the financial columns", async () => {

@@ -1,9 +1,12 @@
 // @ts-nocheck
 /**
  * SalesOrderController.setFulfillment / .setVoid — the branches no HTTP suite
- * can see: the 400s that never reach the DAO, the 409, the "no audit row on a
- * no-op" rule (AC-3, AC-4, AC-20) and the L-007 cascade-unavailable rejection
- * (AC-18).
+ * can see: the 400s that never reach the DAO, the 409, the no-op response
+ * (AC-3, AC-4, AC-20) and the L-007 cascade-unavailable rejection (AC-18).
+ *
+ * The "no audit row on a no-op" half of AC-20 moved to the database in P2: an
+ * UPDATE that writes nothing is dropped by the trigger's no-op guard, so it is
+ * asserted in `src/__tests__/db/audit-trigger.db.test.ts`, not here.
  *
  * Two invariants here are mutation-checked (AC-13, AC-22): the uuid→id
  * resolution is company-scoped (dropping the argument must redden
@@ -22,7 +25,6 @@ const lifecycleDAO = {
   setVoid: jest.fn(),
   cascadeAvailable: jest.fn(),
 };
-const auditRecord = jest.fn();
 
 jest.mock("../../../dao/sales-order/sales-order.dao", () => ({
   SalesOrderDAO: function () {
@@ -43,13 +45,6 @@ jest.mock("../../../dao/sales-order/sales-order-lifecycle.dao", () => ({
 jest.mock("../../../services/rbac.service", () => ({
   RbacService: {
     userHasPermission: () => Promise.resolve(true),
-  },
-}));
-jest.mock("../../../services/audit.service", () => ({
-  AuditService: function () {
-    return {
-      record: (...a) => (auditRecord(...a), Promise.resolve(undefined)),
-    };
   },
 }));
 
@@ -262,23 +257,10 @@ describe("success, no-op and rejection responses (AC-1, AC-3, AC-4, AC-6, AC-20)
     });
   });
 
-  it("records exactly one Modificacion audit row for a state change", async () => {
-    await controller.setFulfillment(
-      makeReq({ action: "fulfill" }),
-      makeRes(),
-      jest.fn(),
-    );
-
-    expect(auditRecord).toHaveBeenCalledTimes(1);
-    expect(auditRecord.mock.calls[0][1]).toBe("Sales order");
-    expect(auditRecord.mock.calls[0][2]).toBe("Modificacion");
-    expect(auditRecord.mock.calls[0][3]).toBe(order);
-  });
-
   it.each([
     ["setFulfillment", { action: "fulfill" }],
     ["setVoid", { action: "void" }],
-  ])("records NO audit row when %s is a no-op", async (verb, body) => {
+  ])("answers 200 when %s is a no-op", async (verb, body) => {
     lifecycleDAO.setFulfillment.mockResolvedValue(noop);
     lifecycleDAO.setVoid.mockResolvedValue(noop);
     const res = makeRes();
@@ -286,10 +268,9 @@ describe("success, no-op and rejection responses (AC-1, AC-3, AC-4, AC-6, AC-20)
     await controller[verb](makeReq(body), res, jest.fn());
 
     expect(res.statusCode).toBe(200);
-    expect(auditRecord).not.toHaveBeenCalled();
   });
 
-  it("answers 409 with a non-empty message and no audit row on a rejection", async () => {
+  it("answers 409 with a non-empty message on a rejection", async () => {
     lifecycleDAO.setVoid.mockResolvedValue({
       changed: false,
       rejected: "ORDER_ALREADY_FULFILLED",
@@ -303,7 +284,6 @@ describe("success, no-op and rejection responses (AC-1, AC-3, AC-4, AC-6, AC-20)
     expect(res.statusCode).toBe(409);
     expect(res.body.success).toBe(false);
     expect(res.body.message.length).toBeGreaterThan(0);
-    expect(auditRecord).not.toHaveBeenCalled();
   });
 
   it("passes the caller's email, falling back to 'unknown' (D-3)", async () => {

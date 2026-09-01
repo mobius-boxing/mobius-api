@@ -2,7 +2,6 @@ import { NextFunction, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { CountdownNameInputDTO } from "../../dto/input/countdown/CountdownNameInputDTO";
-import { AuditService } from "../../services/audit.service";
 import {
   CountdownCategoriesService,
   CountdownServiceError,
@@ -19,7 +18,6 @@ import { getCompanyScope } from "../../utils/companyScope";
 export class CountdownCategoryController {
   private _service = new CountdownCategoriesService();
   private _companyDAO = new CompanyDAO();
-  private _audit = new AuditService();
 
   /**
    * The tenant every query is scoped to. Non-superAdmins get their JWT company;
@@ -96,11 +94,6 @@ export class CountdownCategoryController {
         input.name,
       );
 
-      await this._audit.record(req, "CountdownCategory", "Alta", {
-        uuid: category.uuid,
-        name: category.name,
-        companyId,
-      });
       res.status(201).json({ success: true, data: category });
     } catch (err) {
       this.forward(req, next, err);
@@ -123,11 +116,6 @@ export class CountdownCategoryController {
         input.name,
       );
 
-      await this._audit.record(req, "CountdownCategory", "Modificacion", {
-        uuid: category.uuid,
-        name: category.name,
-        companyId,
-      });
       res.status(200).json({ success: true, data: category });
     } catch (err) {
       this.forward(req, next, err);
@@ -143,13 +131,8 @@ export class CountdownCategoryController {
       const companyId = await this.resolveCompanyId(req);
       if (companyId === null) return this.noCompany(req, next);
 
-      const removed = await this._service.remove(companyId, req.params.uuid);
+      await this._service.remove(companyId, req.params.uuid);
 
-      await this._audit.record(req, "CountdownCategory", "Baja", {
-        uuid: removed.uuid,
-        name: removed.name,
-        companyId,
-      });
       res.status(200).json({ success: true, message: "Rubro eliminado" });
     } catch (err) {
       this.forward(req, next, err);
@@ -175,11 +158,6 @@ export class CountdownCategoryController {
         input.name,
       );
 
-      await this._audit.record(req, "CountdownCategory", "Alta", {
-        uuid: subcategoryUuid,
-        name: input.name,
-        companyId,
-      });
       res.status(201).json({ success: true, data: category });
     } catch (err) {
       this.forward(req, next, err);
@@ -202,11 +180,6 @@ export class CountdownCategoryController {
         input.name,
       );
 
-      await this._audit.record(req, "CountdownCategory", "Modificacion", {
-        uuid: req.params.uuid,
-        name: input.name,
-        companyId,
-      });
       res.status(200).json({ success: true, data: category });
     } catch (err) {
       this.forward(req, next, err);
@@ -222,16 +195,8 @@ export class CountdownCategoryController {
       const companyId = await this.resolveCompanyId(req);
       if (companyId === null) return this.noCompany(req, next);
 
-      const removed = await this._service.removeSubcategory(
-        companyId,
-        req.params.uuid,
-      );
+      await this._service.removeSubcategory(companyId, req.params.uuid);
 
-      await this._audit.record(req, "CountdownCategory", "Baja", {
-        uuid: removed.uuid,
-        name: removed.name,
-        companyId,
-      });
       res.status(200).json({ success: true, message: "Sub-rubro eliminado" });
     } catch (err) {
       this.forward(req, next, err);

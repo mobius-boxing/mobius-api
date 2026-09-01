@@ -8,8 +8,7 @@ import {
   CountdownDocumentStatusInputDTO,
   CountdownDocumentUpdateInputDTO,
 } from "../../dto/input/countdown";
-import { ICountdownDocument } from "../../interfaces/countdown/countdown.interfaces";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 import {
   CountdownDocumentsService,
   CountdownServiceError,
@@ -41,23 +40,8 @@ export class CountdownDocumentController {
   private _service = new CountdownDocumentsService();
   private _companyDAO = new CompanyDAO();
   private _export = new CountdownExportService();
-  private _audit = new AuditService();
 
   // ---- helpers ----------------------------------------------------------
-
-  /** Best-effort audit hook (audit_logs) — awaited; AuditService swallows its own errors. */
-  private async recordAudit(
-    req: Request,
-    operation: "Alta" | "Modificacion" | "Baja",
-    entity: ICountdownDocument | null,
-  ): Promise<void> {
-    await this._audit.record(
-      req,
-      "CountdownDocument",
-      operation,
-      entity as unknown as Record<string, unknown> | null,
-    );
-  }
 
   /**
    * Everything the service needs about the caller, resolved once.
@@ -290,7 +274,6 @@ export class CountdownDocumentController {
       // Host rule: the uuid is minted here, never by the client (the column's DB
       // default is only a backstop).
       const data = await this._service.create(uuidv4(), inputDTO, context.ctx);
-      await this.recordAudit(req, "Alta", data);
       res.status(201).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -323,7 +306,6 @@ export class CountdownDocumentController {
         inputDTO,
         context.ctx,
       );
-      await this.recordAudit(req, "Modificacion", data);
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -352,12 +334,14 @@ export class CountdownDocumentController {
         return next(new Error(context.message));
       }
 
+      // A domain verb: the assignment rows are rewritten as a set, and the
+      // document's own UPDATE looks like any other edit to the trigger.
+      await setAuditAction("countdown_document.assignments");
       const data = await this._service.setAssignments(
         req.params.uuid,
         inputDTO,
         context.ctx,
       );
-      await this.recordAudit(req, "Modificacion", data);
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -386,6 +370,9 @@ export class CountdownDocumentController {
         return next(new Error(context.message));
       }
 
+      // A domain verb, and the renewal's `Alta` row carries it too: both
+      // writes share this request's `txId`.
+      await setAuditAction("countdown_document.status");
       // Minted up front so the successor's uuid still comes from the controller;
       // it is only spent if a renewal actually happens.
       const result = await this._service.setStatus(
@@ -394,8 +381,6 @@ export class CountdownDocumentController {
         uuidv4(),
         context.ctx,
       );
-      await this.recordAudit(req, "Modificacion", result.document);
-      if (result.renewed) await this.recordAudit(req, "Alta", result.renewed);
       res.status(200).json({ success: true, data: result });
     } catch (err) {
       this.fail(req, next, err);
@@ -413,8 +398,7 @@ export class CountdownDocumentController {
         req.statusCode = 400;
         return next(new Error(context.message));
       }
-      const removed = await this._service.remove(req.params.uuid, context.ctx);
-      await this.recordAudit(req, "Baja", removed);
+      await this._service.remove(req.params.uuid, context.ctx);
       res
         .status(200)
         .json({ success: true, message: "Documento eliminado correctamente" });

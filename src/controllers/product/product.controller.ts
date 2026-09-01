@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 import { IBaseController } from "../../types.d";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { ProductDAO } from "../../dao/product/product.dao";
@@ -22,17 +22,6 @@ import { PartController } from "../part/part.controller";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
 
 export class ProductController implements IBaseController {
-  private _audit = new AuditService();
-
-  /** Best-effort audit hook (audit_logs) — awaited; AuditService swallows its own errors. */
-  private async recordAudit(
-    req: any,
-    op: "Alta" | "Baja" | "Modificacion",
-    entity: any,
-  ): Promise<void> {
-    await this._audit.record(req, "Product", op, entity ?? null);
-  }
-
   private _productDAO: ProductDAO = new ProductDAO();
 
   /**
@@ -263,8 +252,6 @@ export class ProductController implements IBaseController {
         initialPart = outcome.part;
       }
 
-      await this.recordAudit(req, "Alta", result);
-
       res.status(201).json({
         success: true,
         data: initialPart ? { ...result, initialPart } : result,
@@ -306,8 +293,6 @@ export class ProductController implements IBaseController {
 
       const result = await this._productDAO.update(existingId, inputDTO);
 
-      await this.recordAudit(req, "Modificacion", result);
-
       res.status(200).json({
         success: true,
         data: result,
@@ -338,9 +323,6 @@ export class ProductController implements IBaseController {
       }
 
       const result = await this._productDAO.delete(existingId);
-
-      if (result)
-        await this.recordAudit(req, "Baja", { uuid: req.params.uuid });
 
       if (result) {
         res.status(200).json({
@@ -432,6 +414,10 @@ export class ProductController implements IBaseController {
       const username = req.user?.email ?? "unknown";
       const knex = db("erp");
 
+      // A domain verb: the trigger sees an UPDATE of `products` (and, when it
+      // cascades, of `parts`) and cannot tell approval from an ordinary edit.
+      await setAuditAction("product.approval");
+
       // Cascade to parts (04-state-and-lifecycle): approving/cancelling the
       // product propagates to its parts' FINAL machine when the client
       // confirms (cascade: true).
@@ -497,11 +483,6 @@ export class ProductController implements IBaseController {
           username,
         );
       }
-
-      await this.recordAudit(req, "Modificacion", {
-        ...(result as any),
-        cascaded,
-      });
 
       res.status(200).json({ success: true, data: result, cascaded });
     } catch (err: any) {

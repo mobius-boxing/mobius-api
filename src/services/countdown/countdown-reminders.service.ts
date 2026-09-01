@@ -1,4 +1,5 @@
 import { CountdownAssignmentDAO } from "../../dao/countdown/countdown-assignment.dao";
+import { withAuditContext } from "../../database/audit-context";
 import {
   CountdownReminderDAO,
   ICountdownDueDocumentRow,
@@ -14,6 +15,16 @@ import { sendModuleEmail } from "../module-email.service";
 
 /** One batch a day, at 08:00 Buenos Aires, Monday to Friday. */
 export const SEND_HOUR = 8;
+
+/**
+ * Who the ledger says wrote the job's rows (audit P2). Both values are
+ * contractual: the trigger stores them verbatim and the history UI shows them,
+ * so `source` stays `job` and the name stays the module's, not a person's.
+ */
+const REMINDERS_JOB = {
+  source: "job",
+  username: "countdown-reminders",
+} as const;
 
 /**
  * The whole schedule in one predicate, exported so it can be tested without
@@ -338,13 +349,28 @@ export class CountdownRemindersService {
    *
    * Kept separate from run() so tests and the superAdmin manual trigger can
    * force a batch without fighting the daily lock.
+   *
+   * **Why two audit contexts and not one** (audit P2, ruling R-C).
+   * `withAuditContext` arms the ambient state, so everything inside it runs in
+   * ONE Postgres transaction on a `countdown` pool of five connections. `run()`
+   * sends mail — a provider round trip per recipient — so wrapping the whole
+   * method would hold a connection open across every SES call of the batch,
+   * which is the exact failure this module is built to avoid. The two database
+   * steps are wrapped separately instead: the claim, and the outcome. The send
+   * happens between them, outside both.
    */
   async runDailyOnce(): Promise<ICountdownReminderOutcome | null> {
-    const runId = await this._reminderDAO.claimToday(todayInBuenosAires());
+    const runId = await withAuditContext(REMINDERS_JOB, () =>
+      this._reminderDAO.claimToday(todayInBuenosAires()),
+    );
     if (!runId) return null;
 
+    // Deliberately OUTSIDE any audit context: this is the mail-sending half.
     const outcome = await this.run();
-    await this._reminderDAO.recordOutcome(runId, outcome);
+
+    await withAuditContext(REMINDERS_JOB, () =>
+      this._reminderDAO.recordOutcome(runId, outcome),
+    );
     return outcome;
   }
 }

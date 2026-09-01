@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { RoleDAO } from "../../dao/role/role.dao";
 import { UserDAO } from "../../dao/user/user.dao";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 import { getCompanyFilterUuid } from "../../utils/companyScope";
 import {
   RoleCreateInputDTO,
@@ -31,7 +31,6 @@ const PROFILE_TYPES = [
 export class RoleController {
   private dao = new RoleDAO();
   private userDAO = new UserDAO();
-  private audit = new AuditService();
 
   private async callerCompanyId(req: Request, res: Response): Promise<number | null> {
     // superAdmin operating-as: company comes from the body (getCompanyForCreate
@@ -110,7 +109,6 @@ export class RoleController {
         hasAccessToAllMachines: hasAccessToAllMachines ?? true,
         isProtected: false,
       });
-      await this.audit.record(req, "Role", "Alta", role as any);
       res.status(201).json({ success: true, data: role });
     } catch (err: any) {
       if (err?.code === "23505") {
@@ -153,7 +151,6 @@ export class RoleController {
       if (hasAccessToAllMachines !== undefined)
         payload.hasAccessToAllMachines = hasAccessToAllMachines;
       const updated = await this.dao.update(existing.id, payload);
-      await this.audit.record(req, "Role", "Modificacion", updated as any);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -182,15 +179,14 @@ export class RoleController {
         });
         return;
       }
+      // A domain verb: the grid is replaced as a set, so the trigger writes
+      // one `role_permissions` row per grant that actually moved.
+      await setAuditAction("role.permissions");
       const applied = await this.dao.setPermissions(
         existing.id,
         existing.companyId,
         codes,
       );
-      await this.audit.record(req, "Role", "Modificacion", {
-        ...existing,
-        permissionCodes: applied,
-      } as any);
       res.status(200).json({ success: true, data: { codes: applied } });
     } catch (err: any) {
       next(err);
@@ -241,11 +237,9 @@ export class RoleController {
         roleId = role.id;
       }
 
+      // A domain verb: the write lands on `users`, not on `roles`.
+      await setAuditAction("user.role_assign");
       await this.dao.assignToUser((user as any).id, roleId);
-      await this.audit.record(req, "User", "Modificacion", {
-        uuid: userUuid,
-        roleId,
-      } as any);
       res.status(200).json({ success: true, message: "Role assignment updated" });
     } catch (err: any) {
       next(err);
@@ -269,7 +263,6 @@ export class RoleController {
       // No FK can block this: users.roleId is ON DELETE SET NULL (assigned users
       // fall back to the legacy enum) and role_permissions cascades.
       await this.dao.delete(existing.id);
-      await this.audit.record(req, "Role", "Baja", existing as any);
       res.status(200).json({ success: true, message: "Role deleted successfully" });
     } catch (err: any) {
       next(err);

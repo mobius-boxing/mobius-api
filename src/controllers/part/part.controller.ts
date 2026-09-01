@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { PartDAO } from "../../dao/part/part.dao";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 import {
   PartCreateInputDTO,
   PartUpdateInputDTO,
@@ -47,15 +47,6 @@ const REF_ID_KEYS: Record<string, string> = {
  */
 export class PartController {
   private dao = new PartDAO();
-  private audit = new AuditService();
-
-  private async recordAudit(
-    req: any,
-    op: "Alta" | "Baja" | "Modificacion",
-    entity: any,
-  ): Promise<void> {
-    await this.audit.record(req, "Part", op, entity ?? null);
-  }
 
   /** Res-free ref resolution; returns an error message instead of writing the response. */
   private async resolveRefsCore(
@@ -212,7 +203,6 @@ export class PartController {
         return;
       }
 
-      await this.recordAudit(req, "Alta", outcome.part);
       res.status(201).json({ success: true, data: outcome.part });
     } catch (err: any) {
       next(err);
@@ -247,7 +237,6 @@ export class PartController {
       delete payload.code; // derived — immutable via update
 
       const updated = await this.dao.update(existingId, payload);
-      await this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -264,7 +253,6 @@ export class PartController {
       }
       const deleted = await this.dao.delete(existing.id);
       if (deleted) {
-        await this.recordAudit(req, "Baja", existing);
         res.status(200).json({ success: true, message: "Part deleted successfully" });
       } else {
         res.status(404).json({ success: false, message: "Failed to delete part" });
@@ -306,8 +294,9 @@ export class PartController {
         return;
       }
       const username = req.user?.email ?? "unknown";
+      // A domain verb: the trigger sees an UPDATE of `parts` either way.
+      await setAuditAction("part.approval");
       const updated = await this.dao.setApproval(existingId, machine, action, username);
-      await this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -330,11 +319,13 @@ export class PartController {
           if (id) ids.push(id);
         }
         const username = req.user?.email ?? "unknown";
+        // One action for the whole batch: every row it writes shares this
+        // request's `txId`, so the ledger can group the bulk back together.
+        await setAuditAction(`part.bulk.${action}`);
         const count =
           action === "approve"
             ? await this.dao.bulkApprove(ids, username)
             : await this.dao.bulkUnapprove(ids, username);
-        await this.recordAudit(req, "Modificacion", { bulk: action, count });
         res.status(200).json({ success: true, data: { updated: count } });
       } catch (err: any) {
         next(err);

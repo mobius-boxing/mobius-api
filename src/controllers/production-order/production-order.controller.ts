@@ -29,12 +29,8 @@ import {
 } from "../../services/code-generator.service";
 import { ProductionOrderGenerationService } from "../../services/production-order-generation.service";
 import { validateProductionOrder } from "../../services/production-order-validator.service";
-import {
-  autoFulfillIfComplete,
-  IAutoFulfillResult,
-} from "../../services/sales-order-fulfillment.service";
-import { SalesOrderDAO } from "../../dao/sales-order/sales-order.dao";
-import { AuditService } from "../../services/audit.service";
+import { autoFulfillIfComplete } from "../../services/sales-order-fulfillment.service";
+import { setAuditAction } from "../../database/audit-context";
 
 /** uuid body field → { table it lives in, numeric column it resolves to }. */
 const REFERENCES: Record<string, { table: string; idKey: string }> = {
@@ -76,8 +72,6 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
   private appConfig = new AppConfigService();
   private codeGenerator = new CodeGeneratorService();
   private generation = new ProductionOrderGenerationService();
-  private salesOrderDAO = new SalesOrderDAO();
-  private auditService = new AuditService();
 
   // ── DTOs ─────────────────────────────────────────────────────────────────
   protected async buildCreateDTO(
@@ -519,6 +513,9 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
         return;
       }
 
+      // A domain verb: every order the run inserts shares this request's
+      // `txId`, so the ledger can group one generation back together.
+      await setAuditAction("production_order.generate");
       const outcome = await this.generation.generate({
         salesOrderUuid: inputDTO.salesOrderUuid,
         promisedQuantities: inputDTO.promisedQuantities,
@@ -528,10 +525,6 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
       });
 
       if (outcome.ok) {
-        await this.recordAudit(req, "Alta", {
-          generated: outcome.generated.length,
-          salesOrderUuid: inputDTO.salesOrderUuid,
-        });
         res.status(201).json({
           success: true,
           data: { generated: outcome.generated, warnings: outcome.warnings },
@@ -617,10 +610,6 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
           return;
         }
         const username = req.user?.email ?? "unknown";
-        let autoFulfilled: IAutoFulfillResult = {
-          fulfilled: false,
-          salesOrderUuid: null,
-        };
         // Resolved BEFORE the transaction so the lock below is the first
         // statement inside it (see the lock-ordering note there).
         const pedidoUuidToLock =
@@ -678,7 +667,9 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
             action,
             username,
             async (hookTrx, completedRow) => {
-              autoFulfilled = await autoFulfillIfComplete(
+              // The roll-up's own writes are audited by the triggers on
+              // `sales_orders`, inside this same transaction and `txId`.
+              await autoFulfillIfComplete(
                 completedRow.orderDataId,
                 username,
                 hookTrx,
@@ -691,34 +682,6 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
         const updated = row
           ? await this.dao.getByUuid(row.uuid, companyUuid)
           : null;
-        // AUDIT (P1, ruling D1): nothing above is durable yet. Under the ambient
-        // request transaction the `this.dao.transaction(...)` block is a
-        // SAVEPOINT, and the real COMMIT happens in the middleware when the
-        // response ends — so these audit writes are part of the same transaction
-        // as the transition itself and must NOT be swallowed. A swallowed
-        // database error leaves the transaction aborted (25P02, §0 rules 4 and
-        // 5); the handler would answer 200 and the commit would then rewrite it
-        // to a 500 COMMIT_FAILED, which is strictly worse than failing here.
-        //
-        // ACCEPTED CONSEQUENCE, decided at the P1 gate: an audit failure now
-        // fails the whole production-order completion — including the path that
-        // auto-fulfils pedidos — instead of being logged and ignored. The
-        // request rolls back cleanly and is retryable. That is the phase working
-        // as designed, not a regression.
-        await this.recordAudit(req, "Modificacion", updated);
-        // The pedido's own audit row is written only when the roll-up actually
-        // stamped it (spec §Audit; the response body is unchanged either way).
-        if (autoFulfilled.fulfilled && autoFulfilled.salesOrderUuid) {
-          const order = await this.salesOrderDAO.getByUuid(
-            autoFulfilled.salesOrderUuid,
-          );
-          await this.auditService.record(
-            req,
-            "Sales order",
-            "Modificacion",
-            order,
-          );
-        }
         res.status(200).json({ success: true, data: updated });
       } catch (err: any) {
         next(err);

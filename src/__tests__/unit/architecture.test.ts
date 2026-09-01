@@ -165,6 +165,11 @@ describe("AC-56 — the registry is the only door", () => {
     "controllers/production-route/production-route.controller.ts",
     // Developer smoke script, never imported by the app.
     "scripts/review-fix-smoke.ts",
+    // The one sanctioned door into an append-only ledger (audit P2 §P2.7): it
+    // owns a transaction per key that must set `mobius.audit_maintenance`
+    // BEFORE its deletes, which is a transaction, not a query — no DAO method
+    // can express it, and nothing else may set that setting.
+    "services/company-purge.service.ts",
     // Not a connection holder at all: imports connectAll/disconnectAll for the
     // process lifecycle and calls `db()` never. It only appears here because
     // this check is import-based. (It was invisible to the previous, `../`-
@@ -204,7 +209,7 @@ describe("AC-56 — the registry is the only door", () => {
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
     expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(13);
-    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(8);
+    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(9);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(
       NON_DAO_CONNECTION_HOLDERS.length,

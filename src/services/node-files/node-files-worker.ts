@@ -5,6 +5,7 @@ import {
   NfRunDAO,
 } from "../../dao/node-files/nf-run.dao";
 import { NfWorkflowDAO } from "../../dao/node-files/nf-workflow.dao";
+import { withAuditContext } from "../../database/audit-context";
 import { FileStorageService } from "../file-storage.service";
 import { executeRun } from "./executor";
 import { ClaudeExtractionProvider } from "./extraction/claude-extraction.provider";
@@ -105,6 +106,23 @@ const storage = new FileStorageService();
 /** Identifies this process in `lockedBy` — useful when a lock outlives a deploy. */
 const WORKER_ID = `nf-${process.pid}-${randomUUID().slice(0, 8)}`;
 
+/**
+ * Who the ledger says wrote this worker's rows (audit P2). Contractual: the
+ * trigger stores `source` and `username` verbatim and the history UI shows
+ * them.
+ *
+ * **Where it may and may not be used** (ruling R-C). `withAuditContext` arms
+ * the ambient state, which means everything inside it runs in ONE transaction —
+ * so it may only ever wrap the short database steps below. It is never wrapped
+ * around `storage.getObjectBuffer`, `provider.extract` or `executeRun`: those
+ * are the LLM/HTTP/e-mail calls this file's header comment promises never to
+ * hold a connection across, on a pool of five.
+ */
+const NODE_FILES_JOB = {
+  source: "job",
+  username: "node-files-worker",
+} as const;
+
 /** Overridable so tests and future phases can swap the provider. */
 type ProviderFactory = (companyId: number) => Promise<IExtractionProvider>;
 
@@ -128,16 +146,23 @@ export function providerFor(
 const defaultProviderFactory: ProviderFactory = async (companyId) =>
   providerFor(await resolveExtractionSettings(companyId));
 
-/** Put abandoned claims back in the queue. Returns how many moved. */
+/**
+ * Put abandoned claims back in the queue. Returns how many moved.
+ *
+ * Wrapped whole because the whole of it is two short statements against
+ * `nf_runs` and nothing else — no bytes, no provider, no node.
+ */
 export async function sweepStaleLocks(now: Date = new Date()): Promise<number> {
-  const candidates = await runDAO.listExtracting();
-  const ids = staleRunIds(candidates, now);
-  if (ids.length === 0) return 0;
-  const requeued = await runDAO.requeue(ids);
-  if (requeued > 0) {
-    console.warn(`[node-files] requeued ${requeued} abandoned run(s)`);
-  }
-  return requeued;
+  return withAuditContext(NODE_FILES_JOB, async () => {
+    const candidates = await runDAO.listExtracting();
+    const ids = staleRunIds(candidates, now);
+    if (ids.length === 0) return 0;
+    const requeued = await runDAO.requeue(ids);
+    if (requeued > 0) {
+      console.warn(`[node-files] requeued ${requeued} abandoned run(s)`);
+    }
+    return requeued;
+  });
 }
 
 /**
@@ -154,17 +179,21 @@ export async function sweepStaleLocks(now: Date = new Date()): Promise<number> {
 export async function sweepAbandonedExecutions(
   now: Date = new Date(),
 ): Promise<number> {
-  const candidates = await runDAO.listRunningClaims();
-  const ids = staleRunIds(candidates, now);
-  if (ids.length === 0) return 0;
-  const failed = await runDAO.failAbandonedExecutions(
-    ids,
-    "La ejecución se interrumpió; revisá los nodos ya ejecutados antes de reintentar",
-  );
-  if (failed > 0) {
-    console.warn(`[node-files] failed ${failed} abandoned execution(s)`);
-  }
-  return failed;
+  // Wrapped whole, for the same reason as `sweepStaleLocks`: two short
+  // statements against `nf_runs`, no external I/O anywhere inside.
+  return withAuditContext(NODE_FILES_JOB, async () => {
+    const candidates = await runDAO.listRunningClaims();
+    const ids = staleRunIds(candidates, now);
+    if (ids.length === 0) return 0;
+    const failed = await runDAO.failAbandonedExecutions(
+      ids,
+      "La ejecución se interrumpió; revisá los nodos ya ejecutados antes de reintentar",
+    );
+    if (failed > 0) {
+      console.warn(`[node-files] failed ${failed} abandoned execution(s)`);
+    }
+    return failed;
+  });
 }
 
 /**
@@ -177,6 +206,14 @@ export async function sweepAbandonedExecutions(
  *   3. fetch bytes   — external I/O, no DB connection held
  *   4. call provider — external I/O, no DB connection held
  *   5. record        — one short statement
+ *
+ * **Deliberately NOT wrapped in `withAuditContext`** (audit P2, ruling R-C).
+ * Steps 3 and 4 sit between the writes, so there is no region here that both
+ * covers a write and excludes an external call. The rows this function writes
+ * therefore reach the trigger with no context and are logged `source='sql'`
+ * with a null actor — an accepted, documented gap, not an oversight. Pushing
+ * the context down onto `markFinished` / `markFailed` is the follow-up; do that
+ * rather than widening a wrapper up to here.
  */
 export async function processNextRun(
   providerFactory: ProviderFactory = defaultProviderFactory,
@@ -275,12 +312,23 @@ export async function processNextRun(
  * unlocked — which is what `POST /review` leaves behind — and execute it.
  *
  * Returns whether there was anything to do.
+ *
+ * **Not wrapped whole** (audit P2, ruling R-C). `executeRun` alternates node
+ * execution — HTTP requests, e-mail — with one short INSERT per node, so a
+ * context arming the whole call would hold a `nodefiles` connection across
+ * every node of the graph. The two short database steps that live *here* are
+ * wrapped one at a time instead: the claim, and the crash-path failure record.
+ * `executeRun`'s own writes stay unattributed, exactly as `processNextRun`'s do.
  */
 export async function processNextExecution(): Promise<boolean> {
-  const claim = await runDAO.claimNextRunnable(WORKER_ID);
+  const claim = await withAuditContext(NODE_FILES_JOB, () =>
+    runDAO.claimNextRunnable(WORKER_ID),
+  );
   if (!claim) return false;
 
   try {
+    // Outside every context on purpose: this is the half that talks to the
+    // network.
     await executeRun(claim);
   } catch (err) {
     // `executeRun` handles its own node failures; reaching here means the
@@ -289,19 +337,19 @@ export async function processNextExecution(): Promise<boolean> {
       `[node-files] execution of run ${claim.uuid} crashed:`,
       err instanceof Error ? err.message : err,
     );
-    await runDAO
-      .finishExecution(
+    await withAuditContext(NODE_FILES_JOB, () =>
+      runDAO.finishExecution(
         claim.id,
         claim.companyId,
         "failed",
         "Error inesperado al ejecutar el flujo",
-      )
-      .catch((markErr: unknown) => {
-        console.error(
-          `[node-files] could not record failure for run ${claim.uuid}:`,
-          markErr instanceof Error ? markErr.message : markErr,
-        );
-      });
+      ),
+    ).catch((markErr: unknown) => {
+      console.error(
+        `[node-files] could not record failure for run ${claim.uuid}:`,
+        markErr instanceof Error ? markErr.message : markErr,
+      );
+    });
   }
   return true;
 }

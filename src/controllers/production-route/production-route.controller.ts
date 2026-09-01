@@ -12,7 +12,7 @@ import {
   StageSupplyType,
 } from "../../interfaces/production-route/production-route.interfaces";
 import { validateRoute } from "../../services/route-validator.service";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 import {
   ProductionRouteCreateInputDTO,
   ProductionRouteUpdateInputDTO,
@@ -33,15 +33,6 @@ export class ProductionRouteController {
   private dao = new ProductionRouteDAO();
   private machineTypeDAO = new MachineTypeDAO();
   private machineDAO = new MachineDAO();
-  private audit = new AuditService();
-
-  private async recordAudit(
-    req: any,
-    op: "Alta" | "Baja" | "Modificacion",
-    entity: any,
-  ): Promise<void> {
-    await this.audit.record(req, "Production route", op, entity ?? null);
-  }
 
   /** Resolve stage-tree UUIDs → numeric ids. Writes the 400 and returns null on any miss. */
   private async resolveStages(
@@ -232,7 +223,6 @@ export class ProductionRouteController {
         isDefault: inputDTO.isDefault ?? false,
         stages: stages ?? [],
       });
-      await this.recordAudit(req, "Alta", route);
       res.status(201).json({ success: true, data: route, warnings });
     } catch (err: any) {
       next(err);
@@ -277,7 +267,6 @@ export class ProductionRouteController {
         ...routeFields,
         ...(stages !== undefined ? { stages } : {}),
       });
-      await this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated, warnings });
     } catch (err: any) {
       next(err);
@@ -302,8 +291,10 @@ export class ProductionRouteController {
       if (await this.dao.nameExists(source.companyId!, name)) {
         name = `${name} (copia)`;
       }
+      // A domain verb: the trigger sees an ordinary INSERT of a route and its
+      // whole stage tree, not that they were copied from another route.
+      await setAuditAction("production_route.clone");
       const cloned = await this.dao.clone(source.id, name);
-      await this.recordAudit(req, "Alta", cloned);
       res.status(201).json({ success: true, data: cloned });
     } catch (err: any) {
       next(err);
@@ -338,9 +329,9 @@ export class ProductionRouteController {
           .json({ success: false, message: "Source route not found" });
         return;
       }
+      await setAuditAction("production_route.copy_stages");
       await this.dao.copyStages(target.id, source.id);
       const updated = await this.dao.getByUuid(req.params.uuid, companyUuid);
-      await this.recordAudit(req, "Modificacion", updated);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -371,7 +362,6 @@ export class ProductionRouteController {
         return;
       }
       await this.dao.delete(existing.id);
-      await this.recordAudit(req, "Baja", existing);
       res.status(200).json({
         success: true,
         message: "Production route deleted successfully",

@@ -10,7 +10,7 @@ import {
   NodeFilesWorkflowStatusInputDTO,
   NodeFilesWorkflowUpdateInputDTO,
 } from "../../dto/input/node-files";
-import { AuditService } from "../../services/audit.service";
+import { setAuditAction } from "../../database/audit-context";
 import {
   INodeFilesContext,
   INodeFilesUploadFile,
@@ -82,7 +82,6 @@ export class NodeFilesController {
   private _service = new NodeFilesService();
   private _companyDAO = new CompanyDAO();
   private _userDAO = new UserDAO();
-  private _audit = new AuditService();
 
   // ---- helpers ----------------------------------------------------------
 
@@ -177,16 +176,6 @@ export class NodeFilesController {
     next(err);
   }
 
-  /** Best-effort audit hook (audit_logs) — awaited; AuditService swallows its own errors. */
-  private async recordAudit(
-    req: Request,
-    entityName: "NodeFilesWorkflow" | "NodeFilesRun" | "NodeFilesCredential",
-    operation: "Alta" | "Modificacion" | "Baja",
-    entity: Record<string, unknown> | null,
-  ): Promise<void> {
-    await this._audit.record(req, entityName, operation, entity);
-  }
-
   // ---- workflows --------------------------------------------------------
 
   public async listWorkflows(
@@ -257,7 +246,6 @@ export class NodeFilesController {
         inputDTO,
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesWorkflow", "Alta", { ...data });
       res.status(201).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -290,9 +278,6 @@ export class NodeFilesController {
         inputDTO,
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesWorkflow", "Modificacion", {
-        ...data,
-      });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -310,11 +295,7 @@ export class NodeFilesController {
         req.statusCode = 400;
         return next(new Error(context.message));
       }
-      const removed = await this._service.deleteWorkflow(
-        req.params.uuid as string,
-        context.ctx,
-      );
-      await this.recordAudit(req, "NodeFilesWorkflow", "Baja", { ...removed });
+      await this._service.deleteWorkflow(req.params.uuid as string, context.ctx);
       res
         .status(200)
         .json({ success: true, message: "Flujo eliminado correctamente" });
@@ -356,14 +337,14 @@ export class NodeFilesController {
         req.statusCode = 400;
         return next(new Error(context.message));
       }
+      // A domain verb: publishing or pausing a flow is an UPDATE of
+      // `nf_workflows` like any other to the trigger.
+      await setAuditAction("nf_workflow.status");
       const data = await this._service.setWorkflowStatus(
         req.params.uuid as string,
         inputDTO.status,
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesWorkflow", "Modificacion", {
-        ...data,
-      });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -385,6 +366,13 @@ export class NodeFilesController {
         return next(new Error(context.message));
       }
 
+      // The route carries `detachAudit` (P1's D2) so the S3 round trip does
+      // not hold a pooled connection: this request has no ambient transaction,
+      // so the label reaches no row today and the `nf_documents` / `nf_runs`
+      // rows land `source='sql'` with a null actor (ruling R-E, a known gap
+      // carried into P3/P4). Named here so it starts working the day the
+      // upload re-arms after the S3 call returns.
+      await setAuditAction("nf_document.upload");
       const file = (req as Request & { file?: INodeFilesUploadFile }).file;
       const result = await this._service.uploadDocument(
         req.params.uuid as string,
@@ -393,9 +381,6 @@ export class NodeFilesController {
         uuidv4(),
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesRun", "Alta", {
-        ...result.document,
-      });
       res.status(201).json({ success: true, data: result });
     } catch (err) {
       this.fail(req, next, err);
@@ -469,12 +454,13 @@ export class NodeFilesController {
         return next(new Error(context.message));
       }
 
+      // A domain verb: review, cancel and retry are all UPDATEs of `nf_runs`.
+      await setAuditAction("nf_run.review");
       const data = await this._service.reviewRun(
         req.params.uuid as string,
         inputDTO,
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -492,11 +478,11 @@ export class NodeFilesController {
         req.statusCode = 400;
         return next(new Error(context.message));
       }
+      await setAuditAction("nf_run.cancel");
       const data = await this._service.cancelRun(
         req.params.uuid as string,
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -549,7 +535,6 @@ export class NodeFilesController {
         inputDTO,
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesCredential", "Alta", { ...data });
       res.status(201).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
@@ -567,13 +552,10 @@ export class NodeFilesController {
         req.statusCode = 400;
         return next(new Error(context.message));
       }
-      const removed = await this._service.deleteCredential(
+      await this._service.deleteCredential(
         req.params.uuid as string,
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesCredential", "Baja", {
-        ...removed,
-      });
       res
         .status(200)
         .json({ success: true, message: "Credencial eliminada correctamente" });
@@ -593,11 +575,11 @@ export class NodeFilesController {
         req.statusCode = 400;
         return next(new Error(context.message));
       }
+      await setAuditAction("nf_run.retry");
       const data = await this._service.retryRun(
         req.params.uuid as string,
         context.ctx,
       );
-      await this.recordAudit(req, "NodeFilesRun", "Modificacion", { ...data });
       res.status(200).json({ success: true, data });
     } catch (err) {
       this.fail(req, next, err);
