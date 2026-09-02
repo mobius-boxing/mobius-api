@@ -8,7 +8,20 @@
  */
 export interface FilterConfig {
   column: string; // Database column name (snake_case)
-  operator?: "=" | "!=" | ">" | "<" | ">=" | "<=" | "LIKE" | "ILIKE" | "IN"; // Default: "="
+  // Default: "=". "@>" is Postgres array/jsonb containment; `applyFilters`
+  // passes it through its default branch untouched, so the transform must
+  // produce the array (audit P3's `changedKey` filter is the only user today).
+  operator?:
+    | "="
+    | "!="
+    | ">"
+    | "<"
+    | ">="
+    | "<="
+    | "LIKE"
+    | "ILIKE"
+    | "IN"
+    | "@>";
   transform?: (value: any) => any; // Transform function for the filter value
 }
 

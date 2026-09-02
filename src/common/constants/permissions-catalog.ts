@@ -1004,6 +1004,19 @@ export const MOBIUS_ADDED_PERMISSIONS: IPermissionConcept[] = [
       "Administración del módulo Node Files: eliminar flujos de extracción de documentos",
     area: "actions",
   },
+  {
+    code: "audit.read",
+    name: "Auditoría — ver",
+    description:
+      "Consulta del registro de auditoría: listado, detalle e historial de un registro",
+    area: "queries",
+  },
+  {
+    code: "audit.export",
+    name: "Auditoría — exportar",
+    description: "Exportación del registro de auditoría a CSV",
+    area: "queries",
+  },
 ];
 
 /**

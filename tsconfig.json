@@ -18,6 +18,20 @@
     "skipLibCheck": true,
     "downlevelIteration": true
   },
+  // ts-node (knex loads migrations and seeds through it) does not honour
+  // "include", so src/types.d.ts — which augments Express.Request with `user` —
+  // never entered its program. Any migration importing application code that
+  // reaches src/database/audit-context.ts then failed to compile with
+  // TS2339 "Property 'user' does not exist on type Request". That made
+  // `migrate:latest` from a fresh database impossible, and it was invisible
+  // only because the one migration that imports that chain was already
+  // applied everywhere, so knex never re-required it.
+  //
+  // "files": true loads the tsconfig's own files/include into ts-node's
+  // program. It lives here rather than in package.json because production runs
+  // migrations as `docker exec ... npx knex migrate:latest`, which never sees
+  // an npm script.
+  "ts-node": { "files": true },
   "include": ["src/**/*"],
   "exclude": [
     "node_modules",

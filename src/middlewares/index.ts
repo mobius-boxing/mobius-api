@@ -51,3 +51,6 @@ export {
 } from "./rate-limit.middleware";
 
 export { auditContext, detachAudit } from "./audit-context.middleware";
+
+// Audit read API: the per-record history gate (P3 §P3.4, ruling R-1)
+export { requireEntityHistoryAccess } from "./audit-access.middleware";

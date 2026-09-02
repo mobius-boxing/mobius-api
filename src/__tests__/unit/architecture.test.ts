@@ -170,6 +170,13 @@ describe("AC-56 — the registry is the only door", () => {
     // BEFORE its deletes, which is a transaction, not a query — no DAO method
     // can express it, and nothing else may set that setting.
     "services/company-purge.service.ts",
+    // The audit read API's presenter (P3 §R-4): a diff entry for a foreign key
+    // must show a label, never the internal number, and the columns come from
+    // `AUDIT_FK_TABLE` — 68 columns across 40-odd tables, resolved with one
+    // `whereIn` per table per response. That is the same column-to-table
+    // lookup `utils/foreignKeyResolver.ts` above does in the opposite
+    // direction (uuid -> id), and it belongs to no single entity's DAO.
+    "services/audit-presenter.service.ts",
     // Not a connection holder at all: imports connectAll/disconnectAll for the
     // process lifecycle and calls `db()` never. It only appears here because
     // this check is import-based. (It was invisible to the previous, `../`-
@@ -209,7 +216,7 @@ describe("AC-56 — the registry is the only door", () => {
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
     expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(13);
-    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(9);
+    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(10);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(
       NON_DAO_CONNECTION_HOLDERS.length,
