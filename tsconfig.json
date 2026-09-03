@@ -31,7 +31,24 @@
   // program. It lives here rather than in package.json because production runs
   // migrations as `docker exec ... npx knex migrate:latest`, which never sees
   // an npm script.
-  "ts-node": { "files": true },
+  // knex loads migrations and seeds through ts-node. Two problems, one fix:
+  //
+  // 1. tsconfig "exclude"s migrations/ and ts-node ignores "include", so
+  //    src/types.d.ts's Express.Request augmentation never entered its program
+  //    and any migration importing src/database/audit-context.ts failed with
+  //    TS2339 "Property 'user' does not exist on type Request".
+  // 2. "files": true fixed that by loading all of src/**/* into the checker —
+  //    and OOM'd the 1GB production box ("FATAL ERROR: Reached heap limit").
+  //
+  // transpileOnly skips type checking altogether, which is the right trade for
+  // migrations: correctness is already enforced by `npm run build` /
+  // `tsc --noEmit` before anything ships, and a migration process has no
+  // business type-checking the whole application at runtime.
+  //
+  // It lives here rather than in package.json because production runs
+  // migrations as `docker exec ... npx knex migrate:latest`, which never sees
+  // an npm script.
+  "ts-node": { "transpileOnly": true },
   "include": ["src/**/*"],
   "exclude": [
     "node_modules",
