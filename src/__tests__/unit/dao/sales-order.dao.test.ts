@@ -424,15 +424,15 @@ describe("SalesOrderDAO.getAllWithFilters params (AC-19, L-007)", () => {
     expect(result.limit).toBe(1);
   });
 
-  it("scopes the list by the company uuid the controller hands it (L-009)", async () => {
-    await new SalesOrderDAO().getAllWithFilters(req({}), "company-uuid");
+  it("scopes the list by the company id the controller hands it (L-009)", async () => {
+    await new SalesOrderDAO().getAllWithFilters(req({}), 7);
 
-    expect(fixtures.sales_orders.joinCalls).toContainEqual([
+    expect(fixtures.sales_orders.joinCalls ?? []).not.toContainEqual([
       "companies",
       "sales_orders.companyId",
       "companies.id",
     ]);
-    expect(listWhereCalls()).toContainEqual(["companies.uuid", "company-uuid"]);
+    expect(listWhereCalls()).toContainEqual(["sales_orders.companyId", 7]);
   });
 });
 
@@ -541,12 +541,13 @@ describe("SalesOrderDAO mapping (AC-16, AC-17, AC-18)", () => {
     fixtures.sales_orders = { firstRows: [null, null] };
     const dao = new SalesOrderDAO();
 
-    await dao.getByUuid("order-uuid", "company-uuid");
-    await dao.getIdByUuid("order-uuid", "company-uuid");
+    await dao.getByUuid("order-uuid", 7);
+    await dao.getIdByUuid("order-uuid", 7);
 
-    expect(fixtures.sales_orders.whereCalls).toContainEqual([
-      "companies.uuid",
-      "company-uuid",
-    ]);
+    expect(
+      fixtures.sales_orders.whereCalls.filter(
+        (args) => args[0] === "sales_orders.companyId" && args[1] === 7,
+      ),
+    ).toHaveLength(2);
   });
 });

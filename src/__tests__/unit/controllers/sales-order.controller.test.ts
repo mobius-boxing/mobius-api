@@ -80,6 +80,9 @@ const makeRes = () => {
   return res;
 };
 
+/** What `authenticate` resolves "company-a-uuid" to (`req.companyId`). */
+const COMPANY_A_ID = 1;
+
 const makeReq = (body = {}, overrides = {}) => ({
   params: { uuid: ORDER_UUID },
   body,
@@ -90,6 +93,7 @@ const makeReq = (body = {}, overrides = {}) => ({
     role: "member",
     companyId: "company-a-uuid",
   },
+  companyId: COMPANY_A_ID,
   ...overrides,
 });
 
@@ -487,11 +491,11 @@ describe("tenant scoping (AC-15, L-009)", () => {
 
     expect(customerDAO.getByUuid).toHaveBeenCalledWith(
       CUSTOMER_A,
-      "company-a-uuid",
+      COMPANY_A_ID,
     );
     expect(productDAO.getIdByUuid).toHaveBeenCalledWith(
       PRODUCT_A,
-      "company-a-uuid",
+      COMPANY_A_ID,
     );
   });
 
@@ -511,7 +515,7 @@ describe("tenant scoping (AC-15, L-009)", () => {
 
     expect(salesOrderDAO.getAllWithFilters).toHaveBeenCalledWith(
       expect.anything(),
-      "company-a-uuid",
+      COMPANY_A_ID,
     );
   });
 });

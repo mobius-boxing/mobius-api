@@ -1,7 +1,7 @@
 import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IInvitation } from "../../interfaces/invitation/invitation.interfaces";
-import { applyCompanyUuidScope } from "../../utils/daoScope";
+import { applyCompanyScope, type CompanyScope } from "../../utils/daoScope";
 import { hashToken } from "../../utils/tokenHash";
 
 export class InvitationDAO implements IBaseDAO<IInvitation> {
@@ -35,14 +35,14 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return invitation ? this.mapToSafe(invitation) : null;
   }
 
-  // SECURITY (C4): companyUuid, when provided, scopes the lookup to the caller's company.
+  // SECURITY (C4): companyId, when provided, scopes the lookup to the caller's company.
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IInvitation | null> {
     const knex = db("core");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const invitation = await query.select(`${this.tableName}.*`).first();
 
     // SECURITY (C4): never leak the (hashed) token in single-record responses.
@@ -83,19 +83,19 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return deleted > 0;
   }
 
-  // SECURITY (C4): companyUuid, when provided, restricts the list to that company's invitations.
+  // SECURITY (C4): companyId, when provided, restricts the list to that company's invitations.
   async getAll(
     page: number,
     limit: number,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IDataPaginator<IInvitation>> {
     const knex = db("core");
     const offset = (page - 1) * limit;
 
     const dataQuery = knex(this.tableName);
     const countQuery = knex(this.tableName);
-    applyCompanyUuidScope(dataQuery, this.tableName, companyUuid);
-    applyCompanyUuidScope(countQuery, this.tableName, companyUuid);
+    applyCompanyScope(dataQuery, this.tableName, companyId);
+    applyCompanyScope(countQuery, this.tableName, companyId);
 
     const [invitations, totalResult] = await Promise.all([
       dataQuery
@@ -144,12 +144,12 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
   }
 
   // "Active" = unused AND not expired. SECURITY (C4): scoped by company UUID.
-  async getActiveInvitations(companyUuid?: string): Promise<IInvitation[]> {
+  async getActiveInvitations(companyId?: CompanyScope): Promise<IInvitation[]> {
     const knex = db("core");
     const query = knex(this.tableName)
       .where(`${this.tableName}.isUsed`, false)
       .where(`${this.tableName}.expiresAt`, ">", knex.fn.now());
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
 
     const invitations = await query
       .select(`${this.tableName}.*`)

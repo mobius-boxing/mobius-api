@@ -19,6 +19,12 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  UNRESOLVED_COMPANY,
+  type CompanyScope,
+} from "../../utils/daoScope";
 
 /**
  * Every filter the read API accepts (P3 §4). Defined outside the class per the
@@ -160,9 +166,9 @@ const dbKeyForFilters = (
  */
 const applyDefaultWindow = (
   filters: ParsedQuery["filters"],
-  companyUuid: string | undefined,
+  companyId: CompanyScope | undefined,
 ): AuditWindow => {
-  const unbounded = !companyUuid && !filters.from && !filters.to;
+  const unbounded = companyId === undefined && !filters.from && !filters.to;
   if (unbounded) {
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - AUDIT_DEFAULT_WINDOW_DAYS);
@@ -196,20 +202,18 @@ const normalizeChangedKey = (filters: ParsedQuery["filters"]): void => {
  * sanctioned door for removing rows is `company-purge.service.ts`.
  *
  * **Tenant scoping (§0.2-8, L-009).** `parseQueryParams` writes the
- * token-derived `companies.uuid` into `filters.companyId`; every method here
- * lifts it out and turns it into a join (or, in raw SQL, a single-row
- * subselect) on `companies.uuid`. A superAdmin with no `?companyId` gets no
- * filter and sees all — which is the specified behaviour. The company is never
- * read from a body. This stays correct for the v2 ledger: ruling R-A made a
- * company's own rows carry its own id, and R-B's "no foreign keys" does not
- * affect a join.
+ * token-derived company uuid into `filters.companyId`; every method here drops
+ * it and scopes by `companyFilterScope(req)` instead — a local `"companyId"`
+ * equality, in raw SQL too. A superAdmin with no `?companyId` gets no filter
+ * and sees all — which is the specified behaviour. The company is never read
+ * from a body. This stays correct for the v2 ledger: ruling R-A made a
+ * company's own rows carry its own id.
  *
  * **Which database (R-3).** `auditDbFor(entityName)` is the only place a
  * `DbKey` is chosen; `?database=` is deliberately not shipped, because all four
  * keys resolve to one physical database today and the parameter therefore
  * provably cannot change a response (L-007). When the split cuts over, the
- * cross-key fan-out lands inside `auditDbFor`, not here. The `companies` join
- * is what stops working that day — the same day `auditDbFor` becomes real.
+ * cross-key fan-out lands inside `auditDbFor`, not here.
  */
 export class AuditLogDAO {
   private tableName = "audit_logs";
@@ -220,19 +224,19 @@ export class AuditLogDAO {
   ): Promise<IDataPaginator<IAuditLog> & AuditWindow> {
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
     normalizeChangedKey(parsedQuery.filters);
-    const window = applyDefaultWindow(parsedQuery.filters, companyUuid);
+    const window = applyDefaultWindow(parsedQuery.filters, companyId);
 
     const knex = db(auditDbFor(dbKeyForFilters(parsedQuery.filters)));
 
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
-    this.scopeToCompany(dataQuery, companyUuid);
+    this.scopeToCompany(dataQuery, companyId);
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
-    this.scopeToCompany(countQuery, companyUuid);
+    this.scopeToCompany(countQuery, companyId);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     const [rows, totalResult] = await Promise.all([
@@ -263,17 +267,17 @@ export class AuditLogDAO {
   async listForExport(req: Request): Promise<AuditExportResult> {
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
     normalizeChangedKey(parsedQuery.filters);
-    const window = applyDefaultWindow(parsedQuery.filters, companyUuid);
+    const window = applyDefaultWindow(parsedQuery.filters, companyId);
 
     parsedQuery.page = 1;
     parsedQuery.limit = AUDIT_EXPORT_ROW_CAP;
 
     const knex = db(auditDbFor(dbKeyForFilters(parsedQuery.filters)));
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
-    this.scopeToCompany(dataQuery, companyUuid);
+    this.scopeToCompany(dataQuery, companyId);
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const rows = (await dataQuery) as IAuditLog[];
@@ -288,20 +292,20 @@ export class AuditLogDAO {
   /**
    * One row, with `before`, `after` and `changedKeys`.
    *
-   * `companyUuid` is the caller's token-derived scope and T5 passes it on every
+   * `companyId` is the caller's token-derived scope and T5 passes it on every
    * request: a row belonging to another tenant must read as "not found", never
    * as "found but forbidden" (AC-7). It is optional only because a superAdmin
    * with no company selected has no scope to pass.
    */
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IAuditLog | null> {
     const knex = db(auditDbFor());
     const query = knex(this.tableName)
       .select(`${this.tableName}.*`)
       .where(`${this.tableName}.uuid`, uuid);
-    this.scopeToCompany(query, companyUuid);
+    this.scopeToCompany(query, companyId);
 
     const row = await query.first();
     return (row as IAuditLog | undefined) ?? null;
@@ -346,9 +350,7 @@ export class AuditLogDAO {
     req: Request,
   ): Promise<IDataPaginator<AuditHistoryGroup>> {
     // Same scope path as every list DAO: token-derived, never from input.
-    const companyUuid = parseQueryParams(req).filters.companyId as
-      | string
-      | undefined;
+    const companyId = companyFilterScope(req);
 
     const safePage = Math.max(Math.trunc(page) || 1, 1);
     const safeLimit = Math.min(
@@ -358,9 +360,9 @@ export class AuditLogDAO {
     const offset = (safePage - 1) * safeLimit;
 
     const knex = db(auditDbFor(entityName));
-    const source = historySource(companyUuid);
+    const source = historySource(companyId);
     const scope: Record<string, unknown> = { entityName, entityUuid };
-    if (companyUuid) scope.companyUuid = companyUuid;
+    if (typeof companyId === "number") scope.companyId = companyId;
 
     const [txPage, totals] = await Promise.all([
       knex.raw(
@@ -436,18 +438,15 @@ export class AuditLogDAO {
   }
 
   /**
-   * The tenant scope, lifted from `filters.companyId` into a join on
-   * `companies.uuid` — the same shape every list DAO uses (§0.2-8). Undefined
-   * means "superAdmin with no company selected": no predicate, sees all.
+   * The tenant scope as a local `"companyId"` predicate — the same shape every
+   * list DAO uses (§0.2-8). Undefined means "superAdmin with no company
+   * selected": no predicate, sees all.
    */
   private scopeToCompany(
     query: Knex.QueryBuilder,
-    companyUuid: string | undefined,
+    companyId: CompanyScope | undefined,
   ): void {
-    if (!companyUuid) return;
-    query
-      .join("companies", `${this.tableName}.companyId`, "companies.id")
-      .where("companies.uuid", companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
   }
 }
 
@@ -462,16 +461,20 @@ const ownRowRank = (
 /**
  * The two index-prefixed legs of the history query, `UNION ALL`-ed (§4a).
  *
- * The company predicate is a single-row subselect rather than a join so that
- * `"companyId"` stays a leading equality on both indexes. It names `companies`
- * inside raw SQL, which the registry's raw boundary logger notices outside
- * production for a non-`erp` key — that warning is the split's cutover work
- * (§0.2-8), not a defect here.
+ * The company predicate is an equality on `"companyId"`, so it stays the
+ * leading column of both indexes. The id sits in a scalar subquery so the plan
+ * does not depend on its value, as with the uuid subselect this replaced:
+ * inlined, a company with few ledger rows plans leg 1 on the
+ * ("companyId","userId","occurredAt") index and loses the entity index §4a
+ * needs (audit-read.db.test.ts). An unresolved company matches nothing.
  */
-const historySource = (companyUuid: string | undefined): string => {
-  const company = companyUuid
-    ? `l."companyId" IN (SELECT c.id FROM companies c WHERE c.uuid = :companyUuid)`
-    : "TRUE";
+const historySource = (companyId: CompanyScope | undefined): string => {
+  const company =
+    companyId === undefined
+      ? "TRUE"
+      : companyId === UNRESOLVED_COMPANY
+        ? "FALSE"
+        : `l."companyId" = (SELECT CAST(:companyId AS integer))`;
 
   return `SELECT ${columnList("l")}
              FROM audit_logs l

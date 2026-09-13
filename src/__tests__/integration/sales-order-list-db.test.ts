@@ -22,6 +22,7 @@ import { Request } from "express";
 import { Client } from "pg";
 import { connectAll, disconnectAll } from "../../database/registry";
 import { SalesOrderDAO } from "../../dao/sales-order/sales-order.dao";
+import { UNRESOLVED_COMPANY } from "../../utils/daoScope";
 
 const isLocalDb =
   process.env.SQL_HOST === "localhost" || process.env.SQL_HOST === "127.0.0.1";
@@ -39,7 +40,6 @@ describeIfLocalDb(
     let client: Client;
     let dao: SalesOrderDAO;
 
-    let companyUuid = "";
     let companyId = 0;
     let productUuid = "";
     let partUuid = "";
@@ -81,7 +81,6 @@ describeIfLocalDb(
         [`SOLIST-${RUN}`, `solist-${RUN.toLowerCase()}`],
       );
       companyId = company.id;
-      companyUuid = company.uuid;
 
       const customer = await one<{ id: number }>(
         `INSERT INTO customers (uuid, "companyId", name, code)
@@ -215,7 +214,13 @@ describeIfLocalDb(
       // L-013: leave the database exactly as it was found. `companies` cascades
       // customers / products / parts / corrugations / routes / paper_sheets;
       // the two order tables are RESTRICT, so they go by hand, orders first.
+      // The deletes write no ledger rows (audit_skip on this dedicated session),
+      // and the `Alta` rows the fixtures wrote go last, through the same
+      // maintenance door `purgeCompany` uses.
       try {
+        await client.query(
+          `SELECT set_config('mobius.audit_skip', 'on', false)`,
+        );
         await client.query(
           `DELETE FROM production_orders WHERE "companyId" = $1`,
           [companyId],
@@ -231,6 +236,12 @@ describeIfLocalDb(
           [companyId],
         );
         await client.query(`DELETE FROM companies WHERE id = $1`, [companyId]);
+        await client.query("BEGIN");
+        await client.query(`SET LOCAL mobius.audit_maintenance = 'on'`);
+        await client.query(`DELETE FROM audit_logs WHERE "companyId" = $1`, [
+          companyId,
+        ]);
+        await client.query("COMMIT");
       } finally {
         await client.end();
         await disconnectAll();
@@ -241,7 +252,7 @@ describeIfLocalDb(
     const numbersFor = async (query: Record<string, string>) => {
       const result = await dao.getAllWithFilters(
         req({ limit: "100", ...query }),
-        companyUuid,
+        companyId,
       );
       // The count query must agree with the data query (AC-18).
       expect(result.totalCount).toBe(result.data.length);
@@ -349,7 +360,7 @@ describeIfLocalDb(
     it("builds the three item descriptions from the real joined rows (AC-34)", async () => {
       const result = await dao.getAllWithFilters(
         req({ limit: "100" }),
-        companyUuid,
+        companyId,
       );
       const byNumber = new Map(
         result.data.map((order) => [order.number, order.itemDescription]),
@@ -369,7 +380,7 @@ describeIfLocalDb(
     it("answers an empty page for a pedido with orderDataId = NULL (AC-26)", async () => {
       const result = await dao.getAssociatedProductionOrders(
         orders.sheet,
-        companyUuid,
+        companyId,
         1,
         20,
       );
@@ -380,7 +391,7 @@ describeIfLocalDb(
     it("returns the pedido's own OPs, uuid-only (AC-25)", async () => {
       const result = await dao.getAssociatedProductionOrders(
         orders.product,
-        companyUuid,
+        companyId,
         1,
         20,
       );
@@ -400,7 +411,18 @@ describeIfLocalDb(
       expect(
         await dao.getAssociatedProductionOrders(
           orders.product,
-          "00000000-0000-4000-8000-000000000000",
+          companyId + 100000,
+          1,
+          20,
+        ),
+      ).toBeNull();
+    });
+
+    it("refuses when the caller's company does not resolve (T1/D-98)", async () => {
+      expect(
+        await dao.getAssociatedProductionOrders(
+          orders.product,
+          UNRESOLVED_COMPANY,
           1,
           20,
         ),

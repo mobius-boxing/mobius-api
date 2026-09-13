@@ -1,16 +1,15 @@
 import { Request, Response, NextFunction } from "express";
-import { CompanyDAO } from "../dao/company/company.dao";
 import { CompanyModuleDAO } from "../dao/company-module/company-module.dao";
+import { getCompanyScope } from "../utils/companyScope";
 
 /**
- * requireModule(slug): resolves the target company (same precedence as companyScope —
- * superAdmin reads query/body companyId; everyone else uses the JWT company UUID),
- * resolves the UUID to a numeric companyId, then 403s unless that company has the
- * module enabled (CompanyModuleDAO.isEnabled).
+ * requireModule(slug): 403s unless the effective company has the module enabled
+ * (CompanyModuleDAO.isEnabled).
  *
- * SECURITY: mirrors companyScope precedence exactly so this gate and the data-scoping
- * never disagree. SuperAdmin MUST pass a company (query/body companyId) for store routes —
- * store data is always company-scoped.
+ * SECURITY: the company is `req.companyId`, resolved once by `authenticate` with
+ * companyScope precedence, so this gate and the data-scoping never disagree.
+ * SuperAdmin MUST pass a company (query/body companyId) — module data is always
+ * company-scoped.
  */
 export const requireModule = (slug: string) => {
   return async (
@@ -19,13 +18,7 @@ export const requireModule = (slug: string) => {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const isSuperAdmin = user?.role === "superAdmin";
-
-      const companyUuid = isSuperAdmin
-        ? ((req.query.companyId as string | undefined) ??
-          (req.body?.companyId as string | undefined))
-        : (user?.companyId as unknown as string | undefined);
+      const { companyUuid, isSuperAdmin } = getCompanyScope(req);
 
       if (!companyUuid) {
         res.status(400).json({
@@ -37,8 +30,8 @@ export const requireModule = (slug: string) => {
         return;
       }
 
-      const companyId = await new CompanyDAO().getIdByUuid(companyUuid);
-      if (!companyId) {
+      const companyId = req.companyId;
+      if (companyId === undefined) {
         res.status(404).json({
           success: false,
           message: "Company not found.",

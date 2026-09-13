@@ -19,7 +19,6 @@ import {
   BaseCrudController,
   BaseCrudOptions,
 } from "../base/base-crud.controller";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
 import { setAuditAction } from "../../database/audit-context";
 import { RbacService } from "../../services/rbac.service";
 import {
@@ -29,6 +28,7 @@ import {
   SalesOrderLifecycleDAO,
   VoidAction,
 } from "../../dao/sales-order/sales-order-lifecycle.dao";
+import { companyFilterScope, type CompanyScope } from "../../utils/daoScope";
 
 /** The nested read's page-size cap, identical to `queryBuilder.ts:34`. */
 const MAX_PAGE_SIZE = 100;
@@ -234,7 +234,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
 
     const location = await this.deliveryLocationDAO.getByUuid(
       inputDTO.deliveryLocationUuid,
-      getCompanyFilterUuid(req),
+      companyFilterScope(req),
     );
     if (!location?.id) {
       res
@@ -282,12 +282,12 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
    */
   private async resolvePartSubtype(
     inputDTO: SalesOrderCreateInputDTO,
-    companyUuid: string | undefined,
+    companyScope: CompanyScope | undefined,
     res: Response,
   ): Promise<{ partId: number; customerUuid: string } | false> {
     // L-009: a parte from another company behaves as not-found, never as a
     // CHECK-constraint 500.
-    const part = await this.partDAO.getByUuid(inputDTO.partUuid!, companyUuid);
+    const part = await this.partDAO.getByUuid(inputDTO.partUuid!, companyScope);
     if (!part?.id) {
       res.status(404).json({ success: false, message: "Part not found" });
       return false;
@@ -321,13 +321,17 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
   ): Promise<any | null> {
     if (!(await this.enforceFieldPermissions(inputDTO, req, res))) return null;
 
-    const companyUuid = getCompanyFilterUuid(req);
+    const companyScope = companyFilterScope(req);
 
     // Exactly one discriminator reaches here (the DTO's XOR rule).
     let partId: number | null = null;
     let customerUuid = inputDTO.customerUuid;
     if (inputDTO.partUuid) {
-      const subtype = await this.resolvePartSubtype(inputDTO, companyUuid, res);
+      const subtype = await this.resolvePartSubtype(
+        inputDTO,
+        companyScope,
+        res,
+      );
       if (subtype === false) return null;
       partId = subtype.partId;
       customerUuid = subtype.customerUuid;
@@ -336,7 +340,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     // L-009: a customer uuid from another company behaves as not-found.
     const customer = await this.customerDAO.getByUuid(
       customerUuid!,
-      companyUuid,
+      companyScope,
     );
     if (!customer?.id) {
       res.status(404).json({ success: false, message: "Customer not found" });
@@ -347,12 +351,12 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     if (partId === null) {
       productId = await this.productDAO.getIdByUuid(
         inputDTO.productUuid!,
-        companyUuid,
+        companyScope,
       );
       const product = productId
         ? await this.productDAO.getWithDetails(
             inputDTO.productUuid!,
-            companyUuid,
+            companyScope,
           )
         : null;
       if (!productId || !product) {
@@ -414,8 +418,8 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
   ): Promise<any | null> {
     if (!(await this.enforceFieldPermissions(inputDTO, req, res))) return null;
 
-    const companyUuid = getCompanyFilterUuid(req);
-    const existing = await this.dao.getByUuid(req.params.uuid, companyUuid);
+    const companyScope = companyFilterScope(req);
+    const existing = await this.dao.getByUuid(req.params.uuid, companyScope);
     if (!existing) {
       this.sendNotFound(res);
       return null;
@@ -450,7 +454,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     if (inputDTO.sent("partUuid")) {
       const sentPartId = await this.partDAO.getIdByUuid(
         inputDTO.partUuid!,
-        companyUuid,
+        companyScope,
       );
       if (!sentPartId || sentPartId !== (existing.partId ?? null)) {
         res.status(400).json({
@@ -530,7 +534,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
       await this.applySalesSectorProjection(req, res);
       const result = await this.dao.getAllWithFilters(
         req,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       res.status(200).json(result);
     } catch (err: any) {
@@ -560,7 +564,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
       );
       const result = await this.dao.getAssociatedProductionOrders(
         req.params.uuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
         page < 1 ? 1 : page,
         limit < 1 ? 20 : limit,
       );
@@ -632,7 +636,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
 
       const existingId = await this.dao.getIdByUuid(
         req.params.uuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!existingId) {
         res
@@ -698,7 +702,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
 
       const existingId = await this.dao.getIdByUuid(
         req.params.uuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!existingId) {
         this.sendLifecycleNotFound(res);
@@ -775,7 +779,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
 
       const existingId = await this.dao.getIdByUuid(
         req.params.uuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!existingId) {
         this.sendLifecycleNotFound(res);

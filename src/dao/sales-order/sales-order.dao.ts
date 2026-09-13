@@ -22,7 +22,11 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
-import { applyCompanyUuidScope } from "../../utils/daoScope";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import {
   assertUuidParam,
   parseDateParam,
@@ -51,7 +55,7 @@ function upperDateBound(raw: string): Date {
   return parsed;
 }
 
-// companyId is handled via a join (the client sends a UUID); customerUuid /
+// companyId is handled separately (companyFilterScope); customerUuid /
 // productUuid / partUuid / sheetSupplyUuid / salesUserUuid are resolved to
 // numeric ids in getAllWithFilters and applied inside `applyExtra` — NOT as
 // filter keys here, so no numeric internal id is reachable as a query param on
@@ -240,14 +244,14 @@ export class SalesOrderDAO {
 
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<ISalesOrder | null> {
     const knex = db("erp");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
     );
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const row = await query.first();
     // L-005: re-attach the numeric id explicitly — mapToInterface strips it,
     // and callers that guard on `existing.id` would 404 forever otherwise.
@@ -266,11 +270,11 @@ export class SalesOrderDAO {
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
@@ -455,7 +459,7 @@ export class SalesOrderDAO {
    */
   async getAllWithFilters(
     req: Request,
-    scopedCompanyUuid?: string,
+    scopedCompanyId?: CompanyScope,
   ): Promise<IDataPaginator<ISalesOrder>> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
@@ -463,9 +467,7 @@ export class SalesOrderDAO {
     // SECURITY (L-009): the caller's company scope arrives as an explicit
     // argument from the controller. Express 5 discards writes to req.query, so
     // the enforceCompanyFilter() query-mutation pattern cannot be relied on.
-    const companyUuid =
-      scopedCompanyUuid ??
-      (parsedQuery.filters.companyId as string | undefined);
+    const companyId = scopedCompanyId ?? companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     // Derived (non column-operator) params: validated, then taken out of the
@@ -546,7 +548,7 @@ export class SalesOrderDAO {
         );
 
     const applyExtra = (q: any) => {
-      applyCompanyUuidScope(q, this.tableName, companyUuid);
+      applyCompanyScope(q, this.tableName, companyId);
       for (const [column, id] of resolvedIds) {
         q.where(`${this.tableName}.${column}`, "=", id);
       }
@@ -630,14 +632,14 @@ export class SalesOrderDAO {
   /**
    * The OPs of the pedido's `order_data`, `number` ascending.
    *
-   * L-009: the pedido is resolved through `applyCompanyUuidScope`, so another
+   * L-009: the pedido is resolved through `applyCompanyScope`, so another
    * tenant's uuid is indistinguishable from a missing one — `null` here, a 404
    * at the controller. `orderDataId IS NULL` is an EMPTY list, never an error
    * (spec §API surface).
    */
   async getAssociatedProductionOrders(
     salesOrderUuid: string,
-    companyUuid: string | undefined,
+    companyId: CompanyScope | undefined,
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IAssociatedProductionOrder> | null> {
@@ -646,7 +648,7 @@ export class SalesOrderDAO {
       `${this.tableName}.uuid`,
       salesOrderUuid,
     );
-    applyCompanyUuidScope(orderQuery, this.tableName, companyUuid);
+    applyCompanyScope(orderQuery, this.tableName, companyId);
     const order = await orderQuery
       .select(
         `${this.tableName}.orderDataId`,

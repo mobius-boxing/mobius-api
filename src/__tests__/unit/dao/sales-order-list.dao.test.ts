@@ -107,8 +107,8 @@ const SHEET_UUID = "33333333-3333-4333-8333-333333333333";
 const SALES_USER_UUID = "44444444-4444-4444-8444-444444444444";
 const ORDER_UUID = "55555555-5555-4555-8555-555555555555";
 
-const list = (query = {}, companyUuid) =>
-  new SalesOrderDAO().getAllWithFilters(req(query), companyUuid);
+const list = (query = {}, companyScope) =>
+  new SalesOrderDAO().getAllWithFilters(req(query), companyScope);
 
 /** The two `sales_orders` builders: [data query, count query]. */
 const orderBuilders = () => builders.filter((b) => b.table === "sales_orders");
@@ -543,17 +543,73 @@ describe("applyExtra symmetry (AC-18)", () => {
   ])(
     "records the same derived predicates on both builders for %s",
     async (_label, query) => {
-      await list(query, "company-uuid");
+      await list(query, 7);
 
       const [data, count] = orderBuilders();
       expect(count).toBeDefined();
       expect(derivedSignature(count)).toEqual(derivedSignature(data));
       // …and the company scope is part of what both receive (L-009).
-      expect(derivedSignature(data)[0]).toBe(
-        "join(companies,sales_orders.companyId,companies.id)",
-      );
+      expect(derivedSignature(data)[0]).toBe("where(sales_orders.companyId,7)");
     },
   );
+});
+
+// ── T1/D-97, T1/D-98: the list scope a request carries ──────────────────────
+describe("list scope derived from the request (T1/D-97, T1/D-98)", () => {
+  const STALE_COMPANY = "66666666-6666-4666-8666-666666666666";
+  const asRequest = (user, extra = {}) => ({
+    query: {},
+    body: {},
+    user,
+    ...extra,
+  });
+  const scopePredicates = (builder) =>
+    builder.calls
+      .filter(
+        ([name, args]) =>
+          (name === "where" && args[0] === "sales_orders.companyId") ||
+          name === "whereRaw",
+      )
+      .map(signature);
+
+  it("lists nothing for a user whose token company no longer resolves", async () => {
+    await new SalesOrderDAO().getAllWithFilters(
+      asRequest({ role: "member", companyId: STALE_COMPANY }),
+    );
+
+    const [data, count] = orderBuilders();
+    expect(scopePredicates(data)).toEqual(["whereRaw(false)"]);
+    expect(scopePredicates(count)).toEqual(["whereRaw(false)"]);
+  });
+
+  it("ignores a superAdmin's body.companyId, resolved or not, as the uuid filter did", async () => {
+    for (const resolved of [{ companyId: 9 }, {}]) {
+      builders = [];
+      await new SalesOrderDAO().getAllWithFilters(
+        asRequest(
+          { role: "superAdmin" },
+          { body: { companyId: STALE_COMPANY }, ...resolved },
+        ),
+      );
+
+      const [data, count] = orderBuilders();
+      expect(scopePredicates(data)).toEqual([]);
+      expect(scopePredicates(count)).toEqual([]);
+    }
+  });
+
+  it("scopes a user by the id authenticate resolved, never by a company they name", async () => {
+    await new SalesOrderDAO().getAllWithFilters(
+      asRequest(
+        { role: "admin", companyId: "77777777-7777-4777-8777-777777777777" },
+        { companyId: 7, query: { companyId: STALE_COMPANY } },
+      ),
+    );
+
+    const [data, count] = orderBuilders();
+    expect(scopePredicates(data)).toEqual(["where(sales_orders.companyId,7)"]);
+    expect(scopePredicates(count)).toEqual(["where(sales_orders.companyId,7)"]);
+  });
 });
 
 // ── AC-34: the item description ────────────────────────────────────────────
@@ -604,12 +660,11 @@ describe("getAssociatedProductionOrders (AC-25, AC-26)", () => {
     fixtures.sales_orders = { firstRows: [null] };
 
     expect(
-      await dao().getAssociatedProductionOrders(ORDER_UUID, "company-b", 1, 20),
+      await dao().getAssociatedProductionOrders(ORDER_UUID, 9, 1, 20),
     ).toBeNull();
-    expect(fixtures.sales_orders.joinCalls).toContainEqual([
-      "companies",
+    expect(fixtures.sales_orders.whereCalls).toContainEqual([
       "sales_orders.companyId",
-      "companies.id",
+      9,
     ]);
   });
 

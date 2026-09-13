@@ -13,7 +13,11 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
-import { applyCompanyUuidScope } from "../../utils/daoScope";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import { diffSets } from "../../utils/setDiff";
 
 const ROLE_FILTERS: FilterConfigs = {
@@ -51,10 +55,13 @@ export class RoleDAO {
     return row as IRole;
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IRole | null> {
+  async getByUuid(
+    uuid: string,
+    companyId?: CompanyScope,
+  ): Promise<IRole | null> {
     const knex = db("core");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid, "companyId");
+    applyCompanyScope(query, this.tableName, companyId, "companyId");
     const row = await query.select(`${this.tableName}.*`).first();
     if (!row) return null;
 
@@ -161,23 +168,15 @@ export class RoleDAO {
     const knex = db("core");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
-    if (companyUuid) {
-      dataQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, this.tableName, companyId);
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
-    if (companyUuid) {
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(countQuery, this.tableName, companyId);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     const [rows, totalResult] = await Promise.all([

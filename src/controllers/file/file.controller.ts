@@ -2,10 +2,8 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { FileDAO } from "../../dao/file/file.dao";
 import { FileStorageService } from "../../services/file-storage.service";
-import {
-  getCompanyFilterUuid,
-  getCompanyForCreate,
-} from "../../utils/companyScope";
+import { getCompanyForCreate } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 // Procusto had no size/type limits; we add a defensive cap (D-note in file-storage.md).
 export const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
@@ -126,8 +124,8 @@ export class FileController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const file = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const file = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!file) {
         res.status(404).json({ success: false, message: "File not found" });
         return;
@@ -144,8 +142,8 @@ export class FileController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const file = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const file = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!file) {
         res.status(404).json({ success: false, message: "File not found" });
         return;
@@ -184,8 +182,8 @@ export class FileController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const source = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const source = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!source) {
         res.status(404).json({ success: false, message: "File not found" });
         return;
@@ -220,8 +218,8 @@ export class FileController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const file = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const file = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!file || !file.id) {
         res.status(404).json({ success: false, message: "File not found" });
         return;

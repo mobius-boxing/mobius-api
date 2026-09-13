@@ -9,7 +9,11 @@ import {
   LifecycleMachine,
 } from "../../interfaces/production-order/production-order.interfaces";
 import { toCountOut, toNumberOut } from "../../utils/numbers";
-import { applyCompanyUuidScope } from "../../utils/daoScope";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import {
   parseQueryParams,
   buildQuery,
@@ -246,14 +250,14 @@ export class ProductionOrderDAO {
 
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IProductionOrder | null> {
     const knex = db("erp");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
     );
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const row = await query.first();
     if (!row) return null;
     // L-005: re-attach the numeric ids explicitly — mapToInterface strips them,
@@ -275,11 +279,11 @@ export class ProductionOrderDAO {
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
@@ -407,20 +411,19 @@ export class ProductionOrderDAO {
   /**
    * Lock the pedido row so two concurrent generations serialise: the loser
    * reaches the "already has orders" guard only after the winner has
-   * committed. `FOR UPDATE OF sales_orders` is deliberate BECAUSE the company
-   * scope is a JOIN (`utils/daoScope.ts:26-30`): a bare `FOR UPDATE` would lock
-   * the joined `companies` row too and serialise unrelated tenant writes, so
-   * the lock has to name the table it means.
+   * committed. `FOR UPDATE OF sales_orders` names the table it means: a bare
+   * `FOR UPDATE` would also lock every row a join on this read brings in, and
+   * serialise writes that have nothing to do with this pedido.
    */
   async lockSalesOrderTrx(
     trx: any,
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<ILockedSalesOrder | null> {
     return this.readSalesOrder(
       trx,
       (q: any) => q.where("sales_orders.uuid", uuid),
-      companyUuid,
+      companyId,
       true,
     );
   }
@@ -432,12 +435,12 @@ export class ProductionOrderDAO {
    */
   async readSalesOrderForGeneration(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<ILockedSalesOrder | null> {
     return this.readSalesOrder(
       db("erp"),
       (q: any) => q.where("sales_orders.uuid", uuid),
-      companyUuid,
+      companyId,
       false,
     );
   }
@@ -462,14 +465,13 @@ export class ProductionOrderDAO {
   private async readSalesOrder(
     knex: any,
     applyWhere: (q: any) => any,
-    companyUuid: string | undefined,
+    companyId: CompanyScope | undefined,
     lock: boolean,
   ): Promise<ILockedSalesOrder | null> {
     const query = applyWhere(knex("sales_orders").select("sales_orders.*"));
-    applyCompanyUuidScope(query, "sales_orders", companyUuid);
-    // `FOR UPDATE OF sales_orders`, never a bare FOR UPDATE: the company scope
-    // above joins `companies`, and locking a company row on every generation
-    // would serialise unrelated tenant writes.
+    applyCompanyScope(query, "sales_orders", companyId);
+    // `FOR UPDATE OF sales_orders`, never a bare FOR UPDATE: a join added to
+    // this read must not drag its rows into the lock.
     if (lock) query.forUpdate("sales_orders");
     const row = await query.first();
     if (!row) return null;
@@ -542,12 +544,12 @@ export class ProductionOrderDAO {
   async resolveReferenceId(
     table: string,
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const query = db("erp")(table)
       .where(`${table}.uuid`, uuid)
       .select(`${table}.id`);
-    applyCompanyUuidScope(query, table, companyUuid);
+    applyCompanyScope(query, table, companyId);
     const row = await query.first();
     return row?.id ?? null;
   }
@@ -607,7 +609,7 @@ export class ProductionOrderDAO {
   // ── List ─────────────────────────────────────────────────────────────────
   async getAllWithFilters(
     req: Request,
-    scopedCompanyUuid?: string,
+    scopedCompanyId?: CompanyScope,
   ): Promise<IDataPaginator<IProductionOrder>> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
@@ -615,9 +617,7 @@ export class ProductionOrderDAO {
     // SECURITY (L-009): the caller's company scope arrives as an explicit
     // argument. Express 5 discards writes to req.query, so the
     // enforceCompanyFilter() mutation pattern cannot be relied on.
-    const companyUuid =
-      scopedCompanyUuid ??
-      (parsedQuery.filters.companyId as string | undefined);
+    const companyId = scopedCompanyId ?? companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     await this.resolveUuidFilter(
@@ -725,12 +725,7 @@ export class ProductionOrderDAO {
             .select("parts.id"),
         );
       }
-      if (companyUuid) {
-        q.join("companies", `${table}.companyId`, "companies.id").where(
-          "companies.uuid",
-          companyUuid,
-        );
-      }
+      applyCompanyScope(q, table, companyId);
       return q;
     };
 

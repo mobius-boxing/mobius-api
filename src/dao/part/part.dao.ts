@@ -18,7 +18,11 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
-import { applyCompanyUuidScope } from "../../utils/daoScope";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import {
   PartCalculator,
   CascadeField,
@@ -349,24 +353,27 @@ export class PartDAO {
       );
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IPart | null> {
+  async getByUuid(
+    uuid: string,
+    companyId?: CompanyScope,
+  ): Promise<IPart | null> {
     const knex = db("erp");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
     );
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const row = await query.first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
@@ -668,7 +675,7 @@ export class PartDAO {
     const parsedQuery: ParsedQuery = parseQueryParams(req);
     Object.assign(parsedQuery.filters, extraFilters ?? {});
 
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     const productUuid = parsedQuery.filters.productUuid as string | undefined;
@@ -708,13 +715,7 @@ export class PartDAO {
             .select("products.id"),
         );
       }
-      if (companyUuid) {
-        q.join(
-          "companies",
-          `${this.tableName}.companyId`,
-          "companies.id",
-        ).where("companies.uuid", companyUuid);
-      }
+      applyCompanyScope(q, this.tableName, companyId);
       return q;
     };
 

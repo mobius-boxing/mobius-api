@@ -14,7 +14,7 @@ import {
   auditedTablesOf,
 } from "../../database/audit-coverage";
 import { DB_KEYS } from "../../database/keys";
-import { parseQueryParams } from "../../utils/queryBuilder";
+import { companyFilterScope } from "../../utils/daoScope";
 
 /**
  * Every audited table, across every database key. `files` is fanned out to
@@ -510,13 +510,12 @@ export class AuditLogController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      // Token-derived scope (L-009); `parseQueryParams` is where every list DAO
-      // gets it, so the detail endpoint cannot drift from them.
-      const companyUuid = parseQueryParams(req).filters.companyId as
-        | string
-        | undefined;
-
-      const row = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      // Token-derived scope (L-009); `companyFilterScope` is where every list
+      // DAO gets it, so the detail endpoint cannot drift from them.
+      const row = await this.dao.getByUuid(
+        req.params.uuid,
+        companyFilterScope(req),
+      );
       if (!row) {
         res.status(404).json({
           success: false,

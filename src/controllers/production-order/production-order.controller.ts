@@ -17,10 +17,7 @@ import {
   BaseCrudController,
   BaseCrudOptions,
 } from "../base/base-crud.controller";
-import {
-  getCompanyFilterUuid,
-  getCompanyForCreate,
-} from "../../utils/companyScope";
+import { getCompanyForCreate } from "../../utils/companyScope";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
 import { AppConfigService } from "../../services/app-config.service";
 import {
@@ -31,6 +28,7 @@ import { ProductionOrderGenerationService } from "../../services/production-orde
 import { validateProductionOrder } from "../../services/production-order-validator.service";
 import { autoFulfillIfComplete } from "../../services/sales-order-fulfillment.service";
 import { setAuditAction } from "../../database/audit-context";
+import { companyFilterScope, type CompanyScope } from "../../utils/daoScope";
 
 /** uuid body field → { table it lives in, numeric column it resolves to }. */
 const REFERENCES: Record<string, { table: string; idKey: string }> = {
@@ -142,7 +140,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
     req: Request,
     res: Response,
   ): Promise<Record<string, number | null> | false> {
-    const companyUuid = getCompanyFilterUuid(req);
+    const companyScope = companyFilterScope(req);
     const refs: Record<string, number | null> = {};
 
     for (const [uuidKey, config] of Object.entries(REFERENCES)) {
@@ -155,7 +153,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
       const id = await this.dao.resolveReferenceId(
         config.table,
         value,
-        companyUuid,
+        companyScope,
       );
       if (!id) {
         res.status(404).json({
@@ -171,7 +169,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
     if (dto.sent("salesOrderUuid") && dto.salesOrderUuid) {
       const salesOrder = await this.dao.readSalesOrderForGeneration(
         dto.salesOrderUuid as string,
-        companyUuid,
+        companyScope,
       );
       if (!salesOrder?.orderDataId) {
         res.status(404).json({
@@ -355,7 +353,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
   ): Promise<any | null> {
     const existing = await this.dao.getByUuid(
       req.params.uuid,
-      getCompanyFilterUuid(req),
+      companyFilterScope(req),
     );
     if (!existing) {
       this.sendNotFound(res);
@@ -457,7 +455,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
     try {
       const result = await this.dao.getAllWithFilters(
         req,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       res.status(200).json(result);
     } catch (err: any) {
@@ -482,7 +480,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
       }
       const eligibility = await this.generation.getEligibility(
         salesOrderUuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!eligibility) {
         res.status(404).json({
@@ -521,7 +519,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
         promisedQuantities: inputDTO.promisedQuantities,
         force: inputDTO.force,
         username: req.user?.email ?? "unknown",
-        companyUuid: getCompanyFilterUuid(req),
+        companyScope: companyFilterScope(req),
       });
 
       if (outcome.ok) {
@@ -572,9 +570,9 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
    */
   private async findSalesOrderUuidToLock(
     orderUuid: string,
-    companyUuid?: string,
+    companyScope?: CompanyScope,
   ): Promise<string | null> {
-    const order = await this.dao.getByUuid(orderUuid, companyUuid);
+    const order = await this.dao.getByUuid(orderUuid, companyScope);
     const orderDataId = (order as { orderDataId?: number } | null)?.orderDataId;
     if (!orderDataId) return null;
     const salesOrder = await this.dao.readSalesOrderByOrderDataId(orderDataId);
@@ -600,10 +598,10 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
       next: NextFunction,
     ): Promise<void> => {
       try {
-        const companyUuid = getCompanyFilterUuid(req);
+        const companyScope = companyFilterScope(req);
         const existingId = await this.dao.getIdByUuid(
           req.params.uuid,
-          companyUuid,
+          companyScope,
         );
         if (!existingId) {
           this.sendNotFound(res);
@@ -614,7 +612,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
         // statement inside it (see the lock-ordering note there).
         const pedidoUuidToLock =
           machine === "completion" && action === "set"
-            ? await this.findSalesOrderUuidToLock(req.params.uuid, companyUuid)
+            ? await this.findSalesOrderUuidToLock(req.params.uuid, companyScope)
             : null;
 
         const row = await this.dao.transaction(async (trx) => {
@@ -632,9 +630,9 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
           // The lock is taken UNSCOPED. It is a lock, not an authorisation
           // check — the caller's company was already enforced by `getIdByUuid`
           // above, and `findSalesOrderUuidToLock` resolved this uuid through
-          // the same unscoped 1:1 chain. Passing `companyUuid` here would make
+          // the same unscoped 1:1 chain. Passing `companyScope` here would make
           // `lockSalesOrderTrx` return null WITHOUT taking any lock whenever
-          // its company-scoped join disagreed with that read (an "operating
+          // its company scope disagreed with that read (an "operating
           // as" superAdmin, a pedido whose company row moved), silently
           // restoring the very ABBA cycle this block exists to prevent.
           if (pedidoUuidToLock) {
@@ -680,7 +678,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
         });
 
         const updated = row
-          ? await this.dao.getByUuid(row.uuid, companyUuid)
+          ? await this.dao.getByUuid(row.uuid, companyScope)
           : null;
         res.status(200).json({ success: true, data: updated });
       } catch (err: any) {

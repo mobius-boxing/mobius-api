@@ -13,16 +13,14 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import {
-  getCompanyForCreate,
-  getCompanyFilterUuid,
-} from "../../utils/companyScope";
+import { getCompanyForCreate } from "../../utils/companyScope";
 import {
   validate,
   FORMULA_PARAMETERS,
   FORMULA_FUNCTIONS,
   FORMULA_OPERATORS,
 } from "../../services/formula-engine";
+import { companyFilterScope } from "../../utils/daoScope";
 
 export class ModelController extends BaseCrudController<IModel> {
   protected dao = new ModelDAO();
@@ -93,7 +91,7 @@ export class ModelController extends BaseCrudController<IModel> {
     res: Response,
   ): Promise<Record<string, any> | null> {
     const resolved: Record<string, any> = {};
-    const companyUuid = getCompanyFilterUuid(req);
+    const companyScope = companyFilterScope(req);
 
     if (inputDTO.flapTypeUuid !== undefined) {
       if (!inputDTO.flapTypeUuid) {
@@ -101,7 +99,7 @@ export class ModelController extends BaseCrudController<IModel> {
       } else {
         const flapType = await this.flapTypeDAO.getByUuid(
           inputDTO.flapTypeUuid,
-          companyUuid,
+          companyScope,
         );
         if (!flapType?.id) {
           res
@@ -119,7 +117,7 @@ export class ModelController extends BaseCrudController<IModel> {
       } else {
         const complement = await this.complementDAO.getByUuid(
           inputDTO.complementUuid,
-          companyUuid,
+          companyScope,
         );
         if (!complement?.id) {
           res
@@ -198,7 +196,7 @@ export class ModelController extends BaseCrudController<IModel> {
     try {
       const result = await this.dao.getAllWithFilters(
         req,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       res.status(200).json(result);
     } catch (err: any) {
@@ -214,8 +212,8 @@ export class ModelController extends BaseCrudController<IModel> {
   ): Promise<void> {
     try {
       const { uuid } = req.params;
-      const companyUuid = this.itemCompanyUuid(req);
-      const existingId = await this.resolveIdByUuid(uuid, companyUuid);
+      const companyScope = this.itemCompanyScope(req);
+      const existingId = await this.resolveIdByUuid(uuid, companyScope);
       if (!existingId) {
         this.sendNotFound(res);
         return;

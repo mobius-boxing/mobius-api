@@ -12,10 +12,8 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import {
-  getCompanyForCreate,
-  getCompanyFilterUuid,
-} from "../../utils/companyScope";
+import { getCompanyForCreate } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 export class MachineController extends BaseCrudController<IMachine> {
   protected dao = new MachineDAO();
@@ -79,13 +77,13 @@ export class MachineController extends BaseCrudController<IMachine> {
     req: Request,
     res: Response,
   ): Promise<Record<string, number | null> | null> {
-    const companyUuid = getCompanyFilterUuid(req);
+    const companyScope = companyFilterScope(req);
     const resolved: Record<string, number | null> = {};
 
     if (inputDTO.machineTypeUuid !== undefined) {
       const machineTypeId = await this.machineTypeDAO.getIdByUuid(
         inputDTO.machineTypeUuid,
-        companyUuid,
+        companyScope,
       );
       if (!machineTypeId) {
         res

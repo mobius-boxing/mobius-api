@@ -11,10 +11,15 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import { Request } from "express";
 
-// companyId is intentionally absent — handled separately via a join in getAllWithFilters
-// because the client sends a UUID, not a numeric id.
+// companyId is intentionally absent — getAllWithFilters scopes through
+// companyFilterScope(req); `filters.companyId` holds a uuid, not a column value.
 const CUSTOMER_FILTERS: FilterConfigs = {
   name: {
     column: "name",
@@ -108,19 +113,15 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return customer ? this.mapToInterface(customer) : null;
   }
 
-  // companyUuid filter, when present, doubles as an ownership check (null if not in user's company).
+  // companyId filter, when present, doubles as an ownership check (null if not in user's company).
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<ICustomer | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
-    if (companyUuid) {
-      query
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
 
     const customer = await query.select(`${this.tableName}.*`).first();
 
@@ -187,7 +188,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   async getAll(
     page: number,
     limit: number,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IDataPaginator<ICustomer>> {
     const knex = db("erp");
     const offset = (page - 1) * limit;
@@ -195,14 +196,8 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const query = knex(this.tableName);
     const countQuery = knex(this.tableName);
 
-    if (companyUuid) {
-      query
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
+    applyCompanyScope(countQuery, this.tableName, companyId);
 
     const [customers, totalResult] = await Promise.all([
       query
@@ -230,27 +225,18 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Client sends a UUID for companyId; resolve via join against companies.uuid.
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    if (companyUuid) {
-      dataQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, this.tableName, companyId);
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
 
-    if (companyUuid) {
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(countQuery, this.tableName, companyId);
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
@@ -274,7 +260,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
   async getCustomerWithDetails(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<ICustomer | null> {
     const knex = db("erp");
 
@@ -296,9 +282,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       .leftJoin("users", "customers.salesPersonId", "users.id")
       .where("customers.uuid", uuid);
 
-    if (companyUuid) {
-      query.where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
 
     const customer = await query.first();
 

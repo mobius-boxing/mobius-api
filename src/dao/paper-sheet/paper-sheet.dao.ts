@@ -11,10 +11,14 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
-import { applyCompanyUuidScope } from "../../utils/daoScope";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import { Request } from "express";
 
-// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
+// companyId is handled separately (companyFilterScope): `filters.companyId` holds a uuid, not a column value.
 const PAPER_SHEET_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -121,11 +125,11 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
 
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IPaperSheet | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const paperSheet = await query.select(`${this.tableName}.*`).first();
 
     return paperSheet ? this.mapToInterface(paperSheet) : null;
@@ -133,11 +137,11 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
@@ -234,8 +238,7 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Client sends a UUID for companyId; resolve via join against companies.uuid.
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     const dataQuery = knex(this.tableName)
@@ -257,19 +260,11 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
         "corrugations.id",
       );
 
-    if (companyUuid) {
-      dataQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, this.tableName, companyId);
 
     const countQuery = knex(this.tableName);
 
-    if (companyUuid) {
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(countQuery, this.tableName, companyId);
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);

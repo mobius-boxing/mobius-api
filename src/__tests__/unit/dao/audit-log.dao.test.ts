@@ -49,6 +49,8 @@ import {
 
 const TABLE = "audit_logs";
 const COMPANY_UUID = "11111111-1111-4111-8111-111111111111";
+/** What `authenticate` resolves COMPANY_UUID to (`req.companyId`). */
+const COMPANY_ID = 5;
 const RECORD_UUID = "22222222-2222-4222-8222-222222222222";
 const CHILD_UUID = "33333333-3333-4333-8333-333333333333";
 
@@ -72,9 +74,14 @@ const ALL_FILTERS = {
 const asAdmin = (query = {}) => ({
   query,
   user: { role: "admin", companyId: COMPANY_UUID },
+  companyId: COMPANY_ID,
 });
 
-const asSuperAdmin = (query = {}) => ({ query, user: { role: "superAdmin" } });
+const asSuperAdmin = (query = {}, companyId = undefined) => ({
+  query,
+  user: { role: "superAdmin" },
+  companyId,
+});
 
 /**
  * `createTableAwareKnexMock` records `where`/`orderBy` but hands out a fresh,
@@ -310,15 +317,11 @@ describe("AuditLogDAO.getAllWithFilters — the filter set (AC-3)", () => {
 });
 
 describe("AuditLogDAO — tenant scoping (L-009, §0.2-8)", () => {
-  it("joins companies on the token-derived uuid", async () => {
+  it("scopes by the token-derived company id, with no join", async () => {
     await new AuditLogDAO().getAllWithFilters(asAdmin());
 
-    expect(mockCalls.join).toContainEqual([
-      "companies",
-      `${TABLE}.companyId`,
-      "companies.id",
-    ]);
-    expect(whereCalls()).toContainEqual(["companies.uuid", COMPANY_UUID]);
+    expect(mockCalls.join).toEqual([]);
+    expect(whereCalls()).toContainEqual([`${TABLE}.companyId`, COMPANY_ID]);
   });
 
   it("never takes the company from the request body", async () => {
@@ -327,14 +330,14 @@ describe("AuditLogDAO — tenant scoping (L-009, §0.2-8)", () => {
 
     await new AuditLogDAO().getAllWithFilters(req);
 
-    expect(whereCalls()).toContainEqual(["companies.uuid", COMPANY_UUID]);
+    expect(whereCalls()).toContainEqual([`${TABLE}.companyId`, COMPANY_ID]);
   });
 
   it("applies no company predicate for a superAdmin with no ?companyId", async () => {
     await new AuditLogDAO().getAllWithFilters(asSuperAdmin());
 
     expect(mockCalls.join).toEqual([]);
-    expect(whereCalls().some((args) => args[0] === "companies.uuid")).toBe(
+    expect(whereCalls().some((args) => args[0] === `${TABLE}.companyId`)).toBe(
       false,
     );
   });
@@ -342,10 +345,10 @@ describe("AuditLogDAO — tenant scoping (L-009, §0.2-8)", () => {
   it("scopes a superAdmin who selected a company", async () => {
     const other = "66666666-6666-4666-8666-666666666666";
     await new AuditLogDAO().getAllWithFilters(
-      asSuperAdmin({ companyId: other }),
+      asSuperAdmin({ companyId: other }, 6),
     );
 
-    expect(whereCalls()).toContainEqual(["companies.uuid", other]);
+    expect(whereCalls()).toContainEqual([`${TABLE}.companyId`, 6]);
   });
 });
 
@@ -464,7 +467,7 @@ describe("AuditLogDAO.getHistory — the UNION (§4a, AC-4)", () => {
     expect(txPage[1]).toMatchObject({
       entityName: "production_routes",
       entityUuid: RECORD_UUID,
-      companyUuid: COMPANY_UUID,
+      companyId: COMPANY_ID,
     });
   });
 
@@ -476,9 +479,24 @@ describe("AuditLogDAO.getHistory — the UNION (§4a, AC-4)", () => {
     expect(legs).toHaveLength(2);
     for (const leg of legs) {
       expect(leg).toContain(
-        'l."companyId" IN (SELECT c.id FROM companies c WHERE c.uuid = :companyUuid)',
+        'l."companyId" = (SELECT CAST(:companyId AS integer))',
       );
     }
+  });
+
+  it("matches no row when the caller's token company does not resolve (T1/D-98)", async () => {
+    await runHistory({
+      query: {},
+      user: { role: "admin", companyId: COMPANY_UUID },
+    });
+    const { txPage } = historySql();
+
+    const legs = txPage[0].split("UNION ALL");
+    expect(legs).toHaveLength(2);
+    for (const leg of legs) {
+      expect(leg).toMatch(/WHERE FALSE\s+AND/);
+    }
+    expect(txPage[1].companyId).toBeUndefined();
   });
 
   it("applies no company predicate for an unscoped superAdmin", async () => {
@@ -486,7 +504,7 @@ describe("AuditLogDAO.getHistory — the UNION (§4a, AC-4)", () => {
     const { txPage } = historySql();
 
     expect(txPage[0]).not.toContain("companies");
-    expect(txPage[1].companyUuid).toBeUndefined();
+    expect(txPage[1].companyId).toBeUndefined();
   });
 
   it("never date-defaults a history (a record's history is complete)", async () => {
@@ -621,11 +639,11 @@ describe("AuditLogDAO.getByUuid", () => {
     });
     mock.fixture(TABLE).firstRows = [row];
 
-    const found = await new AuditLogDAO().getByUuid(row.uuid, COMPANY_UUID);
+    const found = await new AuditLogDAO().getByUuid(row.uuid, COMPANY_ID);
 
     expect(found).toBe(row);
     expect(whereCalls()).toContainEqual([`${TABLE}.uuid`, row.uuid]);
-    expect(whereCalls()).toContainEqual(["companies.uuid", COMPANY_UUID]);
+    expect(whereCalls()).toContainEqual([`${TABLE}.companyId`, COMPANY_ID]);
     expect(mockDbKeys).toEqual(["erp"]);
   });
 

@@ -12,7 +12,7 @@ import {
   BaseCrudController,
   BaseCrudOptions,
 } from "../base/base-crud.controller";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 export class WarehouseLocationController extends BaseCrudController<IWarehouseLocation> {
   protected dao = new WarehouseLocationDAO();
@@ -73,7 +73,7 @@ export class WarehouseLocationController extends BaseCrudController<IWarehouseLo
       // uuids resolve to "not found" (closes a read IDOR on getByWarehouse and a write IDOR on batchUpdate).
       const warehouseId = await this._warehouseDAO.getIdByUuid(
         warehouseUuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!warehouseId) {
         res.status(404).json({
@@ -107,7 +107,7 @@ export class WarehouseLocationController extends BaseCrudController<IWarehouseLo
       // uuids resolve to "not found" (closes a read IDOR on getByWarehouse and a write IDOR on batchUpdate).
       const warehouseId = await this._warehouseDAO.getIdByUuid(
         warehouseUuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!warehouseId) {
         res.status(404).json({

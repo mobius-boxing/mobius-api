@@ -1,60 +1,72 @@
+import type { Request } from "express";
 import { Knex } from "knex";
+import { getCompanyFilterUuid } from "./companyScope";
 
 /**
- * SECURITY (C2): DRY company-scoping for single-record DAO reads (getByUuid / getIdByUuid).
- *
- * When `companyUuid` is provided, joins `companies` on the table's direct `companyId` column and
- * filters by `companies.uuid`. This doubles as an ownership check: a record belonging to another
- * company simply won't be returned (callers map that to a 404), preventing IDOR.
- *
- * When `companyUuid` is undefined (e.g. SuperAdmin with no company filter), the query is left
- * untouched so full cross-company access is preserved.
- *
- * Mirrors the join pattern used in CustomerDAO.getByUuid.
- *
- * @param query      a Knex query builder already scoped to `tableName`
- * @param tableName  the base table (e.g. "customers", "warehouses")
- * @param companyUuid the caller's company UUID, or undefined for no scoping
- * @param companyIdColumn the FK column on the table pointing at companies.id (default "companyId")
+ * A company was named — by the caller's token or a superAdmin's selection — but
+ * no company has that uuid. A scoped query given this matches no row, as the
+ * `companies.uuid` join it replaced did; degrading to "no scope" would hand a
+ * stale token every company's rows.
  */
-export function applyCompanyUuidScope(
+export const UNRESOLVED_COMPANY: unique symbol = Symbol("UNRESOLVED_COMPANY");
+
+/** A company to scope to; `undefined` wherever it appears means "no scope". */
+export type CompanyScope = number | typeof UNRESOLVED_COMPANY;
+
+/**
+ * The scope for reads that used `getCompanyFilterUuid` — every list (through
+ * `parseQueryParams`) and every single-record ownership check.
+ *
+ * Precedence differs from `req.companyId`: a superAdmin's `body.companyId` never
+ * scopes these reads, while `req.companyId` (resolved with `getCompanyScope`)
+ * honours it. So the filter decides WHETHER to scope, and `req.companyId` only
+ * supplies the id; with both a query and a body company, the query wins in both.
+ */
+export function companyFilterScope(req: Request): CompanyScope | undefined {
+  if (!getCompanyFilterUuid(req)) return undefined;
+  return req.companyId ?? UNRESOLVED_COMPANY;
+}
+
+/**
+ * SECURITY (C2): company scoping as a local predicate on the table's own company
+ * column — no `companies` join, because the caller already holds the numeric id
+ * (`req.companyId`). A record of another company simply is not returned, which
+ * callers map to 404 (IDOR protection).
+ *
+ * `undefined` (a superAdmin with no company selected) leaves the query untouched.
+ */
+export function applyCompanyScope(
   query: Knex.QueryBuilder,
   tableName: string,
-  companyUuid?: string,
+  companyId?: CompanyScope,
   companyIdColumn: string = "companyId",
 ): Knex.QueryBuilder {
-  if (companyUuid) {
-    query
-      .join("companies", `${tableName}.${companyIdColumn}`, "companies.id")
-      .where("companies.uuid", companyUuid);
+  if (companyId === UNRESOLVED_COMPANY) {
+    query.whereRaw("false");
+  } else if (companyId !== undefined) {
+    query.where(`${tableName}.${companyIdColumn}`, companyId);
   }
   return query;
 }
 
 /**
- * SECURITY (C2): company-scoping for tables whose company link is INDIRECT through `warehouses`
- * (e.g. paper_stock, sheet_stock, consumable_stock, tooling_stock). These have no direct
- * `companyId` column; they reference a warehouse, which in turn carries `company_id`.
- *
- * When `companyUuid` is provided, joins `warehouses` (via the table's warehouse FK) → `companies`
- * and filters by `companies.uuid`. Undefined leaves the query untouched (SuperAdmin / no filter).
- *
- * @param query             a Knex query builder already scoped to `tableName`
- * @param tableName         the base stock table (e.g. "paper_stock")
- * @param companyUuid       the caller's company UUID, or undefined for no scoping
- * @param warehouseFkColumn the FK column on the table pointing at warehouses.id (default "warehouseId")
+ * SECURITY (C2): `applyCompanyScope` for tables whose company link is INDIRECT
+ * through `warehouses` (paper_stock, sheet_stock, consumable_stock,
+ * tooling_stock, warehouse_locations). The `warehouses` join is intra-tenant and
+ * stays; only the `companies` hop is gone.
  */
-export function applyCompanyUuidScopeViaWarehouse(
+export function applyCompanyScopeViaWarehouse(
   query: Knex.QueryBuilder,
   tableName: string,
-  companyUuid?: string,
+  companyId?: CompanyScope,
   warehouseFkColumn: string = "warehouseId",
 ): Knex.QueryBuilder {
-  if (companyUuid) {
+  if (companyId === UNRESOLVED_COMPANY) {
+    query.whereRaw("false");
+  } else if (companyId !== undefined) {
     query
       .join("warehouses", `${tableName}.${warehouseFkColumn}`, "warehouses.id")
-      .join("companies", "warehouses.company_id", "companies.id")
-      .where("companies.uuid", companyUuid);
+      .where("warehouses.company_id", companyId);
   }
   return query;
 }

@@ -285,10 +285,7 @@ describe("WhitelabelController.getLogo", () => {
 
     await controller.getLogo(brandingRequest(), res as Response, next);
 
-    expect(mockFileDAO.getByUuid).toHaveBeenCalledWith(
-      LOGO_UUID,
-      "0b0e2a54-1d61-4a4c-8a3f-1b2c3d4e5f60",
-    );
+    expect(mockFileDAO.getByUuid).toHaveBeenCalledWith(LOGO_UUID, 7);
     expect(res.status).toHaveBeenCalledWith(404);
   });
 

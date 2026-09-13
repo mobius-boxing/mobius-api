@@ -223,3 +223,18 @@ describe("AC-56 — the registry is the only door", () => {
     );
   });
 });
+
+describe("AC-7 (db-per-company T1) — company scoping is a local predicate", () => {
+  /** Assembled for the same reason as `BANNED`: the AC's own rg must return 0. */
+  const RETIRED_SCOPE_HELPER = ["applyCompany", "UuidScope"].join("");
+
+  it("has no definition or caller of the uuid-join scope helper left", () => {
+    expect(
+      matching((contents) => contents.includes(RETIRED_SCOPE_HELPER)),
+    ).toEqual([]);
+  });
+
+  it("scopes by the company column without joining companies", () => {
+    expect(read("utils/daoScope.ts")).not.toMatch(/join\(\s*"companies"/);
+  });
+});

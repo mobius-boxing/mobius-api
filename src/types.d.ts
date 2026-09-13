@@ -21,6 +21,12 @@ declare global {
         role: "member" | "admin" | "superAdmin";
         companyId?: string;
       };
+      /**
+       * The effective company's numeric id, resolved once by `authenticate`
+       * (via `resolveTenantContext`). Undefined for unauthenticated routes and
+       * for a superAdmin with no company selected.
+       */
+      companyId?: number;
       /** Per-request cache filled by requirePermission. */
       permissionCodes?: string[];
       permissionHasRole?: boolean;

@@ -11,10 +11,15 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
-import { applyCompanyUuidScopeViaWarehouse } from "../../utils/daoScope";
+import {
+  applyCompanyScope,
+  applyCompanyScopeViaWarehouse,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import { Request } from "express";
 
-// companyId is handled separately via a join (against warehouses.company_id) because the client sends a UUID, not a numeric id.
+// companyId is handled separately (companyFilterScope, against warehouses.company_id): `filters.companyId` holds a uuid.
 const PAPER_STOCK_FILTERS: FilterConfigs = {
   warehouseId: {
     column: `"paper_stock"."warehouseId"`,
@@ -116,23 +121,23 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
 
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IPaperStock | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     // SECURITY (C2): no direct companyId column — scope via warehouses.company_id.
-    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    applyCompanyScopeViaWarehouse(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScopeViaWarehouse(query, this.tableName, companyUuid);
+    applyCompanyScopeViaWarehouse(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
@@ -210,8 +215,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Client sends a UUID for companyId; resolve via warehouses → companies join.
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     const dataQuery = this.buildJoinQuery(knex);
@@ -222,14 +226,8 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
       "warehouses.id",
     );
 
-    if (companyUuid) {
-      dataQuery
-        .join("companies", "warehouses.company_id", "companies.id")
-        .where("companies.uuid", companyUuid);
-      countQuery
-        .join("companies", "warehouses.company_id", "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, "warehouses", companyId, "company_id");
+    applyCompanyScope(countQuery, "warehouses", companyId, "company_id");
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);

@@ -38,6 +38,8 @@ import { SalesOrderController } from "../../../controllers/sales-order/sales-ord
 
 const ORDER_UUID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const COMPANY_A = "11111111-1111-4111-8111-111111111111";
+/** What `authenticate` resolves COMPANY_A to (`req.companyId`). */
+const COMPANY_A_ID = 7;
 
 const makeRes = () => {
   const res = { statusCode: 200, body: null };
@@ -56,6 +58,7 @@ const makeReq = (overrides = {}) => ({
     role: "member",
     companyId: COMPANY_A,
   },
+  companyId: COMPANY_A_ID,
   ...overrides,
 });
 
@@ -148,7 +151,7 @@ describe("SalesOrderController.setApproval tenancy (AC-9, L-009)", () => {
 
     expect(salesOrderDAO.getIdByUuid).toHaveBeenCalledWith(
       ORDER_UUID,
-      COMPANY_A,
+      COMPANY_A_ID,
     );
   });
 
