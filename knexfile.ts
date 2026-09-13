@@ -6,11 +6,11 @@ dotenv.config();
 const isLocalhost =
   process.env.SQL_HOST === "localhost" || process.env.SQL_HOST === "127.0.0.1";
 
-// Migrations run against the ERP database. `connectionFor` is the single place
+// Migrations run against the core database. `connectionFor` is the single place
 // database env-var names are spelled (D-8), and with no per-key variable set it
 // resolves to the shared SQL_DATABASE — one database, exactly as today. The
-// per-directory / per-`knex_migrations` split is a later track.
-const erp = connectionFor("erp");
+// tenant migration set and its per-database `knex_migrations` are a later track.
+const core = connectionFor("core");
 
 const sslOption = (): Knex.PgConnectionConfig["ssl"] =>
   process.env.SQL_SSL === "true" && !isLocalhost
@@ -20,7 +20,7 @@ const sslOption = (): Knex.PgConnectionConfig["ssl"] =>
 const config: { [key: string]: Knex.Config } = {
   development: {
     client: "postgresql",
-    connection: { ...erp },
+    connection: { ...core },
     pool: {
       min: 2,
       max: 10,
@@ -34,7 +34,7 @@ const config: { [key: string]: Knex.Config } = {
   staging: {
     client: "postgresql",
     connection: {
-      ...erp,
+      ...core,
       // Opt-in, not host-derived: the deployed Postgres is a container on a
       // private Docker network with SSL disabled, so `traffic-postgres` (not
       // localhost) was being handed an SSL config it rejects — which is why
@@ -56,7 +56,7 @@ const config: { [key: string]: Knex.Config } = {
   production: {
     client: "postgresql",
     connection: {
-      ...erp,
+      ...core,
       // Opt-in, not host-derived: the deployed Postgres is a container on a
       // private Docker network with SSL disabled, so `traffic-postgres` (not
       // localhost) was being handed an SSL config it rejects — which is why
