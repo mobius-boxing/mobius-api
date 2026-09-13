@@ -11,10 +11,14 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
-import { applyCompanyUuidScope } from "../../utils/daoScope";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import { Request } from "express";
 
-// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
+// companyId is handled separately (companyFilterScope): `filters.companyId` holds a uuid, not a column value.
 const PRODUCT_TYPE_FILTERS: FilterConfigs = {
   code: {
     column: "code",
@@ -79,22 +83,22 @@ export class ProductTypeDAO implements IBaseDAO<IProductType> {
 
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IProductType | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.*`).first();
     return record ? this.mapToInterface(record) : null;
   }
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();
     return record ? record.id : null;
   }
@@ -158,26 +162,18 @@ export class ProductTypeDAO implements IBaseDAO<IProductType> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
 
-    if (companyUuid) {
-      dataQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, this.tableName, companyId);
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
 
-    if (companyUuid) {
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(countQuery, this.tableName, companyId);
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 

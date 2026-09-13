@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { InvitationCreateInputDTO } from "../../dto/input/invitation";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { getCompanyFilterUuid } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 import { db } from "../../database/registry";
 
 // SECURITY (C4): role hierarchy used to forbid escalation via invitations.
@@ -87,9 +88,8 @@ export class InvitationsController implements IBaseController {
     try {
       const { page, limit } = paginationHelper(req);
       // SECURITY (C4): admins only see their own company; superAdmin may target via ?companyId.
-      const companyUuid = getCompanyFilterUuid(req);
       const result: IDataPaginator<IInvitation> =
-        await this._invitationDAO.getAll(page, limit, companyUuid);
+        await this._invitationDAO.getAll(page, limit, companyFilterScope(req));
       res.status(200).json(result);
     } catch (err: any) {
       next(err);
@@ -104,8 +104,10 @@ export class InvitationsController implements IBaseController {
     try {
       const { uuid } = req.params;
       // SECURITY (C4): scope to the caller's company; cross-company → 404.
-      const companyUuid = getCompanyFilterUuid(req);
-      const result = await this._invitationDAO.getByUuid(uuid, companyUuid);
+      const result = await this._invitationDAO.getByUuid(
+        uuid,
+        companyFilterScope(req),
+      );
 
       if (!result) {
         res.status(404).json({
@@ -233,8 +235,10 @@ export class InvitationsController implements IBaseController {
       const actor = (req as any).user;
 
       // SECURITY (C4): scope to the caller's company; cross-company → 404.
-      const companyUuid = getCompanyFilterUuid(req);
-      const existing = await this._invitationDAO.getByUuid(uuid, companyUuid);
+      const existing = await this._invitationDAO.getByUuid(
+        uuid,
+        companyFilterScope(req),
+      );
       if (!existing || !existing.id) {
         res.status(404).json({
           success: false,
@@ -284,8 +288,10 @@ export class InvitationsController implements IBaseController {
       const { uuid } = req.params;
 
       // SECURITY (C4): scope to the caller's company; cross-company → 404.
-      const companyUuid = getCompanyFilterUuid(req);
-      const existing = await this._invitationDAO.getByUuid(uuid, companyUuid);
+      const existing = await this._invitationDAO.getByUuid(
+        uuid,
+        companyFilterScope(req),
+      );
       if (!existing || !existing.id) {
         res.status(404).json({
           success: false,
@@ -367,10 +373,10 @@ export class InvitationsController implements IBaseController {
       // company (admins → JWT company; superAdmin → optional ?companyId), preserving the UUID-only
       // contract and preventing enumeration of other companies' invitations.
       const actor = (req as any).user;
-      const companyUuid = getCompanyFilterUuid(req);
+      const companyScope = companyFilterScope(req);
 
       // Non-superAdmins MUST be company-scoped; without a company there is nothing to return.
-      if (actor?.role !== "superAdmin" && !companyUuid) {
+      if (actor?.role !== "superAdmin" && companyScope === undefined) {
         res.status(200).json({
           success: true,
           data: [],
@@ -379,7 +385,7 @@ export class InvitationsController implements IBaseController {
       }
 
       const result =
-        await this._invitationDAO.getActiveInvitations(companyUuid);
+        await this._invitationDAO.getActiveInvitations(companyScope);
 
       res.status(200).json({
         success: true,

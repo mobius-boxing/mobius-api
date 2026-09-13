@@ -12,6 +12,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyScope, companyFilterScope } from "../../utils/daoScope";
 
 const PERMISSION_FILTERS: FilterConfigs = {
   code: { column: "code", operator: "ILIKE" },
@@ -53,23 +54,15 @@ export class PermissionDAO {
     const knex = db("core");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
-    if (companyUuid) {
-      dataQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, this.tableName, companyId);
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
-    if (companyUuid) {
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(countQuery, this.tableName, companyId);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     const [rows, totalResult] = await Promise.all([

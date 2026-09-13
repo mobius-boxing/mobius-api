@@ -168,21 +168,17 @@ describe("CustomerDAO", () => {
       expect(result?.name).toBe(testData.name);
     });
 
-    it("should filter by company UUID when provided", async () => {
+    it("should filter by company id when provided", async () => {
       const company = createTestCompany();
       const testData = createTestCustomer({ companyId: company.id });
       mockQueryBuilder.first.mockResolvedValue(testData);
 
-      await dao.getByUuid(testData.uuid, company.uuid);
+      await dao.getByUuid(testData.uuid, company.id);
 
-      expect(mockQueryBuilder.join).toHaveBeenCalledWith(
-        "companies",
-        "customers.companyId",
-        "companies.id",
-      );
+      expect(mockQueryBuilder.join).not.toHaveBeenCalled();
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        "companies.uuid",
-        company.uuid,
+        "customers.companyId",
+        company.id,
       );
     });
 
@@ -325,21 +321,17 @@ describe("CustomerDAO", () => {
       expect(result.limit).toBe(10);
     });
 
-    it("should filter by company UUID when provided", async () => {
+    it("should filter by company id when provided", async () => {
       const company = createTestCompany();
       mockQueryBuilder.offset.mockResolvedValue([]);
       mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
-      await dao.getAll(1, 10, company.uuid);
+      await dao.getAll(1, 10, company.id);
 
-      expect(mockQueryBuilder.join).toHaveBeenCalledWith(
-        "companies",
-        "customers.companyId",
-        "companies.id",
-      );
+      expect(mockQueryBuilder.join).not.toHaveBeenCalled();
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        "companies.uuid",
-        company.uuid,
+        "customers.companyId",
+        company.id,
       );
     });
 
@@ -390,16 +382,16 @@ describe("CustomerDAO", () => {
       expect(result?.uuid).toBe(testData.uuid);
     });
 
-    it("should filter by company UUID when provided", async () => {
+    it("should filter by company id when provided", async () => {
       const company = createTestCompany();
       const testData = createTestCustomer();
       mockQueryBuilder.first.mockResolvedValue(testData);
 
-      await dao.getCustomerWithDetails(testData.uuid, company.uuid);
+      await dao.getCustomerWithDetails(testData.uuid, company.id);
 
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        "companies.uuid",
-        company.uuid,
+        "customers.companyId",
+        company.id,
       );
     });
 

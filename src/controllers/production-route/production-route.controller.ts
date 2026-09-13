@@ -19,10 +19,8 @@ import {
   IStageInput,
 } from "../../dto/input/production-route";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import {
-  getCompanyFilterUuid,
-  getCompanyForCreate,
-} from "../../utils/companyScope";
+import { getCompanyForCreate } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 /**
  * Production routes (module 12). Custom controller: nested-tree resolution,
@@ -42,7 +40,7 @@ export class ProductionRouteController {
   ): Promise<IRouteStage[] | null | undefined> {
     if (stages === undefined) return undefined;
     const knex = db("erp");
-    const companyUuid = getCompanyFilterUuid(req);
+    const companyScope = companyFilterScope(req);
     const resolved: IRouteStage[] = [];
 
     for (const [index, stage] of stages.entries()) {
@@ -51,7 +49,7 @@ export class ProductionRouteController {
       if (stage.machineTypeUuid) {
         machineTypeId = await this.machineTypeDAO.getIdByUuid(
           stage.machineTypeUuid,
-          companyUuid,
+          companyScope,
         );
         if (!machineTypeId) {
           res.status(400).json({
@@ -66,7 +64,7 @@ export class ProductionRouteController {
       for (const m of stage.machines ?? []) {
         const machineId = await this.machineDAO.getIdByUuid(
           m.machineUuid,
-          companyUuid,
+          companyScope,
         );
         if (!machineId) {
           res
@@ -164,7 +162,7 @@ export class ProductionRouteController {
     try {
       const route = await this.dao.getByUuid(
         req.params.uuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!route) {
         res
@@ -235,8 +233,8 @@ export class ProductionRouteController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const existing = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const existing = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!existing || !existing.id) {
         res
           .status(404)
@@ -279,8 +277,8 @@ export class ProductionRouteController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const source = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const source = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!source || !source.id) {
         res
           .status(404)
@@ -307,8 +305,8 @@ export class ProductionRouteController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const target = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const target = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!target || !target.id) {
         res
           .status(404)
@@ -322,7 +320,7 @@ export class ProductionRouteController {
           .json({ success: false, message: "sourceRouteUuid is required" });
         return;
       }
-      const source = await this.dao.getByUuid(sourceRouteUuid, companyUuid);
+      const source = await this.dao.getByUuid(sourceRouteUuid, companyScope);
       if (!source || !source.id) {
         res
           .status(404)
@@ -331,7 +329,7 @@ export class ProductionRouteController {
       }
       await setAuditAction("production_route.copy_stages");
       await this.dao.copyStages(target.id, source.id);
-      const updated = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const updated = await this.dao.getByUuid(req.params.uuid, companyScope);
       res.status(200).json({ success: true, data: updated });
     } catch (err: any) {
       next(err);
@@ -344,8 +342,8 @@ export class ProductionRouteController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const existing = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const existing = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!existing || !existing.id) {
         res
           .status(404)

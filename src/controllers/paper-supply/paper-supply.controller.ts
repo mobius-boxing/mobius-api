@@ -14,7 +14,7 @@ import {
   PaperSupplyCreateInputDTO,
   PaperSupplyUpdateInputDTO,
 } from "../../dto/input/paperSupply";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 export class PaperSupplyController implements IBaseController {
   private _paperSupplyDAO: PaperSupplyDAO = new PaperSupplyDAO();
@@ -25,7 +25,7 @@ export class PaperSupplyController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       const result: IDataPaginator<IPaperSupply> =
         await this._paperSupplyDAO.getAllWithFilters(req, companyId);
@@ -43,7 +43,7 @@ export class PaperSupplyController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       const result = await this._paperSupplyDAO.getByUuid(uuid, companyId);
 
@@ -221,7 +221,7 @@ export class PaperSupplyController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       // companyId filter doubles as ownership check (404 if not in user's company).
       // mapToInterface strips the numeric id, so resolve it separately.
@@ -320,7 +320,7 @@ export class PaperSupplyController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       // companyId filter doubles as ownership check (404 if not in user's company).
       // mapToInterface strips the numeric id, so resolve it separately.
@@ -374,7 +374,7 @@ export class PaperSupplyController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       const result = await this._paperSupplyDAO.getWithDetails(uuid, companyId);
 

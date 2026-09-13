@@ -20,9 +20,9 @@ const LOGO_CACHE_CONTROL = "public, max-age=300";
 interface ResolvedTenant {
   /**
    * id/uuid are narrowed to non-optional on purpose: the logo lookup scopes the
-   * files row by company uuid, and `applyCompanyUuidScope` treats an undefined
-   * uuid as "no scoping" (superAdmin semantics). An unresolvable company must
-   * therefore never reach that call.
+   * files row by company id, and `applyCompanyScope` treats an undefined id as
+   * "no scoping" (superAdmin semantics). An unresolvable company must therefore
+   * never reach that call.
    */
   company: ICompany & { id: number; uuid: string };
   branding: ICompanyBranding;
@@ -170,7 +170,7 @@ export class WhitelabelController {
 
       const file = await this.fileDAO.getByUuid(
         resolved.branding.logoFileUuid,
-        resolved.company.uuid,
+        resolved.company.id,
       );
       if (!file) {
         this.notFound(res);

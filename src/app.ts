@@ -12,6 +12,7 @@ import {
 import { globalRateLimiter } from "./middlewares/rate-limit.middleware";
 import { sanitizeResponse } from "./middlewares/sanitize-response.middleware";
 import { auditContext } from "./middlewares/audit-context.middleware";
+import { tenantContext } from "./middlewares/tenant-context.middleware";
 dotenv.config();
 
 // SECURITY (H4): fail fast if the CORS allowlist is missing in production.
@@ -79,6 +80,8 @@ app.use(sanitizeResponse);
 // routers, so every route is covered and `X-Request-Id` is on every response.
 // Kill switch: `AUDIT_AMBIENT_TX=off`.
 app.use(auditContext);
+
+app.use(tenantContext);
 
 const indexRouter = new IndexRouter().router;
 app.use("/api", indexRouter);

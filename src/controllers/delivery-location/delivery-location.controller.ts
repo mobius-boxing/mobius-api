@@ -12,7 +12,7 @@ import {
   BaseCrudController,
   BaseCrudOptions,
 } from "../base/base-crud.controller";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 /**
  * LugaresDeEntrega — nested child of the Customer flow (module 16 §7).
@@ -89,12 +89,12 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
     req: Request,
     res: Response,
   ): Promise<any | null> {
-    const companyUuid = getCompanyFilterUuid(req);
+    const companyScope = companyFilterScope(req);
 
     // Customer must exist and (for scoped callers) belong to the company.
     const customer = await this.customerDAO.getByUuid(
       inputDTO.customerUuid,
-      companyUuid,
+      companyScope,
     );
     if (!customer || !(customer as any).id) {
       res.status(404).json({ success: false, message: "Customer not found" });
@@ -103,7 +103,7 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
 
     const zoneId = await this.zoneDAO.getIdByUuid(
       inputDTO.deliveryZoneUuid,
-      companyUuid,
+      companyScope,
     );
     if (!zoneId) {
       res
@@ -136,7 +136,7 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
     if (inputDTO.deliveryZoneUuid !== undefined) {
       const zoneId = await this.zoneDAO.getIdByUuid(
         inputDTO.deliveryZoneUuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!zoneId) {
         res

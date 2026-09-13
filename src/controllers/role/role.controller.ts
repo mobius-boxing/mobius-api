@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { RoleDAO } from "../../dao/role/role.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { setAuditAction } from "../../database/audit-context";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 import {
   RoleCreateInputDTO,
   RoleUpdateInputDTO,
@@ -69,7 +69,7 @@ export class RoleController {
 
   public async getByUuid(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const role = await this.dao.getByUuid(req.params.uuid, getCompanyFilterUuid(req));
+      const role = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
       if (!role) {
         res.status(404).json({ success: false, message: "Role not found" });
         return;
@@ -124,7 +124,7 @@ export class RoleController {
 
   public async update(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const existing = await this.dao.getByUuid(req.params.uuid, getCompanyFilterUuid(req));
+      const existing = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
       if (!existing || !existing.id) {
         res.status(404).json({ success: false, message: "Role not found" });
         return;
@@ -159,7 +159,7 @@ export class RoleController {
 
   public async setPermissions(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const existing = await this.dao.getByUuid(req.params.uuid, getCompanyFilterUuid(req));
+      const existing = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
       if (!existing || !existing.id) {
         res.status(404).json({ success: false, message: "Role not found" });
         return;
@@ -200,7 +200,7 @@ export class RoleController {
         res.status(400).json({ success: false, message: "userUuid is required" });
         return;
       }
-      const companyUuid = getCompanyFilterUuid(req);
+      const companyScope = companyFilterScope(req);
       const user = await this.userDAO.getByUuid(userUuid);
       if (!user || !(user as any).id) {
         res.status(404).json({ success: false, message: "User not found" });
@@ -210,9 +210,8 @@ export class RoleController {
       // Cross-tenant guard on BOTH paths (assign and unassign): a non-superAdmin
       // caller may only touch users of their own company. 404, not 403, so
       // foreign users' existence isn't leaked.
-      if (companyUuid) {
-        const callerCompanyId = await this.dao.resolveCompanyId(companyUuid);
-        if ((user as any).companyId !== callerCompanyId) {
+      if (companyScope !== undefined) {
+        if ((user as any).companyId !== companyScope) {
           res.status(404).json({ success: false, message: "User not found" });
           return;
         }
@@ -220,13 +219,13 @@ export class RoleController {
 
       let roleId: number | null = null;
       if (roleUuid) {
-        const role = await this.dao.getByUuid(roleUuid, companyUuid);
+        const role = await this.dao.getByUuid(roleUuid, companyScope);
         if (!role || !role.id) {
           res.status(404).json({ success: false, message: "Role not found" });
           return;
         }
         // The role must belong to the user's company (guards the superAdmin
-        // path too, where companyUuid is undefined and no scope applied above).
+        // path too, where companyScope is undefined and no scope applied above).
         if ((user as any).companyId !== role.companyId) {
           res.status(400).json({
             success: false,
@@ -248,7 +247,7 @@ export class RoleController {
 
   public async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const existing = await this.dao.getByUuid(req.params.uuid, getCompanyFilterUuid(req));
+      const existing = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
       if (!existing || !existing.id) {
         res.status(404).json({ success: false, message: "Role not found" });
         return;

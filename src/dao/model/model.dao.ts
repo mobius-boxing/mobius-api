@@ -12,10 +12,14 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
-import { applyCompanyUuidScope } from "../../utils/daoScope";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import { assertUuidParam } from "../../utils/query-params";
 
-// companyId is handled via a join (client sends a UUID); flapTypeUuid /
+// companyId is handled separately (companyFilterScope); flapTypeUuid /
 // complementUuid are pre-resolved to numeric ids in getAllWithFilters
 // (part.dao.ts pattern) before reaching these configs.
 const MODEL_FILTERS: FilterConfigs = {
@@ -110,24 +114,27 @@ export class ModelDAO {
     return (await this.getByUuid(row.uuid)) ?? this.mapToInterface(row);
   }
 
-  async getByUuid(uuid: string, companyUuid?: string): Promise<IModel | null> {
+  async getByUuid(
+    uuid: string,
+    companyId?: CompanyScope,
+  ): Promise<IModel | null> {
     const knex = db("erp");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
     );
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const row = await query.first();
     return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScope(query, this.tableName, companyUuid);
+    applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
     return row?.id ?? null;
   }
@@ -172,7 +179,7 @@ export class ModelDAO {
 
   async getAllWithFilters(
     req: Request,
-    scopedCompanyUuid?: string,
+    scopedCompanyId?: CompanyScope,
   ): Promise<IDataPaginator<IModel>> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
@@ -181,9 +188,7 @@ export class ModelDAO {
     // argument from the controller. Express 5 discards writes to req.query,
     // so the enforceCompanyFilter() query-mutation pattern silently stopped
     // scoping lists — never rely on filters.companyId alone here.
-    const companyUuid =
-      scopedCompanyUuid ??
-      (parsedQuery.filters.companyId as string | undefined);
+    const companyId = scopedCompanyId ?? companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     // uuid filters resolve to numeric ids before buildQuery; a non-existent
@@ -233,20 +238,12 @@ export class ModelDAO {
 
     const dataQuery = this.selectWithJoins(knex);
     applyResolvedIds(dataQuery);
-    if (companyUuid) {
-      dataQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, this.tableName, companyId);
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
     applyResolvedIds(countQuery);
-    if (companyUuid) {
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(countQuery, this.tableName, companyId);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     const [rows, totalResult] = await Promise.all([

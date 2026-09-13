@@ -10,7 +10,7 @@ import {
   CustomerCategoryCreateInputDTO,
   CustomerCategoryUpdateInputDTO,
 } from "../../dto/input/customerCategory";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 export class CustomerCategoryController implements IBaseController {
   private _customerCategoryDAO: CustomerCategoryDAO = new CustomerCategoryDAO();
@@ -41,7 +41,7 @@ export class CustomerCategoryController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       const result = await this._customerCategoryDAO.getByUuid(uuid, companyId);
 
@@ -152,7 +152,7 @@ export class CustomerCategoryController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       // companyId filter doubles as ownership check (404 if not in user's company).
       const existing = await this._customerCategoryDAO.getByUuid(
@@ -196,7 +196,7 @@ export class CustomerCategoryController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       // companyId filter doubles as ownership check (404 if not in user's company).
       const existing = await this._customerCategoryDAO.getByUuid(

@@ -16,6 +16,7 @@ import {
 import { AppConfigService } from "./app-config.service";
 import { CodeGeneratorService, CODE_SCOPES } from "./code-generator.service";
 import { validateProductionOrder } from "./production-order-validator.service";
+import { type CompanyScope } from "../utils/daoScope";
 
 /**
  * "Generar órdenes de producción" — `PLSUseCases.PedidosDePartes/Editar.cs:60-107`.
@@ -185,11 +186,11 @@ export class ProductionOrderGenerationService {
    */
   async getEligibility(
     salesOrderUuid: string,
-    companyUuid?: string,
+    companyScope?: CompanyScope,
   ): Promise<IGenerationEligibility | null> {
     const salesOrder = await this.dao.readSalesOrderForGeneration(
       salesOrderUuid,
-      companyUuid,
+      companyScope,
     );
     if (!salesOrder) return null;
 
@@ -228,14 +229,14 @@ export class ProductionOrderGenerationService {
     promisedQuantities: IPromisedQuantity[];
     force: boolean;
     username: string;
-    companyUuid?: string;
+    companyScope?: CompanyScope;
   }): Promise<GenerationOutcome> {
     const outcome = await this.dao.transaction<GenerationOutcome>(
       async (trx) => {
         const salesOrder = await this.dao.lockSalesOrderTrx(
           trx,
           args.salesOrderUuid,
-          args.companyUuid,
+          args.companyScope,
         );
         if (!salesOrder) return { ok: false, kind: "not-found" };
 

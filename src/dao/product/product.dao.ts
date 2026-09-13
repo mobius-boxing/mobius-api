@@ -11,10 +11,15 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import { assertUuidParam } from "../../utils/query-params";
 import { Request } from "express";
 
-// companyId is handled separately via a join because the client sends a UUID, not a numeric id.
+// companyId is handled separately (companyFilterScope): `filters.companyId` holds a uuid, not a column value.
 // The customer filter is `customerUuid`, applied directly on the query in
 // getAllWithFilters. There is deliberately NO `customerId` entry here: it
 // parseInt'ed a value that, under the uuid-only API, is always a UUID — i.e. it
@@ -93,19 +98,15 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     return product ? this.mapToInterface(product) : null;
   }
 
-  // companyUuid filter, when present, doubles as an ownership check (null if not in user's company).
+  // companyId filter, when present, doubles as an ownership check (null if not in user's company).
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IProduct | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
-    if (companyUuid) {
-      query
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
 
     const product = await query.select(`${this.tableName}.*`).first();
 
@@ -177,7 +178,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   async getAll(
     page: number,
     limit: number,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IDataPaginator<IProduct>> {
     const knex = db("erp");
     const offset = (page - 1) * limit;
@@ -185,14 +186,8 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     const query = knex(this.tableName);
     const countQuery = knex(this.tableName);
 
-    if (companyUuid) {
-      query
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
+    applyCompanyScope(countQuery, this.tableName, companyId);
 
     const [products, totalResult] = await Promise.all([
       query
@@ -220,8 +215,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    // Client sends a UUID for companyId; resolve via join against companies.uuid.
-    const companyUuid = parsedQuery.filters.companyId as string | undefined;
+    const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
     // customerUuid → the numeric column, applied on the query (not through the
@@ -259,11 +253,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       )
       .leftJoin("box_types", `${this.tableName}.boxTypeId`, "box_types.id");
 
-    if (companyUuid) {
-      dataQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, this.tableName, companyId);
     if (customerId !== undefined) {
       dataQuery.where(`${this.tableName}.customerId`, customerId);
     }
@@ -272,11 +262,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
 
     const countQuery = knex(this.tableName);
 
-    if (companyUuid) {
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(countQuery, this.tableName, companyId);
     if (customerId !== undefined) {
       countQuery.where(`${this.tableName}.customerId`, customerId);
     }
@@ -319,18 +305,14 @@ export class ProductDAO implements IBaseDAO<IProduct> {
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName)
       .select(`${this.tableName}.id`)
       .where(`${this.tableName}.uuid`, uuid);
 
-    if (companyUuid) {
-      query
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
 
     const record = await query.first();
     return record ? record.id : null;
@@ -338,7 +320,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
 
   async getWithDetails(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IProduct | null> {
     const knex = db("erp");
 
@@ -347,11 +329,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
       .leftJoin("customers", "products.customerId", "customers.id")
       .where("products.uuid", uuid);
 
-    if (companyUuid) {
-      query
-        .join("companies", "products.companyId", "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, "products", companyId);
 
     const product = await query.first();
 

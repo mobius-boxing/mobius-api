@@ -2,18 +2,24 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { IBaseController } from "../../types.d";
 import { IDataPaginator } from "../../database/d.types";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
 import { getCompanyForCreate } from "../../utils/companyScope";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
+import { companyFilterScope, type CompanyScope } from "../../utils/daoScope";
 
 type WithId = { id?: number | null };
 
 export interface ICrudDAO<T> {
   create(item: T): Promise<T>;
-  // SECURITY (C2): companyUuid, when provided, scopes the lookup to the caller's company so a
+  // SECURITY (C2): companyScope, when provided, scopes the lookup to the caller's company so a
   // record owned by another company is invisible (IDOR protection). undefined = no scoping.
-  getByUuid(uuid: string, companyUuid?: string): Promise<(T & WithId) | null>;
-  getIdByUuid?(uuid: string, companyUuid?: string): Promise<number | null>;
+  getByUuid(
+    uuid: string,
+    companyScope?: CompanyScope,
+  ): Promise<(T & WithId) | null>;
+  getIdByUuid?(
+    uuid: string,
+    companyScope?: CompanyScope,
+  ): Promise<number | null>;
   update(id: number, item: Partial<T>): Promise<T | null>;
   delete(id: number): Promise<boolean>;
   getAllWithFilters(req: Request): Promise<IDataPaginator<T>>;
@@ -86,20 +92,20 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
   }
 
   /**
-   * SECURITY (C2): when item scoping is on, derive the caller's company UUID and pass it to the
+   * SECURITY (C2): when item scoping is on, derive the caller's company scope and pass it to the
    * DAO so cross-company records are invisible. SuperAdmins (undefined) keep full access.
    */
-  protected itemCompanyUuid(req: Request): string | undefined {
+  protected itemCompanyScope(req: Request): CompanyScope | undefined {
     return this.isCompanyScopedOnItem()
-      ? getCompanyFilterUuid(req)
+      ? companyFilterScope(req)
       : undefined;
   }
 
   protected async getOneByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyScope?: CompanyScope,
   ): Promise<TEntity | null> {
-    return this.dao.getByUuid(uuid, companyUuid);
+    return this.dao.getByUuid(uuid, companyScope);
   }
 
   protected sendNotFound(res: Response): void {
@@ -111,12 +117,12 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
 
   protected async resolveIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyScope?: CompanyScope,
   ): Promise<number | null> {
     if (typeof this.dao.getIdByUuid === "function") {
-      return this.dao.getIdByUuid(uuid, companyUuid);
+      return this.dao.getIdByUuid(uuid, companyScope);
     }
-    const existing = await this.dao.getByUuid(uuid, companyUuid);
+    const existing = await this.dao.getByUuid(uuid, companyScope);
     return existing?.id ?? null;
   }
 
@@ -140,8 +146,8 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
   ): Promise<void> {
     try {
       const { uuid } = req.params;
-      const companyUuid = this.itemCompanyUuid(req);
-      const result = await this.getOneByUuid(uuid, companyUuid);
+      const companyScope = this.itemCompanyScope(req);
+      const result = await this.getOneByUuid(uuid, companyScope);
 
       if (!result) {
         // SECURITY (C2): a non-matching company yields 404, not 403, so existence isn't leaked.
@@ -223,8 +229,8 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
       const { uuid } = req.params;
 
       // SECURITY (C2): scope resolution to the caller's company; a cross-company target → 404.
-      const companyUuid = this.itemCompanyUuid(req);
-      const existingId = await this.resolveIdByUuid(uuid, companyUuid);
+      const companyScope = this.itemCompanyScope(req);
+      const existingId = await this.resolveIdByUuid(uuid, companyScope);
       if (!existingId) {
         this.sendNotFound(res);
         return;
@@ -256,8 +262,8 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
       const { uuid } = req.params;
 
       // SECURITY (C2): scope resolution to the caller's company; a cross-company target → 404.
-      const companyUuid = this.itemCompanyUuid(req);
-      const existingId = await this.resolveIdByUuid(uuid, companyUuid);
+      const companyScope = this.itemCompanyScope(req);
+      const existingId = await this.resolveIdByUuid(uuid, companyScope);
       if (!existingId) {
         this.sendNotFound(res);
         return;

@@ -12,10 +12,8 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import {
-  getCompanyForCreate,
-  getCompanyFilterUuid,
-} from "../../utils/companyScope";
+import { getCompanyForCreate } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 export class PalletizationController extends BaseCrudController<IPalletization> {
   protected dao = new PalletizationDAO();
@@ -80,7 +78,7 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
     res: Response,
   ): Promise<Record<string, any> | null> {
     const resolved: Record<string, any> = {};
-    const companyUuid = getCompanyFilterUuid(req);
+    const companyScope = companyFilterScope(req);
 
     if (inputDTO.palletTypeUuid !== undefined) {
       if (!inputDTO.palletTypeUuid) {
@@ -88,7 +86,7 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
       } else {
         const palletTypeId = await this.palletTypeDAO.getIdByUuid(
           inputDTO.palletTypeUuid,
-          companyUuid,
+          companyScope,
         );
         if (!palletTypeId) {
           res

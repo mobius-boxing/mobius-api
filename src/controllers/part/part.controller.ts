@@ -12,10 +12,8 @@ import {
   ApprovalMachine,
 } from "../../interfaces/part/part.interfaces";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import {
-  getCompanyFilterUuid,
-  getCompanyForCreate,
-} from "../../utils/companyScope";
+import { getCompanyForCreate } from "../../utils/companyScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 const REF_TABLES: Record<string, string> = {
   corrugationUuid: "corrugations",
@@ -154,7 +152,7 @@ export class PartController {
 
   public async getByUuid(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const part = await this.dao.getByUuid(req.params.uuid, getCompanyFilterUuid(req));
+      const part = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
       if (!part) {
         res.status(404).json({ success: false, message: "Part not found" });
         return;
@@ -213,7 +211,7 @@ export class PartController {
     try {
       const existingId = await this.dao.getIdByUuid(
         req.params.uuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!existingId) {
         res.status(404).json({ success: false, message: "Part not found" });
@@ -245,8 +243,8 @@ export class PartController {
 
   public async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const companyUuid = getCompanyFilterUuid(req);
-      const existing = await this.dao.getByUuid(req.params.uuid, companyUuid);
+      const companyScope = companyFilterScope(req);
+      const existing = await this.dao.getByUuid(req.params.uuid, companyScope);
       if (!existing || !existing.id) {
         res.status(404).json({ success: false, message: "Part not found" });
         return;
@@ -287,7 +285,7 @@ export class PartController {
       }
       const existingId = await this.dao.getIdByUuid(
         req.params.uuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!existingId) {
         res.status(404).json({ success: false, message: "Part not found" });
@@ -312,10 +310,10 @@ export class PartController {
           res.status(400).json({ success: false, message: "uuids must be a non-empty array" });
           return;
         }
-        const companyUuid = getCompanyFilterUuid(req);
+        const companyScope = companyFilterScope(req);
         const ids: number[] = [];
         for (const uuid of uuids) {
-          const id = await this.dao.getIdByUuid(uuid, companyUuid);
+          const id = await this.dao.getIdByUuid(uuid, companyScope);
           if (id) ids.push(id);
         }
         const username = req.user?.email ?? "unknown";
@@ -345,7 +343,7 @@ export class PartController {
       }
       const existingId = await this.dao.getIdByUuid(
         req.params.uuid,
-        getCompanyFilterUuid(req),
+        companyFilterScope(req),
       );
       if (!existingId) {
         res.status(404).json({ success: false, message: "Part not found" });

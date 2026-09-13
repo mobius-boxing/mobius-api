@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { applyCompanyScope, type CompanyScope } from "../../utils/daoScope";
 import { Request } from "express";
 
 const PAPER_SUPPLY_FILTERS: FilterConfigs = {
@@ -120,19 +121,15 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     return paperSupply ? this.mapToInterface(paperSupply) : null;
   }
 
-  // companyUuid filter, when present, doubles as an ownership check (null if not in user's company).
+  // companyId filter, when present, doubles as an ownership check (null if not in user's company).
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IPaperSupply | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
-    if (companyUuid) {
-      query
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
 
     const paperSupply = await query
       .leftJoin("fsc_types", "paper_supplies.fscTypeId", "fsc_types.id")
@@ -204,7 +201,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
   async getAll(
     page: number,
     limit: number,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IDataPaginator<IPaperSupply>> {
     const knex = db("erp");
     const offset = (page - 1) * limit;
@@ -228,14 +225,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
 
     const countQuery = knex(this.tableName);
 
-    if (companyUuid) {
-      query
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
+    applyCompanyScope(countQuery, this.tableName, companyId);
 
     const [paperSupplies, totalResult] = await Promise.all([
       query
@@ -279,7 +270,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
 
   async getAllWithFilters(
     req: Request,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IDataPaginator<IPaperSupply>> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
@@ -303,14 +294,8 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
 
     const countQuery = knex(this.tableName);
 
-    if (companyUuid) {
-      dataQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-      countQuery
-        .join("companies", `${this.tableName}.companyId`, "companies.id")
-        .where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(dataQuery, this.tableName, companyId);
+    applyCompanyScope(countQuery, this.tableName, companyId);
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
@@ -354,7 +339,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
 
   async getWithDetails(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IPaperSupply | null> {
     const knex = db("erp");
 
@@ -376,9 +361,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id")
       .where("paper_supplies.uuid", uuid);
 
-    if (companyUuid) {
-      query.where("companies.uuid", companyUuid);
-    }
+    applyCompanyScope(query, this.tableName, companyId);
 
     const paperSupply = await query.first();
 

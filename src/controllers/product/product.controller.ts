@@ -14,12 +14,12 @@ import {
   ProductCreateInputDTO,
   ProductUpdateInputDTO,
 } from "../../dto/input/product";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
 import { db } from "../../database/registry";
 import { PartDAO } from "../../dao/part/part.dao";
 import { RbacService } from "../../services/rbac.service";
 import { PartController } from "../part/part.controller";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
+import { companyFilterScope } from "../../utils/daoScope";
 
 export class ProductController implements IBaseController {
   private _productDAO: ProductDAO = new ProductDAO();
@@ -88,7 +88,7 @@ export class ProductController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       const result = await this._productDAO.getByUuid(uuid, companyId);
 
@@ -270,7 +270,7 @@ export class ProductController implements IBaseController {
       const { uuid } = req.params;
       const data = req.body;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       // companyId scope doubles as ownership check (404 if not in user's company).
       const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
@@ -310,7 +310,7 @@ export class ProductController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       // companyId scope doubles as ownership check (404 if not in user's company).
       const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
@@ -360,7 +360,7 @@ export class ProductController implements IBaseController {
     try {
       const { uuid } = req.params;
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
 
       const result = await this._productDAO.getWithDetails(uuid, companyId);
 
@@ -404,7 +404,7 @@ export class ProductController implements IBaseController {
         return;
       }
 
-      const companyId = getCompanyFilterUuid(req);
+      const companyId = companyFilterScope(req);
       const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
       if (!existingId) {
         res.status(404).json({ success: false, message: "Product not found" });

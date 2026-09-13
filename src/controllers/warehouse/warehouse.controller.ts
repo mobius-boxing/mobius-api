@@ -104,8 +104,8 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
       const { uuid } = req.params;
 
       // SECURITY (C2): scope the warehouse lookup to the caller's company; cross-company → 404.
-      const companyUuid = this.itemCompanyUuid(req);
-      const warehouse = await this.dao.getByUuid(uuid, companyUuid);
+      const companyScope = this.itemCompanyScope(req);
+      const warehouse = await this.dao.getByUuid(uuid, companyScope);
       if (!warehouse || !warehouse.id) {
         res.status(404).json({
           success: false,

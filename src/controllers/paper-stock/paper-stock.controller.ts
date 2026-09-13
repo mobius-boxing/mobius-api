@@ -15,6 +15,7 @@ import {
   BaseCrudController,
   BaseCrudOptions,
 } from "../base/base-crud.controller";
+import { type CompanyScope } from "../../utils/daoScope";
 
 export class PaperStockController extends BaseCrudController<IPaperStock> {
   protected dao = new PaperStockDAO();
@@ -24,10 +25,13 @@ export class PaperStockController extends BaseCrudController<IPaperStock> {
 
   protected async getOneByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyScope?: CompanyScope,
   ): Promise<IPaperStock | null> {
     // SECURITY (C2): ownership gate via the company-scoped getByUuid before returning details.
-    if (companyUuid && !(await this.dao.getByUuid(uuid, companyUuid))) {
+    if (
+      companyScope !== undefined &&
+      !(await this.dao.getByUuid(uuid, companyScope))
+    ) {
       return null;
     }
     return this.dao.getWithDetails(uuid);

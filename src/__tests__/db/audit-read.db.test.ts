@@ -80,15 +80,18 @@ const ROOT_LEG = /_companyId_rootEntity_rootUuid_/;
 /**
  * A request as the read layer sees one. `parseQueryParams` takes the company
  * from `req.user` and never from input (L-009), so a scoped read is a user
- * with a `companyId` — which in the JWT is the company's **uuid** string.
+ * with a `companyId` — which in the JWT is the company's **uuid** string —
+ * plus the numeric id `authenticate` resolves it to (`req.companyId`).
  */
 const requestFor = (
   companyUuid: string,
+  companyId: number,
   query: Record<string, unknown> = {},
 ): Request =>
   ({
     query,
     user: { userId: mark("user"), companyId: companyUuid, role: "admin" },
+    companyId,
   }) as unknown as Request;
 
 describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
@@ -389,7 +392,7 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
           machineTypeUuid,
           1,
           20,
-          requestFor(companyUuid),
+          requestFor(companyUuid, companyId),
         ),
       );
       // The page of txIds, their count, and their rows (§4b): the third only
@@ -437,7 +440,7 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
         machineTypeUuid,
         1,
         20,
-        requestFor(companyUuid),
+        requestFor(companyUuid, companyId),
       );
       expect(history.totalCount).toBe(2); // the Alta and the Modificacion
       const rows = history.data.flatMap((group) => group.rows);
@@ -463,7 +466,7 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
 
       const plansFor = async (query: Record<string, unknown>) => {
         const statements = await capture(() =>
-          dao.getAllWithFilters(requestFor(companyUuid, query)),
+          dao.getAllWithFilters(requestFor(companyUuid, companyId, query)),
         );
         expect(statements).toHaveLength(2); // the page and its count
         return Promise.all(statements.map(explain));
@@ -516,7 +519,10 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
   describe("the changedKey filter", () => {
     it("returns exactly what a hand-written @> query returns", async () => {
       const page = await dao.getAllWithFilters(
-        requestFor(companyUuid, { changedKey: "attribute", limit: "100" }),
+        requestFor(companyUuid, companyId, {
+          changedKey: "attribute",
+          limit: "100",
+        }),
       );
       const fromApi = page.data.map((row) => row.uuid).sort();
 
@@ -537,7 +543,9 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
 
     it("is a real predicate — a key nothing changed returns nothing", async () => {
       const page = await dao.getAllWithFilters(
-        requestFor(companyUuid, { changedKey: "notAColumnAnywhere" }),
+        requestFor(companyUuid, companyId, {
+          changedKey: "notAColumnAnywhere",
+        }),
       );
       // A filter that had degraded into a no-op would return the company's
       // whole ledger here, which is what makes this the L-007 canary.
@@ -589,7 +597,7 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
         corrugationUuid,
         1,
         20,
-        requestFor(companyUuid),
+        requestFor(companyUuid, companyId),
       );
       const deletion = history.data.find((group) =>
         group.rows.some((row) => row.operation === "Baja"),
@@ -604,7 +612,7 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
       // And the compensating route, which is why the gap is acceptable: the
       // transaction reference groups the whole deletion.
       const byTx = await dao.getAllWithFilters(
-        requestFor(companyUuid, {
+        requestFor(companyUuid, companyId, {
           transactionRef: deletion?.txId,
           limit: "100",
         }),
@@ -659,7 +667,7 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
         roleUuid,
         1,
         20,
-        requestFor(companyUuid),
+        requestFor(companyUuid, companyId),
       );
       const rows = history.data.flatMap((group) => group.rows);
       expect(rows.some((row) => row.entityName === "role_permissions")).toBe(

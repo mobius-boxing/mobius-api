@@ -11,7 +11,11 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
-import { applyCompanyUuidScopeViaWarehouse } from "../../utils/daoScope";
+import {
+  applyCompanyScopeViaWarehouse,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
 import { Request } from "express";
 
 /**
@@ -188,15 +192,15 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
 
   async getByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<IWarehouseLocation | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     // SECURITY (C2): no direct companyId column — scope via the parent warehouse's company.
-    applyCompanyUuidScopeViaWarehouse(
+    applyCompanyScopeViaWarehouse(
       query,
       this.tableName,
-      companyUuid,
+      companyId,
       "warehouse_id",
     );
     const location = await query.select(`${this.tableName}.*`).first();
@@ -206,14 +210,14 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
 
   async getIdByUuid(
     uuid: string,
-    companyUuid?: string,
+    companyId?: CompanyScope,
   ): Promise<number | null> {
     const knex = db("erp");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
-    applyCompanyUuidScopeViaWarehouse(
+    applyCompanyScopeViaWarehouse(
       query,
       this.tableName,
-      companyUuid,
+      companyId,
       "warehouse_id",
     );
     const location = await query.select(`${this.tableName}.id`).first();
@@ -320,10 +324,27 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
     const knex = db("erp");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
+    // No direct companyId column: scope through the parent warehouse, as
+    // getByUuid does. This list used to answer every company's locations.
+    const companyId = companyFilterScope(req);
+    delete parsedQuery.filters.companyId;
+
     const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+    applyCompanyScopeViaWarehouse(
+      dataQuery,
+      this.tableName,
+      companyId,
+      "warehouse_id",
+    );
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
+    applyCompanyScopeViaWarehouse(
+      countQuery,
+      this.tableName,
+      companyId,
+      "warehouse_id",
+    );
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     const [locations, totalResult] = await Promise.all([
