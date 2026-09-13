@@ -11,7 +11,7 @@ import { applyCompanyScope, type CompanyScope } from "./daoScope";
  * (`FK_CONFIGS` spans both planes, and `getIdByUuid`/`validateUuidExists` take
  * a bare string).
  *
- * `ownerOf` answers for the 73 single-owner tables. It deliberately returns
+ * `ownerOf` answers for the 79 single-owner tables. It deliberately returns
  * `undefined` for the fanned-out names (`files`, `audit_logs`) and for anything
  * it does not know, and those two cases must not share a fallback:
  *
@@ -31,10 +31,10 @@ import { applyCompanyScope, type CompanyScope } from "./daoScope";
  */
 const FANNED_OUT_RESOLUTION: Record<string, DbKey> = {
   // The only live caller is palletization's `technicalFileUuid` /
-  // `imageFileUuid` — ERP product assets (G-2). A core company asset resolved
-  // through here would need its own deliberate entry; do not widen this into a
-  // general fallback.
-  files: "erp",
+  // `imageFileUuid` — tenant product assets (G-2). A core company asset
+  // resolved through here would need its own deliberate entry; do not widen
+  // this into a general fallback.
+  files: "tenant",
 };
 
 const CORE_LOOKUPS: Readonly<

@@ -63,7 +63,7 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
   private queryConfig = FLAP_TYPE_QUERY_CONFIG;
 
   async create(item: IFlapType): Promise<IFlapType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [flapType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,7 +77,7 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
   }
 
   async getById(id: number): Promise<IFlapType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const flapType = await knex(this.tableName).where("id", id).first();
 
     return flapType ? this.mapToInterface(flapType) : null;
@@ -87,7 +87,7 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IFlapType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const flapType = await query.select(`${this.tableName}.*`).first();
@@ -99,7 +99,7 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     id: number,
     item: Partial<IFlapType>,
   ): Promise<IFlapType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -117,7 +117,7 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -130,7 +130,7 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IFlapType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [flapTypes, totalResult] = await Promise.all([
@@ -156,7 +156,7 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IFlapType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

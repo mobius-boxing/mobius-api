@@ -77,7 +77,7 @@ export class CodeGeneratorService {
     scope: string,
     parentKey: string | null = null,
   ): Promise<number> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex("code_sequences")
       .insert({ companyId, scope, parentKey: parentKey ?? "", lastValue: 1 })
       .onConflict(["companyId", "scope", "parentKey"])
@@ -99,7 +99,7 @@ export class CodeGeneratorService {
     parentKey: string | null,
     lastValue: number,
   ): Promise<void> {
-    const knex = db("erp");
+    const knex = db("tenant");
     await knex("code_sequences")
       .insert({ companyId, scope, parentKey: parentKey ?? "", lastValue })
       .onConflict(["companyId", "scope", "parentKey"])

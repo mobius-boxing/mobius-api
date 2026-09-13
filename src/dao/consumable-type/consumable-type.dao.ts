@@ -67,7 +67,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
   private queryConfig = CONSUMABLE_TYPE_QUERY_CONFIG;
 
   async create(item: IConsumableType): Promise<IConsumableType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -82,7 +82,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
   }
 
   async getById(id: number): Promise<IConsumableType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
@@ -91,7 +91,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IConsumableType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.*`).first();
@@ -102,7 +102,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();
@@ -113,7 +113,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
     id: number,
     item: Partial<IConsumableType>,
   ): Promise<IConsumableType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -132,7 +132,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -141,7 +141,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IConsumableType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [records, totalResult] = await Promise.all([
@@ -169,7 +169,7 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IConsumableType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

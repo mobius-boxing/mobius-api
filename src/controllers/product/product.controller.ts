@@ -233,7 +233,7 @@ export class ProductController implements IBaseController {
           if (productId) {
             await this._productDAO.delete(productId);
           } else {
-            await db("erp")("products").where("uuid", result.uuid).delete();
+            await db("tenant")("products").where("uuid", result.uuid).delete();
           }
           if (partError) throw partError;
           if (!productId) {
@@ -410,7 +410,7 @@ export class ProductController implements IBaseController {
       }
 
       const username = req.user?.email ?? "unknown";
-      const knex = db("erp");
+      const knex = db("tenant");
 
       // A domain verb: the trigger sees an UPDATE of `products` (and, when it
       // cascades, of `parts`) and cannot tell approval from an ordinary edit.

@@ -48,7 +48,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
   private queryConfig = COLOR_TYPE_QUERY_CONFIG;
 
   async create(item: IColorType): Promise<IColorType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -61,7 +61,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
   }
 
   async getById(id: number): Promise<IColorType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const row = await knex(this.tableName).where("id", id).first();
     return row ? this.mapToInterface(row) : null;
   }
@@ -70,7 +70,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IColorType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.*`).first();
@@ -81,7 +81,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -92,7 +92,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
     id: number,
     item: Partial<IColorType>,
   ): Promise<IColorType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     if (item.name !== undefined) updateData.name = item.name;
     if (item.description !== undefined)
@@ -107,7 +107,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -117,7 +117,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IColorType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
     const [rows, totalResult] = await Promise.all([
       knex(this.tableName)
@@ -140,7 +140,7 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IColorType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

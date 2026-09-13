@@ -48,7 +48,7 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   private queryConfig = FSC_TYPE_QUERY_CONFIG;
 
   async create(item: IFscType): Promise<IFscType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -61,7 +61,7 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   }
 
   async getById(id: number): Promise<IFscType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const row = await knex(this.tableName).where("id", id).first();
     return row ? this.mapToInterface(row) : null;
   }
@@ -70,7 +70,7 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IFscType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.*`).first();
@@ -81,7 +81,7 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -89,7 +89,7 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   }
 
   async update(id: number, item: Partial<IFscType>): Promise<IFscType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     if (item.code !== undefined) updateData.code = item.code;
     if (item.description !== undefined)
@@ -104,14 +104,14 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   /** @deprecated Use getAllWithFilters for advanced querying. */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IFscType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
     const [rows, totalResult] = await Promise.all([
       knex(this.tableName)
@@ -134,7 +134,7 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IFscType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

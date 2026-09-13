@@ -477,7 +477,7 @@ describe("AuditPresenterService — foreign-key batching (R-4)", () => {
 
     await service.presentList([modificacion()], { includeDiff: true });
 
-    expect(mockDbKeys).toEqual(["erp"]);
+    expect(mockDbKeys).toEqual(["tenant"]);
   });
 });
 

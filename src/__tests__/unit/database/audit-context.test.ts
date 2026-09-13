@@ -106,7 +106,7 @@ import {
   withoutAudit,
   type AuditRequestState,
 } from "../../../database/audit-context";
-import { DbKey } from "../../../database/keys";
+import { PhysicalKey } from "../../../database/keys";
 import { authenticate } from "../../../middlewares/auth.middleware";
 import { errorMiddleware } from "../../../middlewares/error/error.middleware";
 import { CoreUnavailableError } from "../../../services/core-client.service";
@@ -238,7 +238,7 @@ const settingsWritten = (record: TrxRecord): unknown[] =>
  */
 const openTrx = (
   state: AuditRequestState,
-  key: DbKey,
+  key: PhysicalKey,
   open: () => Promise<Knex.Transaction>,
 ): Promise<Knex.Transaction> => {
   const memoised = state.trx.get(key);
@@ -676,8 +676,8 @@ describe("state.trx — the promise contract the registry must honour", () => {
 
     // Both callers arrive before either transaction exists — the case that
     // memoising the resolved handle gets wrong.
-    const first = openTrx(state, "erp", open);
-    const second = openTrx(state, "erp", open);
+    const first = openTrx(state, "tenant:1", open);
+    const second = openTrx(state, "tenant:1", open);
     gate.release();
     const [a, b] = await Promise.all([first, second]);
 
@@ -712,12 +712,12 @@ describe("state.trx — the promise contract the registry must honour", () => {
 
     const [a, b] = await Promise.all([
       openTrx(state, "core", () => Promise.resolve(core.trx)),
-      openTrx(state, "erp", () => Promise.resolve(erp.trx)),
+      openTrx(state, "tenant:1", () => Promise.resolve(erp.trx)),
     ]);
 
     expect(a).toBe(core.trx);
     expect(b).toBe(erp.trx);
-    expect([...state.trx.keys()]).toEqual(["core", "erp"]);
+    expect([...state.trx.keys()]).toEqual(["core", "tenant:1"]);
   });
 
   it("finishes a transaction whose open promise has not resolved yet", async () => {
@@ -827,7 +827,7 @@ describe("setAuditAction", () => {
       const core = createFakeTrx();
       const erp = createFakeTrx();
       await openTrx(state, "core", () => Promise.resolve(core.trx));
-      await openTrx(state, "erp", () => Promise.resolve(erp.trx));
+      await openTrx(state, "tenant:1", () => Promise.resolve(erp.trx));
 
       await setAuditAction("customer.update");
 
@@ -873,7 +873,7 @@ describe("finishAuditRequest", () => {
       const core = createFakeTrx();
       const erp = createFakeTrx();
       await openTrx(state, "core", () => Promise.resolve(core.trx));
-      await openTrx(state, "erp", () => Promise.resolve(erp.trx));
+      await openTrx(state, "tenant:1", () => Promise.resolve(erp.trx));
 
       await finishAuditRequest(true);
 
@@ -927,7 +927,7 @@ describe("finishAuditRequest", () => {
       fakeRequest({ method: "POST" }),
       async (state) => {
         await openTrx(state, "core", () => Promise.resolve(failing.trx));
-        await openTrx(state, "erp", () => Promise.resolve(healthy.trx));
+        await openTrx(state, "tenant:1", () => Promise.resolve(healthy.trx));
 
         return finishAuditRequest(true).catch((error: unknown) => error);
       },
@@ -983,7 +983,7 @@ describe("AC-8 — withAuditContext", () => {
         if (!state) {
           throw new Error("withAuditContext ran its callback with no state");
         }
-        await openTrx(state, "erp", () => Promise.resolve(erp.trx));
+        await openTrx(state, "tenant:1", () => Promise.resolve(erp.trx));
       },
     );
 
@@ -1003,7 +1003,7 @@ describe("AC-8 — withAuditContext", () => {
         if (!state) {
           throw new Error("withAuditContext ran its callback with no state");
         }
-        await openTrx(state, "erp", () => Promise.resolve(erp.trx));
+        await openTrx(state, "tenant:1", () => Promise.resolve(erp.trx));
         throw boom;
       }),
     ).rejects.toBe(boom);
@@ -1021,7 +1021,7 @@ describe("AC-8 — withAuditContext", () => {
         if (!state) {
           throw new Error("withAuditContext ran its callback with no state");
         }
-        await openTrx(state, "erp", () => Promise.resolve(erp.trx));
+        await openTrx(state, "tenant:1", () => Promise.resolve(erp.trx));
         throw boom;
       }),
     ).rejects.toBe(boom);

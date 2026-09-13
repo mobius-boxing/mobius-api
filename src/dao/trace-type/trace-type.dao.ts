@@ -63,7 +63,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   private queryConfig = TRACE_TYPE_QUERY_CONFIG;
 
   async create(item: ITraceType): Promise<ITraceType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [traceType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,7 +77,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   }
 
   async getById(id: number): Promise<ITraceType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const traceType = await knex(this.tableName).where("id", id).first();
 
     return traceType ? this.mapToInterface(traceType) : null;
@@ -87,7 +87,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<ITraceType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const traceType = await query.select(`${this.tableName}.*`).first();
@@ -99,7 +99,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
     id: number,
     item: Partial<ITraceType>,
   ): Promise<ITraceType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -117,7 +117,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -130,7 +130,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<ITraceType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [traceTypes, totalResult] = await Promise.all([
@@ -156,7 +156,7 @@ export class TraceTypeDAO implements IBaseDAO<ITraceType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ITraceType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

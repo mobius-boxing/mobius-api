@@ -240,7 +240,7 @@ export class SalesOrderDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<ISalesOrder | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -267,7 +267,7 @@ export class SalesOrderDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -286,7 +286,7 @@ export class SalesOrderDAO {
    * numbering would need a lock held for the whole request.
    */
   async create(item: ISalesOrderWrite): Promise<ISalesOrder> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const number = await this.codeGenerator.next(
       item.companyId!,
       CODE_SCOPES.salesOrder,
@@ -332,7 +332,7 @@ export class SalesOrderDAO {
     id: number,
     item: Partial<ISalesOrderWrite>,
   ): Promise<ISalesOrder | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updated = await knex.transaction(async (trx) => {
       const existing = await trx(this.tableName)
         .where("id", id)
@@ -365,7 +365,7 @@ export class SalesOrderDAO {
 
   // ── Delete (both rows, one transaction — no cascade does this, L-006) ─────
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     return knex.transaction(async (trx) => {
       const existing = await trx(this.tableName)
         .where("id", id)
@@ -401,7 +401,7 @@ export class SalesOrderDAO {
     action: "approve" | "cancel",
     username: string,
   ): Promise<ISalesOrder | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const cols = ORDER_MACHINE_COLUMNS[machine];
     const updateData: Record<string, unknown> = { updatedAt: knex.fn.now() };
     if (action === "approve") {
@@ -456,7 +456,7 @@ export class SalesOrderDAO {
     req: Request,
     scopedCompanyId?: CompanyScope,
   ): Promise<IDataPaginator<ISalesOrder>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // SECURITY (L-009): the caller's company scope arrives as an explicit
@@ -659,7 +659,7 @@ export class SalesOrderDAO {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IAssociatedProductionOrder> | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const orderQuery = knex(this.tableName).where(
       `${this.tableName}.uuid`,
       salesOrderUuid,

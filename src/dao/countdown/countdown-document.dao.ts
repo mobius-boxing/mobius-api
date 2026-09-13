@@ -152,7 +152,7 @@ export class CountdownDocumentDAO {
    * in Buenos Aires.
    */
   private baseQuery(companyId: number, today: string): Knex.QueryBuilder {
-    const knex = db("countdown");
+    const knex = db("tenant");
     return knex(DOCUMENTS_TABLE)
       .leftJoin(
         CATEGORIES_TABLE,
@@ -188,7 +188,7 @@ export class CountdownDocumentDAO {
     page: number,
     limit: number,
   ): Promise<{ rows: ICountdownDocumentEntry[]; totalCount: number }> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const sortColumn =
       (filters.sortBy && SORT_ALLOWLIST[filters.sortBy]) ?? DEFAULT_SORT_COLUMN;
 
@@ -299,7 +299,7 @@ export class CountdownDocumentDAO {
     uuid: string,
     companyId: number,
   ): Promise<number | undefined> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const row = await knex(DOCUMENTS_TABLE)
       .select("id")
       .where({ uuid, companyId })
@@ -311,7 +311,7 @@ export class CountdownDocumentDAO {
     uuid: string,
     companyId: number,
   ): Promise<ICountdownDocumentRow | undefined> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     return knex<ICountdownDocumentRow>(DOCUMENTS_TABLE)
       .where({ uuid, companyId })
       .first();
@@ -323,7 +323,7 @@ export class CountdownDocumentDAO {
     input: ICountdownDocumentWriteInput,
     trx?: Knex.Transaction,
   ): Promise<string> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const rows = await (trx ?? knex)(DOCUMENTS_TABLE)
       .insert({ ...input, uuid })
       .returning("uuid");
@@ -354,7 +354,7 @@ export class CountdownDocumentDAO {
       >
     >,
   ): Promise<void> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     await knex(DOCUMENTS_TABLE)
       .where({ id, companyId })
       .update({ ...patch, updatedAt: knex.fn.now() });
@@ -367,7 +367,7 @@ export class CountdownDocumentDAO {
     resolvedBy: number | null,
     trx?: Knex.Transaction,
   ): Promise<void> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const executor = trx ?? knex;
     await executor(DOCUMENTS_TABLE)
       .where({ id, companyId })
@@ -380,7 +380,7 @@ export class CountdownDocumentDAO {
   }
 
   async delete(id: number, companyId: number): Promise<boolean> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const deleted = await knex(DOCUMENTS_TABLE)
       .where({ id, companyId })
       .delete();
@@ -397,7 +397,7 @@ export class CountdownDocumentDAO {
     companyId: number,
     today: string,
   ): Promise<ICountdownDocumentSummary> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const result = await knex.raw(
       `
       select

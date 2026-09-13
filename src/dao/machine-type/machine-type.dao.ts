@@ -48,7 +48,7 @@ export class MachineTypeDAO {
   private queryConfig = MACHINE_TYPE_QUERY_CONFIG;
 
   async create(item: IMachineType): Promise<IMachineType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -69,7 +69,7 @@ export class MachineTypeDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IMachineType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.*`).first();
@@ -80,7 +80,7 @@ export class MachineTypeDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -91,7 +91,7 @@ export class MachineTypeDAO {
     id: number,
     item: Partial<IMachineType>,
   ): Promise<IMachineType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     for (const key of [
       "name",
@@ -113,13 +113,13 @@ export class MachineTypeDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IMachineType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

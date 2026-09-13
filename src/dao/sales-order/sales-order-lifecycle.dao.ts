@@ -132,7 +132,7 @@ export class SalesOrderLifecycleDAO {
   async cascadeAvailable(): Promise<boolean> {
     if (!cascadeProbe) {
       cascadeProbe = (async () => {
-        const knex = db("erp");
+        const knex = db("tenant");
         if (!(await knex.schema.hasTable(this.productionOrdersTable))) {
           return false;
         }
@@ -357,7 +357,7 @@ export class SalesOrderLifecycleDAO {
       rejected?: LifecycleRejection;
     } | null>,
   ): Promise<ILifecycleOutcome> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const result = await knex.transaction(async (trx) => {
       // R1: re-read under the lock. Both the manual and the automatic writer
       // evaluate state on THIS row, so the second one sees the first's stamp

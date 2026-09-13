@@ -70,7 +70,7 @@ export class FinishedGoodDAO {
   }
 
   async create(item: IFinishedGood): Promise<IFinishedGood> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -92,7 +92,7 @@ export class FinishedGoodDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IFinishedGood | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -106,7 +106,7 @@ export class FinishedGoodDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -117,7 +117,7 @@ export class FinishedGoodDAO {
     id: number,
     item: Partial<IFinishedGood>,
   ): Promise<IFinishedGood | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     for (const key of [
       "code",
@@ -140,7 +140,7 @@ export class FinishedGoodDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -148,7 +148,7 @@ export class FinishedGoodDAO {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IFinishedGood>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

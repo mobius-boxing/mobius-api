@@ -39,7 +39,7 @@ import { randomUUID } from "node:crypto";
 import type { Request } from "express";
 import type { Knex } from "knex";
 import { validate as isUuid } from "uuid";
-import { DbKey } from "./keys";
+import { PhysicalKey } from "./keys";
 
 /** Where the write came from. Contractual: P2's trigger stores it verbatim. */
 export type AuditSource = "api" | "job" | "seed" | "script";
@@ -77,11 +77,12 @@ export type AuditRequestState = {
   actor: AuditActor | null;
   action: string | null;
   /**
-   * Memoised OPEN promises, one per database key — the promise, not the
-   * transaction: two builders may race into T2's `ensureTrx`. Filled by the
-   * registry; only read here.
+   * Memoised OPEN promises, one per physical database — the promise, not the
+   * transaction: two builders may race into T2's `ensureTrx`. Keyed by
+   * `PhysicalKey`, so `core` and `tenant` on one database share one entry
+   * (db-per-company D-13). Filled by the registry; only read here.
    */
-  trx: Map<DbKey, Promise<Knex.Transaction>>;
+  trx: Map<PhysicalKey, Promise<Knex.Transaction>>;
 };
 
 /**
@@ -220,7 +221,7 @@ export function detachAuditRequest(): void {
   }
 }
 
-export type AuditCommitFailure = { key: DbKey; error: unknown };
+export type AuditCommitFailure = { key: PhysicalKey; error: unknown };
 
 /**
  * At least one key failed to commit or roll back. The middleware turns this

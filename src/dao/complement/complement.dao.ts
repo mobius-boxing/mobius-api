@@ -63,7 +63,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   private queryConfig = COMPLEMENT_QUERY_CONFIG;
 
   async create(item: IComplement): Promise<IComplement> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [complement] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,7 +77,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   }
 
   async getById(id: number): Promise<IComplement | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const complement = await knex(this.tableName).where("id", id).first();
 
     return complement ? this.mapToInterface(complement) : null;
@@ -87,7 +87,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IComplement | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const complement = await query.select(`${this.tableName}.*`).first();
@@ -99,7 +99,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     id: number,
     item: Partial<IComplement>,
   ): Promise<IComplement | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -117,7 +117,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -130,7 +130,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IComplement>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [complements, totalResult] = await Promise.all([
@@ -156,7 +156,7 @@ export class ComplementDAO implements IBaseDAO<IComplement> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IComplement>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

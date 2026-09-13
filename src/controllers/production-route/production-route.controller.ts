@@ -39,7 +39,7 @@ export class ProductionRouteController {
     res: Response,
   ): Promise<IRouteStage[] | null | undefined> {
     if (stages === undefined) return undefined;
-    const knex = db("erp");
+    const knex = db("tenant");
     const companyScope = companyFilterScope(req);
     const resolved: IRouteStage[] = [];
 

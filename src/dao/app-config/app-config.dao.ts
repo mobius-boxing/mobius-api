@@ -11,7 +11,7 @@ export class AppConfigDAO {
   private tableName = "app_config";
 
   async getAllForCompany(companyId: number): Promise<IAppConfig[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const rows = await knex(this.tableName)
       .where("companyId", companyId)
       .orderBy("key", "asc");
@@ -19,7 +19,7 @@ export class AppConfigDAO {
   }
 
   async getByKey(companyId: number, key: string): Promise<IAppConfig | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const row = await knex(this.tableName).where({ companyId, key }).first();
     return (row as IAppConfig) ?? null;
   }
@@ -30,7 +30,7 @@ export class AppConfigDAO {
     value: string,
     valueType: string,
   ): Promise<IAppConfig> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex(this.tableName)
       .insert({ companyId, key, value, valueType })
       .onConflict(["companyId", "key"])
@@ -41,7 +41,7 @@ export class AppConfigDAO {
 
   /** Remove the override so the key falls back to its default. */
   async deleteByKey(companyId: number, key: string): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName)
       .where({ companyId, key })
       .delete();

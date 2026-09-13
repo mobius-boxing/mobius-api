@@ -1,6 +1,5 @@
-import { db } from "../database/registry";
-import { DB_KEYS, DbKey } from "../database/keys";
-import { connectionFor } from "../database/env";
+import { db, physicalKeyOf } from "../database/registry";
+import { DB_KEYS, DbKey, PhysicalKey } from "../database/keys";
 
 /**
  * Company purge — the ONE sanctioned door for removing ledger rows
@@ -69,22 +68,21 @@ import { connectionFor } from "../database/env";
  * §P2.7 loops `DB_KEYS`. Doing that literally **hangs every company delete**,
  * and the hang is invisible to any mocked test. P1 holds one ambient
  * transaction per key, each on its own pooled backend, open until the response
- * is sent. All four keys resolve to one physical database today, so the loop
- * had `core`'s backend delete the ledger rows and then sit uncommitted waiting
- * for the handler to return, while `erp`'s backend — a *different* session
- * against the *same* table — blocked on `core`'s uncommitted delete. Postgres
- * cannot break that: `core` waits on the client, so there is no cycle for the
- * deadlock detector to find. Observed live as
+ * is sent. All four module-split keys resolved to one physical database, so the
+ * loop had `core`'s backend delete the ledger rows and then sit uncommitted
+ * waiting for the handler to return, while `erp`'s backend — a *different*
+ * session against the *same* table — blocked on `core`'s uncommitted delete.
+ * Postgres cannot break that: `core` waits on the client, so there is no cycle
+ * for the deadlock detector to find. Observed live as
  * `idle in transaction / ClientRead` next to `active / Lock: transactionid`.
  *
  * So the loop runs over **distinct physical databases**, discovered from
- * `connectionFor(key)` (host + port + database — the same function the registry
- * builds its pools from). Today that is one target and one ledger delete; when
- * the split gives each key its own database it becomes four, against four
- * disjoint row sets with no contention. The code is correct in both worlds,
- * which is what "keyed from the start" (Amendment constraint 2) asks for — the
- * key still selects the connection, it is just no longer assumed to select a
- * *distinct* one.
+ * `physicalKeyOf(key)` — the same resolution the registry keys its pools and
+ * ambient transactions by (db-per-company D-13). Today `core` and `tenant` are
+ * one target and one ledger delete; once a company's database is its own they
+ * become two, against disjoint row sets with no contention. The key still
+ * selects the connection, it is just no longer assumed to select a *distinct*
+ * one.
  *
  * ## Failure semantics
  *
@@ -112,27 +110,24 @@ export type CompanyPurgeResult = {
 };
 
 /**
- * The keys to open a transaction on: one per distinct physical database.
+ * Each physical database to open a transaction on, with the key that opens it.
  *
  * `core` is first in `DB_KEYS` and therefore always the representative of its
  * own database, which keeps the `companies` delete on a connection that owns
- * the table. A second key only earns its own transaction once its
- * `SQL_<KEY>_DATABASE` (or host/port) actually differs — i.e. at the split's
- * cutover, without a line changing here.
+ * the table. `tenant` only earns its own transaction once it resolves to a
+ * different database, without a line changing here.
  */
-export const purgeTargets = (): DbKey[] => {
-  const representatives = new Map<string, DbKey>();
+const representatives = (): Map<PhysicalKey, DbKey> => {
+  const byTarget = new Map<PhysicalKey, DbKey>();
   for (const key of DB_KEYS) {
-    const physical = physicalDatabaseOf(key);
-    if (!representatives.has(physical)) representatives.set(physical, key);
+    const physical = physicalKeyOf(key);
+    if (!byTarget.has(physical)) byTarget.set(physical, key);
   }
-  return [...representatives.values()];
+  return byTarget;
 };
 
-const physicalDatabaseOf = (key: DbKey): string => {
-  const { host, port, database } = connectionFor(key);
-  return `${host ?? ""}:${port}/${database}`;
-};
+/** The physical databases a purge opens one transaction on, in order. */
+export const purgeTargets = (): PhysicalKey[] => [...representatives().keys()];
 
 /**
  * The node-files tables carry `companyId` with no foreign key to `companies`,
@@ -181,7 +176,7 @@ export async function purgeCompany(
   let ledgerRowsDeleted = 0;
   let companyDeleted = false;
 
-  for (const key of purgeTargets()) {
+  for (const [physical, key] of representatives()) {
     await db(key).transaction(async (trx) => {
       // Both settings FIRST: every statement after this point depends on them.
       await trx.raw(MAINTENANCE_ON);
@@ -191,13 +186,13 @@ export async function purgeCompany(
         .where({ companyId })
         .delete();
 
-      if (physicalDatabaseOf(key) === physicalDatabaseOf("nodefiles")) {
+      if (physical === physicalKeyOf("tenant")) {
         for (const table of NODE_FILES_PURGE_ORDER) {
           // Raw, because this transaction is guarded as `key` — `core` while
-          // node-files shares its database — and the wrong-database guard
-          // rejects a nodefiles-owned table name there. A second transaction on
-          // `db("nodefiles")` is not an option: see "One transaction per
-          // physical DATABASE" above.
+          // the tenant plane shares its database — and the wrong-database guard
+          // rejects a tenant-owned table name there. A second transaction on the
+          // tenant key is not an option: see "One transaction per physical
+          // DATABASE" above.
           await trx.raw('delete from ?? where "companyId" = ?', [
             table,
             companyId,

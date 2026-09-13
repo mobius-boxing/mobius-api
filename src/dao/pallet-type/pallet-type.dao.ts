@@ -45,7 +45,7 @@ export class PalletTypeDAO {
   private queryConfig = PALLET_TYPE_QUERY_CONFIG;
 
   async create(item: IPalletType): Promise<IPalletType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -65,7 +65,7 @@ export class PalletTypeDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IPalletType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.*`).first();
@@ -76,7 +76,7 @@ export class PalletTypeDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -87,7 +87,7 @@ export class PalletTypeDAO {
     id: number,
     item: Partial<IPalletType>,
   ): Promise<IPalletType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     for (const key of [
       "code",
@@ -108,13 +108,13 @@ export class PalletTypeDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPalletType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

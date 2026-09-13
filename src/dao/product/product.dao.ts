@@ -68,7 +68,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   private queryConfig = PRODUCT_QUERY_CONFIG;
 
   async create(item: IProduct): Promise<IProduct> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [product] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -92,7 +92,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async getById(id: number): Promise<IProduct | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const product = await knex(this.tableName).where("id", id).first();
 
     return product ? this.mapToInterface(product) : null;
@@ -103,7 +103,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IProduct | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
     applyCompanyScope(query, this.tableName, companyId);
@@ -114,7 +114,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async update(id: number, item: Partial<IProduct>): Promise<IProduct | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -147,7 +147,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     return knex.transaction(async (trx) => {
       // parts.productId is ON DELETE CASCADE, so PartDAO.delete's private-route
       // cleanup never runs on product deletion — collect the parts' route ids
@@ -180,7 +180,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     limit: number,
     companyId?: CompanyScope,
   ): Promise<IDataPaginator<IProduct>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const query = knex(this.tableName);
@@ -212,7 +212,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IProduct>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);
@@ -307,7 +307,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName)
       .select(`${this.tableName}.id`)
       .where(`${this.tableName}.uuid`, uuid);
@@ -322,7 +322,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IProduct | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
 
     const query = knex(this.tableName)
       .select("products.*", knex.raw("to_jsonb(customers.*) as customer"))
@@ -377,7 +377,7 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     username: string,
     trx?: any,
   ): Promise<IProduct | null> {
-    const knex = trx ?? db("erp");
+    const knex = trx ?? db("tenant");
     const updateData =
       action === "approve"
         ? {

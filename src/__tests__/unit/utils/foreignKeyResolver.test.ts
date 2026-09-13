@@ -115,7 +115,7 @@ describe("resolveForeignKeys — a central and a tenant reference in one payload
     expect(data).toEqual({ companyId: 7, warehouseId: 12, name: "Depósito" });
     expect(mockCoreLookups).toEqual([["companyIdByUuid", COMPANY_UUID]]);
     expect(mockTableCalls.map(({ key, table }) => ({ key, table }))).toEqual([
-      { key: "erp", table: "warehouses" },
+      { key: "tenant", table: "warehouses" },
     ]);
   });
 

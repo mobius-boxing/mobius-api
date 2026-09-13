@@ -17,9 +17,9 @@ import { ownerOf, tablesOf } from "./ownership";
  * Verified against the live `traffic_production` schema on 2026-09-01:
  * 83 base tables = 81 application tables (matching `DOMAIN_OWNER` exactly)
  * + knex's 2 bookkeeping tables. 7 application exclusions leave **74 distinct
- * physical tables** carrying the trigger, reached by **76 `attachAudit` calls**
- * because `files` is fanned out to core + erp + countdown (same physical table,
- * and `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER` is idempotent).
+ * physical tables** carrying the trigger, reached by **75 `attachAudit` calls**
+ * because `files` exists in both planes (same physical table today, and
+ * `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER` is idempotent).
  */
 
 /**
@@ -123,11 +123,11 @@ export const AUDIT_PARENT: Record<string, AuditParent> = {
 /**
  * Every table `key`'s database must carry the audit trigger.
  *
- * Keyed from the start (Amendment 2026-09-01, constraint 2) even though all
- * four keys resolve to one physical database today: the split later changes
- * which connection runs the attach, not this code. Counts today are
- * erp 55 · core 9 · countdown 7 · nodefiles 5 = 76 calls over 74 distinct
- * tables (`files` appears under three keys).
+ * Keyed from the start (Amendment 2026-09-01, constraint 2) even though both
+ * planes resolve to one physical database today: the split later changes which
+ * connection runs the attach, not this code. Counts today are
+ * tenant 66 · core 9 = 75 calls over 74 distinct tables (`files` appears in
+ * both planes).
  */
 export const auditedTablesOf = (key: DbKey): string[] =>
   tablesOf(key).filter((table) => !AUDIT_EXCLUDED.has(table));
@@ -367,18 +367,18 @@ export const AUDIT_FK_TABLE: Record<string, string> = {
 /**
  * The database an audit read runs against (R-3, 2026-09-02).
  *
- * `?database=` is deliberately not shipped: all four `DB_KEYS` resolve to one
+ * `?database=` is deliberately not shipped: both `DB_KEYS` resolve to one
  * physical database today, so the parameter provably cannot change a response
  * and would be accepted-and-ignored (L-007). `entityName` already determines
  * the database, so this is the single place a `DbKey` is chosen for a read.
  *
  * `undefined` (no `entityName` filter) and the fanned-out names (`files`,
- * `audit_logs`, for which `ownerOf` returns `undefined`) fall back to `erp`,
- * which is where the ledger lives today.
+ * `audit_logs`, for which `ownerOf` returns `undefined`) fall back to
+ * `tenant`, whose ledger records every business table.
  *
- * When the database-per-module split cuts over, this function is where the
- * cross-key fan-out lands: a list query with no `entityName` will have to read
- * every key and merge, and it will do so here rather than in the DAO.
+ * When the planes separate, this function is where the cross-plane fan-out
+ * lands: a list query with no `entityName` will have to read both ledgers and
+ * merge, and it will do so here rather than in the DAO.
  */
 export const auditDbFor = (entityName?: string): DbKey =>
-  (entityName === undefined ? undefined : ownerOf(entityName)) ?? "erp";
+  (entityName === undefined ? undefined : ownerOf(entityName)) ?? "tenant";

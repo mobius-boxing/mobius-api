@@ -511,7 +511,7 @@ describeIfLocalDb("Audit capture against the database (P2)", () => {
       await withAuditContext(
         { source: "job", username: "node-files-worker", companyId },
         async () => {
-          await db("erp")("warehouses").insert({
+          await db("tenant")("warehouses").insert({
             uuid,
             name: mark("WH-JOB"),
             company_id: companyId,

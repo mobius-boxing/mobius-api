@@ -74,13 +74,13 @@ export interface INodeFilesWorkflowPatch {
  */
 export class NfWorkflowDAO {
   private scoped(companyId: number) {
-    return db("nodefiles")(TABLE).where(`${TABLE}.companyId`, companyId);
+    return db("tenant")(TABLE).where(`${TABLE}.companyId`, companyId);
   }
 
   async create(
     input: INodeFilesWorkflowWriteInput,
   ): Promise<INodeFilesWorkflow> {
-    const [row] = await db("nodefiles")(TABLE)
+    const [row] = await db("tenant")(TABLE)
       .insert({
         uuid: input.uuid,
         companyId: input.companyId,
@@ -102,7 +102,7 @@ export class NfWorkflowDAO {
     req: Request,
     companyId: number,
   ): Promise<IDataPaginator<INodeFilesWorkflow>> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
     // superAdmins pin the tenant with ?companyId=<uuid>; it is already resolved
     // to `companyId` here and must never reach the filter builder as a column.
@@ -171,7 +171,7 @@ export class NfWorkflowDAO {
     companyId: number,
     patch: INodeFilesWorkflowPatch,
   ): Promise<INodeFilesWorkflow | null> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     const changes: Record<string, unknown> = { updatedAt: knex.fn.now() };
     if (patch.name !== undefined) changes.name = patch.name;
     if (patch.description !== undefined)

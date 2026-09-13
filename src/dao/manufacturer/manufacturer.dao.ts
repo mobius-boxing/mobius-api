@@ -63,7 +63,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
   private queryConfig = MANUFACTURER_QUERY_CONFIG;
 
   async create(item: IManufacturer): Promise<IManufacturer> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [manufacturer] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,7 +77,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
   }
 
   async getById(id: number): Promise<IManufacturer | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const manufacturer = await knex(this.tableName).where("id", id).first();
 
     return manufacturer ? this.mapToInterface(manufacturer) : null;
@@ -87,7 +87,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IManufacturer | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const manufacturer = await query.select(`${this.tableName}.*`).first();
@@ -99,7 +99,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const manufacturer = await query.select(`${this.tableName}.id`).first();
@@ -111,7 +111,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     id: number,
     item: Partial<IManufacturer>,
   ): Promise<IManufacturer | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -128,7 +128,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -141,7 +141,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IManufacturer>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [manufacturers, totalResult] = await Promise.all([
@@ -171,7 +171,7 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IManufacturer>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

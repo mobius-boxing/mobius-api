@@ -79,13 +79,13 @@ export interface INodeFilesCredentialSecret {
  */
 export class NfCredentialDAO {
   private scoped(companyId: number) {
-    return db("nodefiles")(TABLE).where(`${TABLE}.companyId`, companyId);
+    return db("tenant")(TABLE).where(`${TABLE}.companyId`, companyId);
   }
 
   async create(
     input: INodeFilesCredentialWriteInput,
   ): Promise<INodeFilesCredential> {
-    const [row] = await db("nodefiles")(TABLE)
+    const [row] = await db("tenant")(TABLE)
       .insert({
         uuid: input.uuid,
         companyId: input.companyId,
@@ -106,7 +106,7 @@ export class NfCredentialDAO {
     req: Request,
     companyId: number,
   ): Promise<IDataPaginator<INodeFilesCredential>> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
     // superAdmins pin the tenant with ?companyId=<uuid>, already resolved here.
     delete parsedQuery.filters.companyId;
@@ -207,7 +207,7 @@ export class NfCredentialDAO {
 
   /** Bookkeeping only, in its own short statement after the node is over. */
   async touchLastUsed(uuid: string, companyId: number): Promise<void> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     await this.scoped(companyId)
       .where(`${TABLE}.uuid`, uuid)
       .update({ lastUsedAt: knex.fn.now(), updatedAt: knex.fn.now() });
@@ -218,7 +218,7 @@ export class NfCredentialDAO {
     credentialId: number,
     companyId: number,
   ): Promise<number> {
-    const result = await db("nodefiles")(JOIN_TABLE)
+    const result = await db("tenant")(JOIN_TABLE)
       .where({ credentialId, companyId })
       .count("* as count")
       .first();

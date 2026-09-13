@@ -13,14 +13,14 @@
  *
  * 1. **One ledger delete per distinct physical database — not per key.** The
  *    first version of this service looped `DB_KEYS` as §P2.7 sketches, and
- *    every real `DELETE /api/companies/:uuid` **hung forever**: P1 holds one
- *    ambient transaction per key on four different pooled backends, all four
- *    keys resolve to one database today, so `core`'s uncommitted delete of
- *    `audit_logs` blocked `erp`'s delete of the same rows while `core` itself
- *    waited on the client. No cycle, so no deadlock detector, so no timeout.
- *    Mocks cannot see a lock wait — what they *can* see is the loop shape, so
- *    these tests count the ledger deletes issued and pin them to the number of
- *    distinct databases the environment describes.
+ *    every real `DELETE /api/companies/:uuid` **hung forever**: P1 held one
+ *    ambient transaction per key on different pooled backends, all keys
+ *    resolved to one database, so `core`'s uncommitted delete of `audit_logs`
+ *    blocked another key's delete of the same rows while `core` itself waited
+ *    on the client. No cycle, so no deadlock detector, so no timeout. Mocks
+ *    cannot see a lock wait — what they *can* see is the loop shape, so these
+ *    tests count the ledger deletes issued and pin them to the number of
+ *    distinct physical targets the registry reports (`physicalKeyOf`).
  * 2. Both settings are issued **before** any delete and **inside** the same
  *    transaction as the deletes. Drop `set_config('mobius.audit_maintenance'…)`
  *    and the sequence test goes red — in production it would go red as a failed
@@ -58,25 +58,19 @@ const MAINTENANCE_SQL =
   "select set_config('mobius.audit_maintenance', 'on', true)";
 const SKIP_SQL = "select set_config('mobius.audit_skip', 'on', true)";
 
-/** Every environment variable `connectionFor` reads, saved and restored. */
-const ENV_VARS = [
-  "SQL_HOST",
-  "SQL_PORT",
-  "SQL_DATABASE",
-  ...DB_KEYS.map((key) => `SQL_${key.toUpperCase()}_DATABASE`),
-];
-
 /** Every statement issued, across every key, in the order it was issued. */
 let log;
 /** The table-aware mock behind each key, for fixtures and where-call captures. */
 let mocks;
 /** What `db(key)` hands out: the mock, with delete/raw/transaction traced. */
 let facades;
-let savedEnv;
+/** What `physicalKeyOf("tenant")` answers: `core` while the planes share one database. */
+let tenantTarget;
 
 jest.mock("../../../database/registry", () => ({
   __esModule: true,
   db: (key) => facades[key],
+  physicalKeyOf: (key) => (key === "tenant" ? tenantTarget : "core"),
 }));
 
 import {
@@ -147,22 +141,14 @@ const ledgerDeletes = () =>
     .filter((entry) => entry.op === "delete" && entry.table === "audit_logs")
     .map((entry) => entry.key);
 
-/** Give each key its own database — the world after the split's cutover. */
+/** Give the tenant plane its own database — the world after a company's move. */
 const givenOneDatabasePerKey = () => {
-  for (const key of DB_KEYS) {
-    process.env[`SQL_${key.toUpperCase()}_DATABASE`] = `mobius_${key}`;
-  }
+  tenantTarget = "tenant:1";
 };
 
 beforeEach(() => {
-  savedEnv = Object.fromEntries(
-    ENV_VARS.map((name) => [name, process.env[name]]),
-  );
-  for (const name of ENV_VARS) delete process.env[name];
-  // The world as deployed today: every key on one physical database.
-  process.env.SQL_HOST = "localhost";
-  process.env.SQL_PORT = "5432";
-  process.env.SQL_DATABASE = "traffic_production";
+  // The world as deployed today: both planes on one physical database.
+  tenantTarget = "core";
 
   log = [];
   mocks = {};
@@ -177,39 +163,37 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const name of ENV_VARS) {
-    if (savedEnv[name] === undefined) delete process.env[name];
-    else process.env[name] = savedEnv[name];
-  }
   jest.clearAllMocks();
 });
 
-describe("purgeTargets — one key per physical database", () => {
-  it("collapses to core alone while every key shares one database", () => {
+describe("purgeTargets — one entry per physical database", () => {
+  it("collapses to core alone while both planes share one database", () => {
     expect(purgeTargets()).toStrictEqual(["core"]);
   });
 
-  it("returns every key once each key has its own database", () => {
+  it("returns both physical targets once the tenant has its own database", () => {
     givenOneDatabasePerKey();
-    expect(purgeTargets()).toStrictEqual([...DB_KEYS]);
+    expect(purgeTargets()).toStrictEqual(["core", "tenant:1"]);
   });
 
-  it("groups the keys that share a database, keeping the first as its voice", () => {
-    // countdown moved out on its own; erp and nodefiles still share core's.
-    process.env.SQL_COUNTDOWN_DATABASE = "mobius_countdown";
-    expect(purgeTargets()).toStrictEqual(["core", "countdown"]);
+  it("keeps core first and as the voice, whatever the tenant target is called", () => {
+    tenantTarget = "tenant:0";
+    expect(purgeTargets()).toStrictEqual(["core", "tenant:0"]);
   });
 
-  it("groups two keys that name the same database, however they got there", () => {
-    // A half-done cutover: erp still points at core's database by name.
-    givenOneDatabasePerKey();
-    process.env.SQL_ERP_DATABASE = "mobius_core";
-    expect(purgeTargets()).toStrictEqual(["core", "countdown", "nodefiles"]);
+  it("asks the registry at call time, so a target that changes is seen", () => {
+    // The tenant a purge reaches is resolved per call (a scope, a move), never
+    // captured when the module loads.
+    expect(purgeTargets()).toStrictEqual(["core"]);
+    tenantTarget = "tenant:3";
+    expect(purgeTargets()).toStrictEqual(["core", "tenant:3"]);
+    tenantTarget = "core";
+    expect(purgeTargets()).toStrictEqual(["core"]);
   });
 });
 
 describe("purgeCompany — one ledger delete per database (the hang, regressed)", () => {
-  it("issues exactly ONE ledger delete while every key shares one database", async () => {
+  it("issues exactly ONE ledger delete while both planes share one database", async () => {
     await purgeCompany(COMPANY_ID);
 
     // Two deletes of the same rows, from two pooled backends, inside a request
@@ -225,7 +209,7 @@ describe("purgeCompany — one ledger delete per database (the hang, regressed)"
     }
   });
 
-  it("issues one ledger delete per database once the split gives each key one", async () => {
+  it("issues one ledger delete per database once the tenant has its own", async () => {
     givenOneDatabasePerKey();
 
     await purgeCompany(COMPANY_ID);
@@ -242,12 +226,14 @@ describe("purgeCompany — one ledger delete per database (the hang, regressed)"
     ).toHaveLength(1);
   });
 
-  it("issues one ledger delete per database when two keys share one", async () => {
-    process.env.SQL_COUNTDOWN_DATABASE = "mobius_countdown";
+  it("issues the tenant's ledger delete through the tenant key, never twice through core", async () => {
+    givenOneDatabasePerKey();
 
     await purgeCompany(COMPANY_ID);
 
-    expect(ledgerDeletes()).toStrictEqual(["core", "countdown"]);
+    expect(ledgerDeletes()).toStrictEqual(["core", "tenant"]);
+    expect(sequenceOf("core").filter((op) => op === "delete audit_logs")).toHaveLength(1);
+    expect(sequenceOf("tenant").filter((op) => op === "delete audit_logs")).toHaveLength(1);
   });
 });
 
@@ -277,7 +263,7 @@ describe("purgeCompany — maintenance mode and statement order", () => {
         `raw ${MAINTENANCE_SQL}`,
         `raw ${SKIP_SQL}`,
         "delete audit_logs",
-        ...(key === "nodefiles" ? NODE_FILES_DELETES : []),
+        ...(key === "tenant" ? NODE_FILES_DELETES : []),
         "commit",
       ]);
     }
@@ -381,7 +367,7 @@ describe("purgeCompany — what it deletes", () => {
     givenOneDatabasePerKey();
     mocks.core.fixture("audit_logs").deleteCount = 11;
     mocks.core.fixture("companies").deleteCount = 1;
-    mocks.erp.fixture("audit_logs").deleteCount = 4;
+    mocks.tenant.fixture("audit_logs").deleteCount = 4;
 
     await expect(purgeCompany(COMPANY_ID)).resolves.toStrictEqual({
       companyDeleted: true,
@@ -425,14 +411,14 @@ describe("purgeCompany — node-files rows (no FK to companies, F-1)", () => {
     expect(core[core.length - 1]).toBe("commit");
   });
 
-  it("deletes them on node-files' own database once it has one, and nowhere else", async () => {
+  it("deletes them on the tenant's own database once it has one, and nowhere else", async () => {
     givenOneDatabasePerKey();
 
     await purgeCompany(COMPANY_ID);
 
     for (const key of DB_KEYS) {
       expect(nodeFilesDeletesBy(key)).toHaveLength(
-        key === "nodefiles" ? NODE_FILES_PURGE_ORDER.length : 0,
+        key === "tenant" ? NODE_FILES_PURGE_ORDER.length : 0,
       );
     }
   });

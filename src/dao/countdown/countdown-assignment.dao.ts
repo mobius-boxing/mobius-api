@@ -83,7 +83,7 @@ export class CountdownAssignmentDAO {
     const result = new Map<number, ICountdownAssignments>();
     if (documentIds.length === 0) return result;
 
-    const knex = db("countdown");
+    const knex = db("tenant");
     const rows: IAssignmentListRow[] = await knex(`${ASSIGNMENTS_TABLE} as da`)
       .leftJoin(`${GROUPS_TABLE} as g`, "g.id", "da.groupId")
       .whereIn("da.documentId", documentIds)
@@ -132,7 +132,7 @@ export class CountdownAssignmentDAO {
     const result = new Map<number, Set<number>>();
     if (documentIds.length === 0) return result;
 
-    const knex = db("countdown");
+    const knex = db("tenant");
     const rows: IEffectiveUserRow[] = await knex(`${ASSIGNMENTS_TABLE} as da`)
       .leftJoin(`${GROUP_MEMBERS_TABLE} as gm`, "gm.groupId", "da.groupId")
       .where("da.kind", kind)
@@ -171,7 +171,7 @@ export class CountdownAssignmentDAO {
     input: ICountdownAssignmentInput,
     trx?: Knex.Transaction,
   ): Promise<void> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const targets: IAssignmentTarget[] = [
       ...input.resolverUserIds.map((userId) => ({
         kind: "resolver" as const,
@@ -239,7 +239,7 @@ export class CountdownAssignmentDAO {
    */
   async groupIdsByUuids(uuids: string[], companyId: number): Promise<number[]> {
     if (uuids.length === 0) return [];
-    const knex = db("countdown");
+    const knex = db("tenant");
     const rows: { id: number }[] = await knex(GROUPS_TABLE)
       .select("id")
       .whereIn("uuid", uuids)

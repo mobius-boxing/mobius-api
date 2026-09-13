@@ -76,7 +76,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   private queryConfig = TOOLING_QUERY_CONFIG;
 
   async create(item: ITooling): Promise<ITooling> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [tooling] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -95,7 +95,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   }
 
   async getById(id: number): Promise<ITooling | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const tooling = await knex(this.tableName).where("id", id).first();
     return tooling ? this.mapToInterface(tooling) : null;
   }
@@ -104,7 +104,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<ITooling | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.buildJoinQuery(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -118,7 +118,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();
@@ -126,7 +126,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   }
 
   async update(id: number, item: Partial<ITooling>): Promise<ITooling | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -152,13 +152,13 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   async getAll(page: number, limit: number): Promise<IDataPaginator<ITooling>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const query = this.buildJoinQuery(knex);
@@ -186,7 +186,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ITooling>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

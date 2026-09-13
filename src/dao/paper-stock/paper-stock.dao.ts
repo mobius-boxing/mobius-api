@@ -93,7 +93,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
   private queryConfig = PAPER_STOCK_QUERY_CONFIG;
 
   async create(item: IPaperStock): Promise<IPaperStock> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -114,7 +114,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
   }
 
   async getById(id: number): Promise<IPaperStock | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
@@ -123,7 +123,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IPaperStock | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     // SECURITY (C2): no direct companyId column — scope via warehouses.company_id.
     applyCompanyScopeViaWarehouse(query, this.tableName, companyId);
@@ -135,7 +135,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScopeViaWarehouse(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();
@@ -146,7 +146,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     id: number,
     item: Partial<IPaperStock>,
   ): Promise<IPaperStock | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.warehouseId !== undefined)
@@ -175,7 +175,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -184,7 +184,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IPaperStock>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const query = this.buildJoinQuery(knex);
@@ -212,7 +212,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPaperStock>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);
@@ -251,7 +251,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
   }
 
   async getWithDetails(uuid: string): Promise<IPaperStock | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.buildJoinQuery(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -263,7 +263,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
   }
 
   async getAllByWarehouseId(warehouseId: number): Promise<IPaperStock[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const records = await this.buildJoinQuery(knex)
       .where(`${this.tableName}.warehouseId`, warehouseId)
       .orderBy(`${this.tableName}.createdAt`, "desc");

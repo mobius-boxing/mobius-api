@@ -37,11 +37,11 @@ export interface INodeFilesNodeRunWriteInput {
  */
 export class NfNodeRunDAO {
   private scoped(companyId: number) {
-    return db("nodefiles")(TABLE).where(`${TABLE}.companyId`, companyId);
+    return db("tenant")(TABLE).where(`${TABLE}.companyId`, companyId);
   }
 
   async create(input: INodeFilesNodeRunWriteInput): Promise<void> {
-    await db("nodefiles")(TABLE).insert({
+    await db("tenant")(TABLE).insert({
       uuid: input.uuid,
       runId: input.runId,
       companyId: input.companyId,

@@ -96,7 +96,7 @@ export const createKnexMock = () => {
 /**
  * Registry mock that routes by database key.
  *
- * One independent knex mock per key, so `core` and `erp` can be stubbed with
+ * One independent knex mock per key, so `core` and `tenant` can be stubbed with
  * different return values and a query issued on the wrong connection lands in
  * the wrong mock instead of quietly answering (AC-7). Pass `dbMock` as the
  * `db` export of a `jest.mock('.../database/registry')` factory.
