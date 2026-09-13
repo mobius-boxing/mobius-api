@@ -182,6 +182,12 @@ describe("AC-56 — the registry is the only door", () => {
     // this check is import-based. (It was invisible to the previous, `../`-
     // anchored matcher — a top-level file imports `./database/registry`.)
     "server.ts",
+    // The state-P purge scripts (db-per-company T0, D-63/D-65/D-73): one-off
+    // processes that open the connection lifecycle themselves and must read
+    // pg_stat_activity / information_schema, which no entity DAO owns.
+    "scripts/db-snapshot-counts.ts",
+    "scripts/purge-companies.ts",
+    "scripts/purge-gate.ts",
   ];
 
   const NON_DAO_CONNECTION_HOLDERS = [
@@ -216,7 +222,7 @@ describe("AC-56 — the registry is the only door", () => {
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
     expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(13);
-    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(10);
+    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(13);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(
       NON_DAO_CONNECTION_HOLDERS.length,

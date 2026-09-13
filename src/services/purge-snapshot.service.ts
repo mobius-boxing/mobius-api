@@ -548,7 +548,8 @@ export function checkSnapshotBinding(
       );
     }
   } else {
-    const lag = pairing.modifiedAt.getTime() - new Date(snapshot.takenAt).getTime();
+    const lag =
+      pairing.modifiedAt.getTime() - new Date(snapshot.takenAt).getTime();
     if (lag < 0) {
       return refuse(
         `stale snapshot: taken ${snapshot.takenAt}, after the dump was last modified ${pairing.modifiedAt.toISOString()}`,
@@ -737,6 +738,7 @@ export async function discoverSetNullUserColumns(
 }
 
 type ForeignKey = {
+  name: string;
   child: string;
   parent: string;
   /** `pg_constraint.confdeltype`: c cascade, n set null, r restrict, a no action, d set default. */
@@ -749,7 +751,7 @@ type ForeignKey = {
 const loadForeignKeys = (knex: Knex): Promise<ForeignKey[]> =>
   rowsOf<ForeignKey>(
     knex,
-    `select child.relname as child, parent.relname as parent, c.confdeltype::text as rule,
+    `select c.conname::text as name, child.relname as child, parent.relname as parent, c.confdeltype::text as rule,
             array(select a.attname::text from unnest(c.conkey) with ordinality k(num, ord)
                     join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.num
                    order by k.ord) as "childColumns",
@@ -762,7 +764,7 @@ const loadForeignKeys = (knex: Knex): Promise<ForeignKey[]> =>
       where c.contype = 'f'
         and c.connamespace = 'public'::regnamespace
         and c.conparentid = 0
-      order by 1, 2, 4`,
+      order by 2, 3, 5`,
   );
 
 const isCascadeOn = (
@@ -847,15 +849,30 @@ const companyOwnership = (
   fks
     .filter(
       (fk) =>
-        fk.child === table && fk.parent !== "users" && fk.childColumns.length === 1,
+        fk.child === table &&
+        fk.parent !== "users" &&
+        fk.childColumns.length === 1,
     )
     .forEach((fk, index) => {
       const parentAlias = `${alias}_o${index}`;
-      const parent = companyOwnership(side, fk.parent, parentAlias, fks, companyColumn, keeperIds, depth + 1);
+      const parent = companyOwnership(
+        side,
+        fk.parent,
+        parentAlias,
+        fks,
+        companyColumn,
+        keeperIds,
+        depth + 1,
+      );
       if (!parent) return;
       alternatives.push({
         sql: `exists (select 1 from ?? ${parentAlias} where ${parentAlias}.?? = ${alias}.?? and ${parent.sql})`,
-        bindings: [fk.parent, fk.parentColumns[0] ?? "id", fk.childColumns[0] ?? "", ...parent.bindings],
+        bindings: [
+          fk.parent,
+          fk.parentColumns[0] ?? "id",
+          fk.childColumns[0] ?? "",
+          ...parent.bindings,
+        ],
       });
     });
   if (alternatives.length === 0) return null;
@@ -887,14 +904,17 @@ export async function findKeeperRowsCascadingFromPurgedUsers(
 
   const risks: KeeperCascadeRisk[] = [];
   const walk = async (chain: readonly ForeignKey[]): Promise<void> => {
-    const tail = chain.length === 0 ? "users" : (chain[chain.length - 1]?.child ?? "");
+    const tail =
+      chain.length === 0 ? "users" : (chain[chain.length - 1]?.child ?? "");
     if (chain.length >= MAX_CASCADE_DEPTH) {
       throw new PurgeRefusedError(
         `cascade chain from users is deeper than ${MAX_CASCADE_DEPTH} at ${tail}; cannot prove kept rows survive`,
       );
     }
     const visited = new Set(["users", ...chain.map((fk) => fk.child)]);
-    for (const fk of fks.filter((f) => f.parent === tail && f.rule === "c" && !visited.has(f.child))) {
+    for (const fk of fks.filter(
+      (f) => f.parent === tail && f.rule === "c" && !visited.has(f.child),
+    )) {
       if (fk.childColumns.length !== 1) {
         throw new PurgeRefusedError(
           `multi-column cascade ${fk.child}(${fk.childColumns.join(",")}) → ${fk.parent}; cannot prove kept rows survive`,
@@ -902,11 +922,22 @@ export async function findKeeperRowsCascadingFromPurgedUsers(
       }
       const next = [...chain, fk];
       const last = `t${next.length}`;
-      const owner = companyOwnership("kept", fk.child, last, fks, companyColumn, keeperIds);
+      const owner = companyOwnership(
+        "kept",
+        fk.child,
+        last,
+        fks,
+        companyColumn,
+        keeperIds,
+      );
       if (owner) {
         const joins = next.map((edge, i) => ({
           sql: `join ?? t${i + 1} on t${i + 1}.?? = ${i === 0 ? "u" : `t${i}`}.??`,
-          bindings: [edge.child, edge.childColumns[0] ?? "", edge.parentColumns[0] ?? "id"] as Knex.RawBinding[],
+          bindings: [
+            edge.child,
+            edge.childColumns[0] ?? "",
+            edge.parentColumns[0] ?? "id",
+          ] as Knex.RawBinding[],
         }));
         const [row] = await rowsOf<{ n: number }>(
           knex,
@@ -923,7 +954,10 @@ export async function findKeeperRowsCascadingFromPurgedUsers(
         );
         if ((row?.n ?? 0) > 0) {
           risks.push({
-            path: ["users", ...next.map((e) => `${e.child}.${e.childColumns[0] ?? ""}`)].join(" → "),
+            path: [
+              "users",
+              ...next.map((e) => `${e.child}.${e.childColumns[0] ?? ""}`),
+            ].join(" → "),
             rows: row?.n ?? 0,
           });
         }
@@ -935,7 +969,11 @@ export async function findKeeperRowsCascadingFromPurgedUsers(
   return risks;
 }
 
-export type RestrictBlock = { foreignKey: string; rowKeys: string[] };
+export type RestrictBlock = {
+  constraint: string;
+  foreignKey: string;
+  references: { keptRow: string; referencedRow: string }[];
+};
 
 const RESTRICT_ROWS_REPORTED = 20;
 
@@ -956,8 +994,9 @@ const tablesWithUuid = async (knex: Knex): Promise<Set<string>> =>
  * foreign key. Purging that company raises part-way through the run, after the
  * companies before it were already committed: a partial purge that only a
  * full restore undoes (T0/D-115). Both rows' companies come from
- * `companyOwnership`; up to `RESTRICT_ROWS_REPORTED` row keys per foreign key
- * are reported (uuid, or id where the table has none).
+ * `companyOwnership`; up to `RESTRICT_ROWS_REPORTED` (kept row, referenced
+ * row) pairs per foreign key are reported, each row by uuid, or by id where its
+ * table has none.
  */
 export async function findKeeperRowsBlockingPurge(
   knex: Knex,
@@ -976,16 +1015,32 @@ export async function findKeeperRowsBlockingPurge(
         `multi-column restricting foreign key ${fk.child}(${fk.childColumns.join(",")}) → ${fk.parent}; cannot prove the purge completes`,
       );
     }
-    const child = companyOwnership("kept", fk.child, "c", fks, companyColumn, keeperIds);
-    const parent = companyOwnership("purged", fk.parent, "p", fks, companyColumn, keeperIds);
+    const child = companyOwnership(
+      "kept",
+      fk.child,
+      "c",
+      fks,
+      companyColumn,
+      keeperIds,
+    );
+    const parent = companyOwnership(
+      "purged",
+      fk.parent,
+      "p",
+      fks,
+      companyColumn,
+      keeperIds,
+    );
     if (!child || !parent) continue;
-    const found = await rowsOf<{ row_key: string }>(
+    const found = await rowsOf<{ kept_row: string; referenced_row: string }>(
       knex,
-      `select c.??::text as row_key from ?? c join ?? p on p.?? = c.??
+      `select c.??::text as kept_row, p.??::text as referenced_row
+         from ?? c join ?? p on p.?? = c.??
         where ${child.sql} and ${parent.sql}
-        order by 1 limit ?`,
+        order by 1, 2 limit ?`,
       [
         uuidTables.has(fk.child) ? "uuid" : "id",
+        uuidTables.has(fk.parent) ? "uuid" : "id",
         fk.child,
         fk.parent,
         fk.parentColumns[0] ?? "id",
@@ -997,8 +1052,12 @@ export async function findKeeperRowsBlockingPurge(
     );
     if (found.length > 0) {
       blocks.push({
+        constraint: fk.name,
         foreignKey: `${fk.child}.${fk.childColumns[0] ?? ""} → ${fk.parent}`,
-        rowKeys: found.map((r) => r.row_key),
+        references: found.map((r) => ({
+          keptRow: r.kept_row,
+          referencedRow: r.referenced_row,
+        })),
       });
     }
   }
@@ -1213,13 +1272,21 @@ export async function takeSnapshot(
     keeperIds.sort((a, b) => a - b);
 
     const tables = await discoverScopedTables(trx);
-    const notPurged = await findTablesNotPurged(trx, tables, input.explicitlyPurgedTables);
+    const notPurged = await findTablesNotPurged(
+      trx,
+      tables,
+      input.explicitlyPurgedTables,
+    );
     if (notPurged.length > 0) {
       throw new PurgeRefusedError(
         `company rows in ${notPurged.join(", ")} are not removed by purgeCompany (no ON DELETE CASCADE from companies, not deleted explicitly)`,
       );
     }
-    const cascading = await findKeeperRowsCascadingFromPurgedUsers(trx, tables, keeperIds);
+    const cascading = await findKeeperRowsCascadingFromPurgedUsers(
+      trx,
+      tables,
+      keeperIds,
+    );
     if (cascading.length > 0) {
       throw new PurgeRefusedError(
         `rows of kept companies would be removed by ON DELETE CASCADE from users of purged companies: ${cascading.map((r) => `${r.path} (${r.rows})`).join("; ")}`,
@@ -1228,7 +1295,7 @@ export async function takeSnapshot(
     const blocking = await findKeeperRowsBlockingPurge(trx, tables, keeperIds);
     if (blocking.length > 0) {
       throw new PurgeRefusedError(
-        `rows of kept companies reference rows of purged companies through ON DELETE RESTRICT/NO ACTION foreign keys, so the purge would stop part-way: ${blocking.map((b) => `${b.foreignKey}: ${b.rowKeys.join(", ")}`).join("; ")}`,
+        `rows of kept companies reference rows of purged companies through ON DELETE RESTRICT/NO ACTION foreign keys, so the purge would stop part-way: ${blocking.map((b) => `${b.foreignKey}: ${b.references.map((r) => `${r.keptRow} references ${r.referencedRow}`).join(", ")} (constraint ${b.constraint})`).join("; ")}`,
       );
     }
     const setNullColumns = await discoverSetNullUserColumns(trx, tables);

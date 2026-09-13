@@ -223,6 +223,8 @@ describeIfReady(
     const groupUuid = randomUUID();
     const memberUuid = randomUUID();
     const tokenUuid = randomUUID();
+    const purgedCustomerUuid = randomUUID();
+    const orderDataUuid = randomUUID();
     const noS3 = new PurgeObjectStore(async () => {
       throw new Error("S3 is not configured locally");
     }, null);
@@ -265,6 +267,8 @@ describeIfReady(
         groupUuid,
         memberUuid,
         tokenUuid,
+        purgedCustomerUuid,
+        orderDataUuid,
       );
 
       const [qaRow] = await rows<{ id: number; uuid: string }>(
@@ -356,6 +360,13 @@ describeIfReady(
           [
             "restore database",
             () => db("core").raw(`drop database if exists ??`, [restoreDb]),
+          ],
+          [
+            "order_data",
+            () =>
+              inMaintenance(`delete from order_data where uuid = any(?)`, [
+                fixtureUuids,
+              ]),
           ],
           [
             "customers",
@@ -788,9 +799,17 @@ describeIfReady(
           ),
         ).toBe(1);
         const reason = refused.err.join("\n");
-        expect(reason).toContain(`${restrictTable}.userId → users: ${row?.uuid}`);
+        expect(reason).toContain(
+          `${restrictTable}.userId → users: ${row?.uuid}`,
+        );
         expect(reason).toContain(
           `${restrictTable}.reviewerId → users: ${row?.uuid}`,
+        );
+        expect(reason).toContain(
+          `${restrictTable}.userId → users: ${row?.uuid} references ${throwawayUser.uuid} (constraint ${restrictTable}_userId_fkey)`,
+        );
+        expect(reason).toContain(
+          `${restrictTable}.reviewerId → users: ${row?.uuid} references ${throwawayUser.uuid} (constraint ${restrictTable}_reviewerId_fkey)`,
         );
         expect(fs.existsSync(refusedDir)).toBe(false);
 
@@ -810,6 +829,65 @@ describeIfReady(
         expect(passed.err).toEqual([]);
       } finally {
         await db("core").raw(`drop table if exists ??`, [restrictTable]);
+      }
+    });
+
+    it("AC-94: refuses a snapshot while a kept company's row references a purged company's non-user row through RESTRICT, naming the constraint and both rows, and passes once it references a kept row", async () => {
+      if (!throwaway) throw new Error("fixtures were not created");
+      const [purgedCustomer] = await rows<{ id: number }>(
+        `insert into customers (uuid, "companyId", name) values (?, ?, ?) returning id`,
+        [
+          purgedCustomerUuid,
+          throwaway.id,
+          `zz-jest-purge-snap-purged-customer-${RUN}`,
+        ],
+      );
+      const [keptCustomer] = await rows<{ id: number }>(
+        `select id from customers where uuid = ?`,
+        [customerUuid],
+      );
+      // order_data.customerId → customers is an existing ON DELETE RESTRICT FK
+      // between two company-scoped tables, so no scratch schema is needed.
+      await db("core").raw(
+        `insert into order_data (uuid, "companyId", "customerId", number) values (?, ?, ?, ?)`,
+        [
+          orderDataUuid,
+          qa.id,
+          purgedCustomer?.id ?? null,
+          `zz-jest-purge-snap-${RUN}`,
+        ],
+      );
+      try {
+        const refusedDir = path.join(workDir, "restrict-non-user-refused");
+        const refused = cliIo();
+        expect(
+          await runDbSnapshotCounts(
+            ["--keepers", ...keeperUuids, "--out", refusedDir],
+            snapshotDeps(refused.io),
+          ),
+        ).toBe(1);
+        expect(refused.err.join("\n")).toContain(
+          `order_data.customerId → customers: ${orderDataUuid} references ${purgedCustomerUuid} (constraint order_data_customerid_foreign)`,
+        );
+        expect(fs.existsSync(refusedDir)).toBe(false);
+
+        await db("core").raw(
+          `update order_data set "customerId" = ? where uuid = ?`,
+          [keptCustomer?.id ?? null, orderDataUuid],
+        );
+        const passedDir = path.join(workDir, "restrict-non-user-passed");
+        const passed = cliIo();
+        expect(
+          await runDbSnapshotCounts(
+            ["--keepers", ...keeperUuids, "--out", passedDir],
+            snapshotDeps(passed.io),
+          ),
+        ).toBe(0);
+        expect(passed.err).toEqual([]);
+      } finally {
+        await inMaintenance(`delete from order_data where uuid = ?`, [
+          orderDataUuid,
+        ]);
       }
     });
   },
