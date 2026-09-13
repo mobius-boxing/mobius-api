@@ -72,7 +72,7 @@ export class CountdownReminderDAO {
       await CoreClient.companyIdsWithModuleEnabled("countdown");
     if (companyIds.length === 0) return [];
 
-    const knex = db("countdown");
+    const knex = db("tenant");
     const result = await knex.raw<{ rows: ICountdownDueDocumentRow[] }>(
       `select d.id,
               d.title,
@@ -149,7 +149,7 @@ export class CountdownReminderDAO {
 
   /** Who has already had their digest for this send day. */
   async findDigestedUserIds(sendDate: string): Promise<Set<number>> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const rows = await knex<{ userId: number }>("countdown_reminder_digests")
       .where("sendDate", sendDate)
       .select("userId");
@@ -168,7 +168,7 @@ export class CountdownReminderDAO {
    * leave `digestId` undefined and drop every per-document row in silence.
    */
   async recordDigest(input: ICountdownDigestInput): Promise<void> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     await knex.transaction(async (trx) => {
       const inserted = await trx("countdown_reminder_digests")
         .insert({
@@ -219,7 +219,7 @@ export class CountdownReminderDAO {
    * work uses the Buenos Aires day would let the two disagree around midnight.
    */
   async claimToday(today: string): Promise<number | undefined> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     const result = await knex.raw<{ rows: { id: number }[] }>(
       `insert into countdown_reminder_runs ("runDate") values (?::date)
          on conflict ("runDate") do nothing
@@ -234,7 +234,7 @@ export class CountdownReminderDAO {
     id: number,
     outcome: ICountdownReminderOutcome,
   ): Promise<void> {
-    const knex = db("countdown");
+    const knex = db("tenant");
     await knex("countdown_reminder_runs")
       .where({ id })
       .update({ ...outcome, updatedAt: knex.fn.now() });

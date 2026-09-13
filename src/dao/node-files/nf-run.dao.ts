@@ -68,7 +68,7 @@ export interface INodeFilesLockCandidate {
  */
 export class NfRunDAO {
   private base() {
-    return db("nodefiles")(TABLE)
+    return db("tenant")(TABLE)
       .join(WORKFLOWS_TABLE, `${WORKFLOWS_TABLE}.id`, `${TABLE}.workflowId`)
       .join(DOCUMENTS_TABLE, `${DOCUMENTS_TABLE}.id`, `${TABLE}.documentId`)
       .select(
@@ -85,7 +85,7 @@ export class NfRunDAO {
     companyId: number,
     workflowId: number | undefined,
   ): Promise<IDataPaginator<INodeFilesRun>> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
     // Resolved to a numeric id by the caller; never a column of this table.
     delete parsedQuery.filters.workflowUuid;
@@ -131,7 +131,7 @@ export class NfRunDAO {
 
   /** Resolved explicitly — the mapper strips numeric ids (L-005). */
   async getIdByUuid(uuid: string, companyId: number): Promise<number | null> {
-    const row = await db("nodefiles")(TABLE)
+    const row = await db("tenant")(TABLE)
       .where({ uuid, companyId })
       .select("id")
       .first();
@@ -142,7 +142,7 @@ export class NfRunDAO {
     id: number,
     companyId: number,
   ): Promise<INodeFilesRunRow | null> {
-    const row = await db("nodefiles")(TABLE).where({ id, companyId }).first();
+    const row = await db("tenant")(TABLE).where({ id, companyId }).first();
     return (row as INodeFilesRunRow) ?? null;
   }
 
@@ -151,7 +151,7 @@ export class NfRunDAO {
     workflowId: number,
     companyId: number,
   ): Promise<number> {
-    const result = await db("nodefiles")(TABLE)
+    const result = await db("tenant")(TABLE)
       .where({ workflowId, companyId })
       .count("* as count")
       .first();
@@ -170,7 +170,7 @@ export class NfRunDAO {
     workflowId: number,
     companyId: number,
   ): Promise<number> {
-    const result = await db("nodefiles")(TABLE)
+    const result = await db("tenant")(TABLE)
       .where({ workflowId, companyId })
       .whereIn("status", [...NODE_FILES_ACTIVE_RUN_STATUSES])
       .count("* as count")
@@ -192,7 +192,7 @@ export class NfRunDAO {
    * its own transaction: nothing external happens inside it.
    */
   async claimNext(lockedBy: string): Promise<INodeFilesClaimedRun | null> {
-    const result = await db("nodefiles").raw(
+    const result = await db("tenant").raw(
       `UPDATE nf_runs
           SET status = 'extracting',
               "lockedAt" = now(),
@@ -227,7 +227,7 @@ export class NfRunDAO {
   async claimNextRunnable(
     lockedBy: string,
   ): Promise<INodeFilesClaimedRun | null> {
-    const result = await db("nodefiles").raw(
+    const result = await db("tenant").raw(
       `UPDATE nf_runs
           SET "lockedAt" = now(),
               "lockedBy" = ?,
@@ -254,7 +254,7 @@ export class NfRunDAO {
    * definition of "stale".
    */
   async listExtracting(): Promise<INodeFilesLockCandidate[]> {
-    const rows = await db("nodefiles")(TABLE)
+    const rows = await db("tenant")(TABLE)
       .where("status", "extracting")
       .select("id", "lockedAt")
       .orderBy("id")
@@ -269,7 +269,7 @@ export class NfRunDAO {
    * `failAbandonedExecutions`.
    */
   async listRunningClaims(): Promise<INodeFilesLockCandidate[]> {
-    const rows = await db("nodefiles")(TABLE)
+    const rows = await db("tenant")(TABLE)
       .where("status", "running")
       .whereNotNull("lockedBy")
       .select("id", "lockedAt")
@@ -291,7 +291,7 @@ export class NfRunDAO {
     message: string,
   ): Promise<number> {
     if (ids.length === 0) return 0;
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     return knex(TABLE)
       .whereIn("id", ids)
       .where("status", "running")
@@ -308,7 +308,7 @@ export class NfRunDAO {
   /** Put abandoned runs back in the queue. Returns how many moved. */
   async requeue(ids: number[]): Promise<number> {
     if (ids.length === 0) return 0;
-    return db("nodefiles")(TABLE)
+    return db("tenant")(TABLE)
       .whereIn("id", ids)
       .where("status", "extracting")
       .update({
@@ -316,7 +316,7 @@ export class NfRunDAO {
         lockedAt: null,
         lockedBy: null,
         startedAt: null,
-        updatedAt: db("nodefiles").fn.now(),
+        updatedAt: db("tenant").fn.now(),
       });
   }
 
@@ -350,7 +350,7 @@ export class NfRunDAO {
       tokensOut: number;
     },
   ): Promise<void> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     const stillWorking = result.status === "running";
     await knex(TABLE)
       .where({ id, companyId })
@@ -379,7 +379,7 @@ export class NfRunDAO {
     status: "succeeded" | "failed",
     error: string | null,
   ): Promise<void> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     await knex(TABLE).where({ id, companyId }).update({
       status,
       error,
@@ -395,7 +395,7 @@ export class NfRunDAO {
     companyId: number,
     message: string,
   ): Promise<void> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     await knex(TABLE).where({ id, companyId }).update({
       status: "failed",
       error: message,
@@ -426,7 +426,7 @@ export class NfRunDAO {
     reviewedByUserId: number | null,
     reviewedByName: string | null,
   ): Promise<void> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     await knex(TABLE)
       .where({ id, companyId })
       .update({
@@ -450,7 +450,7 @@ export class NfRunDAO {
    * unlocked `running` state is exactly what `claimNextRunnable` looks for.
    */
   async requeueExecution(id: number, companyId: number): Promise<void> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     await knex(TABLE).where({ id, companyId }).update({
       status: "running",
       error: null,
@@ -463,7 +463,7 @@ export class NfRunDAO {
 
   /** failed → queued. The retry clears the previous error and the lock. */
   async requeueOne(id: number, companyId: number): Promise<void> {
-    const knex = db("nodefiles");
+    const knex = db("tenant");
     await knex(TABLE).where({ id, companyId }).update({
       status: "queued",
       error: null,

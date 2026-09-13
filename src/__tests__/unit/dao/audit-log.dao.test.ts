@@ -396,39 +396,46 @@ describe("AuditLogDAO — the default date window (§4c)", () => {
 
 describe("AuditLogDAO — auditDbFor chooses the database (R-3)", () => {
   it("reads the owning database of the filtered entity", async () => {
+    // `users` is central: the only owner that differs from the tenant fallback,
+    // so it is what proves the entity's owner is consulted.
+    await new AuditLogDAO().getAllWithFilters(asAdmin({ entityName: "users" }));
+    expect(new Set(mockDbKeys)).toEqual(new Set(["core"]));
+
+    mockDbKeys.length = 0;
     await new AuditLogDAO().getAllWithFilters(
       asAdmin({ entityName: "countdown_documents" }),
     );
-
-    expect(new Set(mockDbKeys)).toEqual(new Set(["countdown"]));
+    expect(new Set(mockDbKeys)).toEqual(new Set(["tenant"]));
   });
 
-  it("falls back to erp when no entityName narrows the read", async () => {
+  it("falls back to tenant when no entityName narrows the read", async () => {
     await new AuditLogDAO().getAllWithFilters(asAdmin());
 
-    expect(new Set(mockDbKeys)).toEqual(new Set(["erp"]));
+    expect(new Set(mockDbKeys)).toEqual(new Set(["tenant"]));
   });
 
-  it("falls back to erp when entityName names several tables", async () => {
+  it("falls back to tenant when entityName names several tables", async () => {
+    // A central table first: reading the first name instead of falling back
+    // would answer `core`.
     await new AuditLogDAO().getAllWithFilters(
-      asAdmin({ entityName: ["machines", "countdown_documents"] }),
+      asAdmin({ entityName: ["users", "countdown_documents"] }),
     );
 
-    expect(new Set(mockDbKeys)).toEqual(new Set(["erp"]));
+    expect(new Set(mockDbKeys)).toEqual(new Set(["tenant"]));
   });
 
   it("reads the entity's database for a history request", async () => {
     givenHistory({ txRows: [], count: 0, rows: [] });
 
     await new AuditLogDAO().getHistory(
-      "countdown_documents",
+      "users",
       RECORD_UUID,
       1,
       20,
       asAdmin(),
     );
 
-    expect(new Set(mockDbKeys)).toEqual(new Set(["countdown"]));
+    expect(new Set(mockDbKeys)).toEqual(new Set(["core"]));
   });
 });
 
@@ -644,7 +651,7 @@ describe("AuditLogDAO.getByUuid", () => {
     expect(found).toBe(row);
     expect(whereCalls()).toContainEqual([`${TABLE}.uuid`, row.uuid]);
     expect(whereCalls()).toContainEqual([`${TABLE}.companyId`, COMPANY_ID]);
-    expect(mockDbKeys).toEqual(["erp"]);
+    expect(mockDbKeys).toEqual(["tenant"]);
   });
 
   it("returns null rather than undefined when nothing matches", async () => {

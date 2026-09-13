@@ -64,7 +64,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   private queryConfig = PAPER_CLASS_QUERY_CONFIG;
 
   async create(item: IPaperClass): Promise<IPaperClass> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const paperClass = await knex.transaction(async (trx) => {
       const [created] = await trx(this.tableName)
         .insert({
@@ -141,7 +141,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   }
 
   private async loadPaperUuids(paperClassId: number): Promise<string[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const rows = await knex("paper_class_papers")
       .join(
         "paper_supplies",
@@ -154,7 +154,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   }
 
   async getById(id: number): Promise<IPaperClass | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const paperClass = await knex(this.tableName).where("id", id).first();
 
     return paperClass
@@ -169,7 +169,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IPaperClass | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const paperClass = await query.select(`${this.tableName}.*`).first();
@@ -186,7 +186,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     id: number,
     item: Partial<IPaperClass>,
   ): Promise<IPaperClass | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -211,7 +211,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -224,7 +224,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IPaperClass>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [paperClasses, totalResult] = await Promise.all([
@@ -260,7 +260,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   ): Promise<Map<number, string[]>> {
     const result = new Map<number, string[]>();
     if (!paperClassIds.length) return result;
-    const knex = db("erp");
+    const knex = db("tenant");
     const rows = await knex("paper_class_papers")
       .join(
         "paper_supplies",
@@ -278,7 +278,7 @@ export class PaperClassDAO implements IBaseDAO<IPaperClass> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPaperClass>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

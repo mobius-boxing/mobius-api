@@ -166,7 +166,7 @@ export class ProductionRouteDAO {
   // ── Create / update (stages replaced wholesale, transactional) ────────────
 
   async create(item: IProductionRoute): Promise<IProductionRoute> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const uuid = item.uuid ?? uuidv4();
     await knex.transaction(async (trx) => {
       if (item.isDefault) await this.clearDefault(trx, item.companyId!);
@@ -189,7 +189,7 @@ export class ProductionRouteDAO {
     id: number,
     item: Partial<IProductionRoute>,
   ): Promise<IProductionRoute | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const existing = await knex(this.tableName).where("id", id).first();
     if (!existing) return null;
 
@@ -535,7 +535,7 @@ export class ProductionRouteDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IProductionRoute | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const route = await query.select(`${this.tableName}.*`).first();
@@ -549,7 +549,7 @@ export class ProductionRouteDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -557,7 +557,7 @@ export class ProductionRouteDAO {
   }
 
   private async loadStages(routeId: number): Promise<IRouteStage[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const stages = await knex("production_route_stages as st")
       .select(
         "st.*",
@@ -648,14 +648,14 @@ export class ProductionRouteDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   /** True when any part references this route (delete guard, spec 04). */
   async isReferencedByParts(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const hasParts = await knex.schema.hasTable("parts");
     if (!hasParts) return false;
     const row = await knex("parts")
@@ -669,7 +669,7 @@ export class ProductionRouteDAO {
 
   /** Clonar(): full copy; isDefault forced false. */
   async clone(sourceId: number, name: string): Promise<IProductionRoute> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const source = await knex(this.tableName).where("id", sourceId).first();
     if (!source) throw new Error("Source route not found");
     const stages = await this.loadStagesForCopy(sourceId);
@@ -685,7 +685,7 @@ export class ProductionRouteDAO {
 
   /** CopiarEtapas(src): clear own stages, deep-copy the source's. */
   async copyStages(targetId: number, sourceId: number): Promise<void> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const stages = await this.loadStagesForCopy(sourceId);
     await knex.transaction(async (trx) => {
       await trx("production_route_stages").where("routeId", targetId).delete();
@@ -698,7 +698,7 @@ export class ProductionRouteDAO {
 
   /** Raw stage tree with numeric ids, ready for insertStages. */
   private async loadStagesForCopy(routeId: number): Promise<IRouteStage[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const stages = await knex("production_route_stages")
       .where("routeId", routeId)
       .orderBy("number", "asc");
@@ -740,7 +740,7 @@ export class ProductionRouteDAO {
   }
 
   async nameExists(companyId: number, name: string): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const row = await knex(this.tableName)
       .where({ companyId, name })
       .select("id")
@@ -753,7 +753,7 @@ export class ProductionRouteDAO {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IProductionRoute>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

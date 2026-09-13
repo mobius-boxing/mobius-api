@@ -41,13 +41,11 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 
 /** Verified against the live database 2026-09-01 (brief §0.4). */
 const AUDITED_COUNTS: Record<DbKey, number> = {
-  erp: 55,
+  tenant: 66,
   core: 9,
-  countdown: 7,
-  nodefiles: 5,
 };
-/** `files` is attached under core + erp + countdown: 76 calls, 74 tables. */
-const ATTACH_CALLS = 76;
+/** `files` is attached under core + tenant: 75 calls, 74 tables. */
+const ATTACH_CALLS = 75;
 const AUDITED_TABLES = 74;
 
 /** R-1: 43 of the 74 audited tables are `requireAdmin()`-gated on their own routes. */
@@ -89,11 +87,11 @@ describe("audit coverage manifest (AC-1)", () => {
     expect(counts).toEqual(AUDITED_COUNTS);
   });
 
-  it("makes 76 attach calls over 74 distinct tables", () => {
+  it("makes 75 attach calls over 74 distinct tables", () => {
     const entries = allAudited();
     expect(entries).toHaveLength(ATTACH_CALLS);
     expect(new Set(entries).size).toBe(AUDITED_TABLES);
-    // The only name that fans out is `files` (core + erp + countdown).
+    // The only name that fans out is `files` (core + tenant).
     const fannedOut = sorted(
       new Set(entries.filter((t, i) => entries.indexOf(t) !== i)),
     );
@@ -245,14 +243,18 @@ describe("audit read manifest (AC-9)", () => {
     }
   });
 
-  it("chooses the owning database for a read, and erp otherwise", () => {
-    expect(auditDbFor("countdown_documents")).toBe("countdown");
-    expect(auditDbFor("nf_workflows")).toBe("nodefiles");
-    expect(auditDbFor("parts")).toBe("erp");
-    expect(auditDbFor(undefined)).toBe("erp");
-    // `files` is fanned out across three keys, so `ownerOf` declines to answer.
-    expect(auditDbFor("files")).toBe("erp");
-    expect(auditDbFor("not_a_table")).toBe("erp");
+  it("chooses the owning database for a read, and tenant otherwise", () => {
+    // A central table is the only owner that differs from the fallback, so it
+    // is what proves the owner is consulted at all.
+    expect(auditDbFor("users")).toBe("core");
+    expect(auditDbFor("roles")).toBe("core");
+    expect(auditDbFor("countdown_documents")).toBe("tenant");
+    expect(auditDbFor("nf_workflows")).toBe("tenant");
+    expect(auditDbFor("parts")).toBe("tenant");
+    expect(auditDbFor(undefined)).toBe("tenant");
+    // `files` is fanned out across both planes, so `ownerOf` declines to answer.
+    expect(auditDbFor("files")).toBe("tenant");
+    expect(auditDbFor("not_a_table")).toBe("tenant");
   });
 });
 

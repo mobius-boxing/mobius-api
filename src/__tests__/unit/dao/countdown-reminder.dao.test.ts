@@ -35,21 +35,15 @@ interface TableCall {
  */
 const mockRawCalls: Record<string, RawCall[]> = {
   core: [],
-  erp: [],
-  countdown: [],
-  store: [],
+  tenant: [],
 };
 const mockTableCalls: Record<string, TableCall[]> = {
   core: [],
-  erp: [],
-  countdown: [],
-  store: [],
+  tenant: [],
 };
 const mockRows: Record<string, unknown[]> = {
   core: [],
-  erp: [],
-  countdown: [],
-  store: [],
+  tenant: [],
 };
 
 jest.mock("../../../database/registry", () => ({
@@ -75,7 +69,7 @@ jest.mock("../../../database/registry", () => ({
     connection.raw = (sql: string, bindings: unknown[]) => {
       mockRawCalls[key].push({ sql, bindings });
       return Promise.resolve({
-        rows: key === "countdown" ? [] : [{ answeredBy: key }],
+        rows: key === "tenant" ? [] : [{ answeredBy: key }],
       });
     };
     return connection;
@@ -133,17 +127,15 @@ describe("CountdownReminderDAO.findDue", () => {
     resetCaptures();
     mockEnabledCompanyIds = [3, 6];
     await new CountdownReminderDAO().findDue("2026-08-13");
-    const call = mockRawCalls.countdown[0];
-    if (!call) throw new Error("findDue emitted no query on the countdown key");
+    const call = mockRawCalls.tenant[0];
+    if (!call) throw new Error("findDue emitted no query on the tenant key");
     sql = call.sql;
     bindings = call.bindings;
   });
 
-  it("runs on the countdown connection and on no other", () => {
-    expect(mockRawCalls.countdown).toHaveLength(1);
+  it("runs on the tenant connection and on no other", () => {
+    expect(mockRawCalls.tenant).toHaveLength(1);
     expect(mockRawCalls.core).toEqual([]);
-    expect(mockRawCalls.erp).toEqual([]);
-    expect(mockRawCalls.store).toEqual([]);
   });
 
   it("selects on the document's own threshold, with no lower bound", () => {
@@ -223,7 +215,7 @@ describe("CountdownReminderDAO.findRecipients", () => {
     ];
     // The row a countdown-keyed lookup would have returned; any table read on
     // any connection is the tell.
-    mockRows.countdown = [
+    mockRows.tenant = [
       {
         id: 99,
         email: "wrong-database@example.com",

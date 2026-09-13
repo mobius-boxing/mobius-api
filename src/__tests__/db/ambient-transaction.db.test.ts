@@ -21,8 +21,10 @@
  *      intact (proven both on the raw mechanism and on the real
  *      `CorrugationDAO.replaceLayers`, one of the three P1b DAOs that kept
  *      their own transaction);
- *   6. two database keys open two transactions, on two backends, each with its
- *      own setting, and a failure rolls back both;
+ *   6. `core` and `tenant` on ONE physical database share one transaction on
+ *      one backend; on two distinct physical databases they open two
+ *      transactions on two backends, each with its own setting, and a failure
+ *      rolls back both (db-per-company D-13; claim rewritten per D-44);
  *   7. a query awaited AFTER `finishAuditRequest` runs on the pool, not on a
  *      closed transaction (`registry.ts` reads `state.finished` at await time
  *      precisely for this).
@@ -41,6 +43,12 @@
  *   SQL_DATABASE=traffic_production \
  *   npx jest src/__tests__/db/ambient-transaction.db.test.ts
  *
+ * The distinct-target half of claim 6 creates and drops a scratch database
+ * (`zz_jest_target_<run>`), which needs a role with CREATEDB. When `SQL_USER`
+ * lacks it, set `SQL_ADMIN_USER` / `SQL_ADMIN_PASSWORD` to a role that has it:
+ * that role creates, uses and drops the scratch database. Without either the
+ * block FAILS with the reason — it is never skipped.
+ *
  * L-013: every row is marked with the `RUN` suffix so a leftover is findable,
  * and `afterAll` asserts the four touched tables are back at the counts the
  * suite started with — the assertion, not just the DELETEs, is what makes the
@@ -48,8 +56,15 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { Client } from "pg";
+import { knex as createKnex, type Knex } from "knex";
 import { randomUUID } from "node:crypto";
-import { connectAll, disconnectAll, db } from "../../database/registry";
+import {
+  connectAll,
+  disconnectAll,
+  db,
+  withTenantTarget,
+} from "../../database/registry";
+import type { DbKey } from "../../database/keys";
 import {
   withAuditContext,
   withoutAudit,
@@ -92,6 +107,7 @@ const CONTEXT_KEYS = ["ip", "ua", "route"];
 type CountRow = { count: string };
 type SettingRow = { v: string | null };
 type PidRow = { pid: number };
+type TextRow = { v: string };
 
 describeIfLocalDb("Ambient audit transaction against the database", () => {
   /**
@@ -120,7 +136,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
 
   /** An insert through the ambient facade, in the shape a DAO would issue it. */
   const insertWarehouse = async (name: string): Promise<void> => {
-    await db("erp")("warehouses").insert({
+    await db("tenant")("warehouses").insert({
       uuid: randomUUID(),
       name,
       company_id: companyId,
@@ -131,7 +147,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
 
   /** The same read, but issued INSIDE the ambient transaction. */
   const warehousesNamedInside = async (name: string): Promise<number> => {
-    const rows = await db("erp")<{ id: number }>("warehouses").where(
+    const rows = await db("tenant")<{ id: number }>("warehouses").where(
       "name",
       name,
     );
@@ -139,7 +155,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
   };
 
   const settingInside = async (
-    key: "core" | "erp",
+    key: DbKey,
   ): Promise<Record<string, unknown> | null> => {
     const result = (await db(key).raw(
       "select current_setting('mobius.audit', true) as v",
@@ -148,11 +164,16 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
     return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
   };
 
-  const backendPidInside = async (key: "core" | "erp"): Promise<number> => {
+  const backendPidInside = async (key: DbKey): Promise<number> => {
     const result = (await db(key).raw("select pg_backend_pid() as pid")) as {
       rows: PidRow[];
     };
     return result.rows[0].pid;
+  };
+
+  const textInside = async (key: DbKey, sql: string): Promise<string> => {
+    const result = (await db(key).raw(sql)) as { rows: TextRow[] };
+    return result.rows[0].v;
   };
 
   beforeAll(async () => {
@@ -236,7 +257,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       await expect(
         withAuditContext({ source: "script", username: "test" }, async () => {
           await insertWarehouse(warehouse);
-          await db("erp")("corrugations").insert({
+          await db("tenant")("corrugations").insert({
             uuid: randomUUID(),
             code: corrugation,
             description: "rolled back",
@@ -268,7 +289,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
         { source: "script", username: "test" },
         async () => {
           await insertWarehouse(warehouse);
-          await db("erp")("corrugations").insert({
+          await db("tenant")("corrugations").insert({
             uuid: randomUUID(),
             code: corrugation,
             description: "committed",
@@ -301,12 +322,12 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
         async () => {
           // Open the transaction first, so the setting is applied.
           await warehousesNamedInside(mark("NOBODY"));
-          setting = await settingInside("erp");
+          setting = await settingInside("tenant");
           // A plain query on the SAME pool takes a DIFFERENT connection (the
           // transaction is holding its own), so it must see nothing: this is
           // what `set_config(..., true)` buys, proven rather than trusted.
           insideOtherConnection = await withoutAudit(() =>
-            settingInside("erp"),
+            settingInside("tenant"),
           );
         },
       );
@@ -344,7 +365,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       // Sampled across the pool because which connection comes back is the
       // pool's business, not ours.
       for (let attempt = 0; attempt < 20; attempt += 1) {
-        expect(await withoutAudit(() => settingInside("erp"))).toBeNull();
+        expect(await withoutAudit(() => settingInside("tenant"))).toBeNull();
       }
     });
   });
@@ -364,7 +385,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
           // — a SAVEPOINT. Its rollback is `ROLLBACK TO SAVEPOINT`, so the
           // outer transaction survives it.
           await expect(
-            db("erp").transaction(async (trx) => {
+            db("tenant").transaction(async (trx) => {
               await trx("warehouses").insert({
                 uuid: randomUUID(),
                 name: inner,
@@ -412,7 +433,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
         withAuditContext({ source: "script", username: "test" }, async () => {
           await insertWarehouse(outer);
 
-          await db("erp").transaction(async (trx) => {
+          await db("tenant").transaction(async (trx) => {
             // An independent transaction could not see this row: it is
             // uncommitted work of the request's transaction.
             const seen = await trx<{ id: number }>("warehouses").where(
@@ -455,7 +476,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
 
       await expect(
         withAuditContext({ source: "script", username: "test" }, async () => {
-          // `replaceLayers` opens `db("erp").transaction(...)` itself — under
+          // `replaceLayers` opens `db("tenant").transaction(...)` itself — under
           // the ambient transaction that is a savepoint, so its writes are the
           // request's writes and die with it.
           await dao.replaceLayers(corrugationId, [
@@ -478,12 +499,14 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
     });
   });
 
-  describe("two database keys", () => {
-    it("open two transactions on two backends and both roll back", async () => {
-      const company = mark("MULTI-CO");
-      const warehouse = mark("MULTI-WH");
+  describe("two database keys (claim 6, rewritten per D-44)", () => {
+    it("share ONE transaction on ONE backend while core and tenant share a database", async () => {
+      const company = mark("SHARED-CO");
+      const warehouse = mark("SHARED-WH");
       let corePid = 0;
-      let erpPid = 0;
+      let tenantPid = 0;
+      let coreTxid = "";
+      let tenantTxid = "";
       let openKeys: string[] = [];
 
       await expect(
@@ -496,20 +519,26 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
           await insertWarehouse(warehouse);
 
           corePid = await backendPidInside("core");
-          erpPid = await backendPidInside("erp");
+          tenantPid = await backendPidInside("tenant");
+          coreTxid = await textInside("core", "select txid_current()::text as v");
+          tenantTxid = await textInside(
+            "tenant",
+            "select txid_current()::text as v",
+          );
           openKeys = [...(getAuditState()?.trx.keys() ?? [])];
 
-          // Each transaction carries its own copy of the setting.
           expect((await settingInside("core"))?.source).toBe("script");
-          expect((await settingInside("erp"))?.source).toBe("script");
+          expect((await settingInside("tenant"))?.source).toBe("script");
 
-          throw new Error("two-key request failed");
+          throw new Error("shared-target request failed");
         }),
-      ).rejects.toThrow("two-key request failed");
+      ).rejects.toThrow("shared-target request failed");
 
-      expect(openKeys.sort()).toEqual(["core", "erp"]);
-      // Two distinct backends ⇒ two connections ⇒ two transactions.
-      expect(corePid).not.toBe(erpPid);
+      // One entry, one backend, one transaction id: two transactions on one
+      // database is the self-blocking shape company-purge.service.ts documents.
+      expect(openKeys).toEqual(["core"]);
+      expect(tenantPid).toBe(corePid);
+      expect(tenantTxid).toBe(coreTxid);
 
       expect(
         await countOutside(`SELECT count(*) FROM companies WHERE name = $1`, [
@@ -517,6 +546,137 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
         ]),
       ).toBe(0);
       expect(await warehousesNamed(warehouse)).toBe(0);
+    });
+
+    describe("on two distinct physical databases", () => {
+      const scratchDb = `zz_jest_target_${RUN.toLowerCase()}`;
+      let scratch: Knex | undefined;
+      let databasesBefore = 0;
+
+      const scratchWarehousesNamed = async (name: string): Promise<number> => {
+        if (!scratch) throw new Error("scratch database is not open");
+        const [row] = await scratch("warehouses")
+          .where({ name })
+          .count<{ count: string }[]>("* as count");
+        return Number(row?.count ?? 0);
+      };
+
+      const adminUser = process.env.SQL_ADMIN_USER ?? process.env.SQL_USER;
+      const adminPassword = process.env.SQL_ADMIN_USER
+        ? process.env.SQL_ADMIN_PASSWORD
+        : process.env.SQL_PASSWORD;
+      let admin: Client | undefined;
+
+      beforeAll(async () => {
+        admin = new Client({
+          host: process.env.SQL_HOST,
+          port: Number(process.env.SQL_PORT) || 5432,
+          user: adminUser,
+          password: adminPassword,
+          database: process.env.SQL_DATABASE,
+        });
+        await admin.connect();
+        const privilege = await admin.query<{ allowed: boolean }>(
+          `SELECT rolcreatedb OR rolsuper AS allowed FROM pg_roles WHERE rolname = current_user`,
+        );
+        if (!privilege.rows[0]?.allowed) {
+          throw new Error(
+            `role ${adminUser} lacks CREATEDB — run as a superuser via ` +
+              `SQL_ADMIN_USER/SQL_ADMIN_PASSWORD, or grant CREATEDB`,
+          );
+        }
+        databasesBefore = await countOutside(
+          `SELECT count(*) FROM pg_database`,
+        );
+        await admin.query(`CREATE DATABASE ${scratchDb}`);
+        scratch = createKnex({
+          client: "pg",
+          connection: {
+            host: process.env.SQL_HOST,
+            port: Number(process.env.SQL_PORT) || 5432,
+            user: adminUser,
+            password: adminPassword,
+            database: scratchDb,
+          },
+          pool: { min: 0, max: 2 },
+        });
+        // A tenant-owned name, so the registry's guard lets it through on
+        // `tenant`; the scratch database holds nothing else.
+        await scratch.raw(
+          `CREATE TABLE warehouses (id serial PRIMARY KEY, name text NOT NULL)`,
+        );
+      }, 60000);
+
+      afterAll(async () => {
+        if (!admin) return;
+        try {
+          await scratch?.destroy();
+          if (databasesBefore > 0) {
+            await admin.query(`DROP DATABASE IF EXISTS ${scratchDb}`);
+            // L-013: the scratch database is gone, not merely emptied.
+            expect(
+              await countOutside(`SELECT count(*) FROM pg_database`),
+            ).toBe(databasesBefore);
+          }
+        } finally {
+          await admin.end();
+        }
+      }, 60000);
+
+      it("open two transactions on two backends, and a failure rolls back both", async () => {
+        if (!scratch) throw new Error("scratch database is not open");
+        const company = mark("MULTI-CO");
+        const warehouse = mark("MULTI-WH");
+        let corePid = 0;
+        let tenantPid = 0;
+        let tenantDatabase = "";
+        let openKeys: string[] = [];
+
+        await expect(
+          withTenantTarget({ physicalKey: "tenant:1", instance: scratch }, () =>
+            withAuditContext(
+              { source: "script", username: "test" },
+              async () => {
+                await db("core")("companies").insert({
+                  uuid: randomUUID(),
+                  name: company,
+                  slug: company.toLowerCase(),
+                });
+                await db("tenant")("warehouses").insert({ name: warehouse });
+
+                corePid = await backendPidInside("core");
+                tenantPid = await backendPidInside("tenant");
+                tenantDatabase = await textInside(
+                  "tenant",
+                  "select current_database() as v",
+                );
+                openKeys = [...(getAuditState()?.trx.keys() ?? [])];
+
+                // Each transaction carries its own copy of the setting.
+                expect((await settingInside("core"))?.source).toBe("script");
+                expect((await settingInside("tenant"))?.source).toBe(
+                  "script",
+                );
+
+                throw new Error("two-target request failed");
+              },
+            ),
+          ),
+        ).rejects.toThrow("two-target request failed");
+
+        expect([...openKeys].sort()).toEqual(["core", "tenant:1"]);
+        // Two distinct backends ⇒ two connections ⇒ two transactions.
+        expect(tenantPid).not.toBe(corePid);
+        expect(tenantDatabase).toBe(scratchDb);
+
+        expect(
+          await countOutside(
+            `SELECT count(*) FROM companies WHERE name = $1`,
+            [company],
+          ),
+        ).toBe(0);
+        expect(await scratchWarehousesNamed(warehouse)).toBe(0);
+      });
     });
   });
 
@@ -545,7 +705,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
 
           // Built now, awaited after the finish. Knex builders are lazy, so
           // nothing has run and no transaction has been bound yet.
-          const pendingWrite = db("erp")("warehouses").insert({
+          const pendingWrite = db("tenant")("warehouses").insert({
             uuid: randomUUID(),
             name: late,
             company_id: companyId,

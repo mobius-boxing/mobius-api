@@ -63,7 +63,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
   private queryConfig = STRAPPING_TYPE_QUERY_CONFIG;
 
   async create(item: IStrappingType): Promise<IStrappingType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [strappingType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,7 +77,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
   }
 
   async getById(id: number): Promise<IStrappingType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const strappingType = await knex(this.tableName).where("id", id).first();
 
     return strappingType ? this.mapToInterface(strappingType) : null;
@@ -87,7 +87,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IStrappingType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const strappingType = await query.select(`${this.tableName}.*`).first();
@@ -99,7 +99,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
     id: number,
     item: Partial<IStrappingType>,
   ): Promise<IStrappingType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -117,7 +117,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -130,7 +130,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IStrappingType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [strappingTypes, totalResult] = await Promise.all([
@@ -160,7 +160,7 @@ export class StrappingTypeDAO implements IBaseDAO<IStrappingType> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IStrappingType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

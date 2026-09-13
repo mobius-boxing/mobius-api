@@ -67,7 +67,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   private queryConfig = FLUTE_TYPE_QUERY_CONFIG;
 
   async create(item: IFluteType): Promise<IFluteType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [fluteType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -85,7 +85,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   }
 
   async getById(id: number): Promise<IFluteType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const fluteType = await knex(this.tableName).where("id", id).first();
 
     return fluteType ? this.mapToInterface(fluteType) : null;
@@ -95,7 +95,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IFluteType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const fluteType = await query.select(`${this.tableName}.*`).first();
@@ -107,7 +107,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     id: number,
     item: Partial<IFluteType>,
   ): Promise<IFluteType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -130,7 +130,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -143,7 +143,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IFluteType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [fluteTypes, totalResult] = await Promise.all([
@@ -169,7 +169,7 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IFluteType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

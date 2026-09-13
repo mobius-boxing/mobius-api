@@ -44,7 +44,7 @@ export class DeliveryZoneDAO {
   private queryConfig = DELIVERY_ZONE_QUERY_CONFIG;
 
   async create(item: IDeliveryZone): Promise<IDeliveryZone> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -60,7 +60,7 @@ export class DeliveryZoneDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IDeliveryZone | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.*`).first();
@@ -71,7 +71,7 @@ export class DeliveryZoneDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -82,7 +82,7 @@ export class DeliveryZoneDAO {
     id: number,
     item: Partial<IDeliveryZone>,
   ): Promise<IDeliveryZone | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     if (item.code !== undefined) updateData.code = item.code;
     if (item.description !== undefined)
@@ -96,7 +96,7 @@ export class DeliveryZoneDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -104,7 +104,7 @@ export class DeliveryZoneDAO {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IDeliveryZone>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

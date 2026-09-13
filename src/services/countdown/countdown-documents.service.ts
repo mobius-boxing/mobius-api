@@ -550,7 +550,7 @@ export class CountdownDocumentsService {
       ctx.companyId,
     );
 
-    const knex = db("countdown");
+    const knex = db("tenant");
     await knex.transaction(async (trx) => {
       await this._documentDAO.setStatus(
         entry.id,

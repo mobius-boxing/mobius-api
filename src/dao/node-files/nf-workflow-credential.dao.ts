@@ -30,7 +30,7 @@ export class NfWorkflowCredentialDAO {
     credentialIds: number[],
   ): Promise<void> {
     const unique = [...new Set(credentialIds)];
-    await db("nodefiles").transaction(async (trx) => {
+    await db("tenant").transaction(async (trx) => {
       await trx(TABLE).where({ workflowId, companyId }).delete();
       if (unique.length === 0) return;
       await trx(TABLE).insert(
@@ -48,7 +48,7 @@ export class NfWorkflowCredentialDAO {
     workflowId: number,
     companyId: number,
   ): Promise<number[]> {
-    const rows = await db("nodefiles")(TABLE)
+    const rows = await db("tenant")(TABLE)
       .where({ workflowId, companyId })
       .select("credentialId");
     return (rows as Array<{ credentialId: number }>).map(

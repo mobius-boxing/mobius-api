@@ -2,7 +2,7 @@
  * AC-1 / AC-2 — the ownership manifest against the live schema.
  *
  * The manifest-only assertions always run. The `information_schema` comparison
- * needs a database, and there is no local dev database by default (`.env` points
+ * and `crossPlaneRefs` (db-per-company AC-15) need a database, and there is no local dev database by default (`.env` points
  * at the deployed `traffic-postgres`), so it is guarded to `localhost` and skips
  * everywhere else (plan R-6). Run it with, from `repos/mobius-api`:
  *
@@ -12,8 +12,17 @@
  */
 import { describe, it, expect } from "@jest/globals";
 import { Client } from "pg";
+import { knex as createKnex } from "knex";
 import { DB_KEYS, DbKey } from "../../database/keys";
-import { DOMAIN_OWNER, TABLE_OWNER, ownerOf } from "../../database/ownership";
+import {
+  DOMAIN_OWNER,
+  EXTRA_COPIES,
+  TABLE_MODULE,
+  TABLE_OWNER,
+  ownerOf,
+  tablesOf,
+} from "../../database/ownership";
+import { crossPlaneRefs } from "../../database/cross-plane-refs";
 
 const isLocalDb =
   process.env.SQL_HOST === "localhost" || process.env.SQL_HOST === "127.0.0.1";
@@ -25,20 +34,27 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * plus the 6 `nf_*` tables of node-files Phases 1 and 2.
  */
 const DOMAIN_TABLE_COUNT = 81;
+/** db-per-company model D-3: the pre-fan-out names, per plane. */
 const DOMAIN_COUNTS: Record<DbKey, number> = {
-  core: 10,
-  countdown: 9,
-  erp: 56,
-  nodefiles: 6,
+  core: 11,
+  tenant: 70,
+};
+/** The names each plane holds, fan-out copies included (model placement table). */
+const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
+  core: 11,
+  tenant: 72,
 };
 /**
- * The two names that deliberately live in more than one database (AC-2).
- * node-files deliberately adds no fourth copy of either: its rows are audited
- * by the same `audit_row_change` trigger, which writes through the erp
- * `audit_logs`, and it owns its own byte metadata in `nf_documents` rather than
- * borrowing `files` (brief D-4).
+ * The two names that deliberately live in both planes (AC-2, model D-5/D-6):
+ * company logos vs. attachments, and one ledger per database.
  */
-const FANNED_OUT_COPIES: Record<string, number> = { files: 3, audit_logs: 3 };
+const FANNED_OUT_COPIES: Record<string, number> = { files: 2, audit_logs: 2 };
+/** Tenant tables per catalogue slug: ERP 55 + `files` + `audit_logs` under core. */
+const MODULE_COUNTS: Record<string, number> = {
+  core: 57,
+  countdown: 9,
+  "node-files": 6,
+};
 
 const countBy = (owners: DbKey[]): Record<string, number> =>
   owners.reduce<Record<string, number>>(
@@ -85,12 +101,38 @@ describe("TABLE_OWNER manifest (AC-1 a/b/d, AC-2)", () => {
     }
   });
 
+  it("holds 11 central and 72 tenant names, copies included (AC-15)", () => {
+    const counts = Object.fromEntries(
+      DB_KEYS.map((key) => [key, tablesOf(key).length]),
+    );
+    expect(counts).toEqual(PLANE_TABLE_COUNTS);
+    expect(EXTRA_COPIES).toStrictEqual({
+      files: ["tenant"],
+      audit_logs: ["tenant"],
+    });
+  });
+
+  it("gives every tenant table exactly one module, and nothing else one (AC-15)", () => {
+    const sorted = (names: string[]): string[] =>
+      [...names].sort((a, b) => a.localeCompare(b));
+    expect(sorted(Object.keys(TABLE_MODULE))).toEqual(
+      sorted(tablesOf("tenant")),
+    );
+    const perModule = Object.values(TABLE_MODULE).reduce<
+      Record<string, number>
+    >((acc, slug) => ({ ...acc, [slug]: (acc[slug] ?? 0) + 1 }), {});
+    expect(perModule).toEqual(MODULE_COUNTS);
+    expect(TABLE_MODULE.countdown_documents).toBe("countdown");
+    expect(TABLE_MODULE.nf_runs).toBe("node-files");
+    expect(TABLE_MODULE.products).toBe("core");
+  });
+
   it("resolves a single-owner table and declines to guess a fanned-out one", () => {
-    expect(ownerOf("customers")).toBe("erp");
+    expect(ownerOf("customers")).toBe("tenant");
     expect(ownerOf("companies")).toBe("core");
-    expect(ownerOf("countdown_documents")).toBe("countdown");
-    expect(ownerOf("nf_runs")).toBe("nodefiles");
-    expect(ownerOf("nf_node_runs")).toBe("nodefiles");
+    expect(ownerOf("countdown_documents")).toBe("tenant");
+    expect(ownerOf("nf_runs")).toBe("tenant");
+    expect(ownerOf("nf_node_runs")).toBe("tenant");
     // `undefined` is what stops the wrong-database guard objecting to a table
     // that legitimately exists on more than one connection.
     expect(ownerOf("files")).toBeUndefined();
@@ -140,5 +182,92 @@ describeIfLocalDb("TABLE_OWNER vs the live schema (AC-1 c)", () => {
 
     expect({ unassigned, missing }).toEqual({ unassigned: [], missing: [] });
     expect(live).toHaveLength(DOMAIN_TABLE_COUNT);
+  });
+});
+
+describeIfLocalDb("crossPlaneRefs vs the live catalogue (AC-15)", () => {
+  const connection = {
+    host: process.env.SQL_HOST,
+    port: Number(process.env.SQL_PORT) || 5432,
+    user: process.env.SQL_USER,
+    password: process.env.SQL_PASSWORD,
+    database: process.env.SQL_DATABASE,
+  };
+
+  type Ref = {
+    table: string;
+    column: string;
+    referencedTable: string;
+    referencedColumn: string;
+    deleteRule: string;
+    nullable: boolean;
+  };
+  const render = (ref: Ref): string =>
+    `${ref.table}.${ref.column} -> ${ref.referencedTable}.${ref.referencedColumn} ` +
+    `${ref.deleteRule} ${ref.nullable ? "NULL" : "NOT NULL"}`;
+
+  /**
+   * The same question asked a second way — `information_schema` instead of
+   * `pg_constraint` — and filtered in JS instead of SQL, so a wrong join or
+   * plane filter in `crossPlaneRefs` cannot agree with it by construction.
+   */
+  const readFromInformationSchema = async (): Promise<string[]> => {
+    const client = new Client(connection);
+    await client.connect();
+    try {
+      const result = await client.query<
+        Omit<Ref, "nullable"> & { nullableText: string }
+      >(
+        `SELECT kcu.table_name AS "table",
+                kcu.column_name AS "column",
+                target.table_name AS "referencedTable",
+                target.column_name AS "referencedColumn",
+                rc.delete_rule AS "deleteRule",
+                col.is_nullable AS "nullableText"
+           FROM information_schema.referential_constraints rc
+           JOIN information_schema.key_column_usage kcu
+             ON kcu.constraint_schema = rc.constraint_schema
+            AND kcu.constraint_name = rc.constraint_name
+           JOIN information_schema.key_column_usage target
+             ON target.constraint_schema = rc.unique_constraint_schema
+            AND target.constraint_name = rc.unique_constraint_name
+            AND target.ordinal_position = kcu.position_in_unique_constraint
+           JOIN information_schema.columns col
+             ON col.table_schema = kcu.table_schema
+            AND col.table_name = kcu.table_name
+            AND col.column_name = kcu.column_name
+          WHERE rc.constraint_schema = 'public'`,
+      );
+      const tenant = new Set(tablesOf("tenant"));
+      const centralOnly = new Set(
+        tablesOf("core").filter((table) => !tenant.has(table)),
+      );
+      return result.rows
+        .filter(
+          (row) => tenant.has(row.table) && centralOnly.has(row.referencedTable),
+        )
+        .map((row) => render({ ...row, nullable: row.nullableText === "YES" }))
+        .sort();
+    } finally {
+      await client.end();
+    }
+  };
+
+  it("returns every FK from a tenant table to a central-only table, and nothing else", async () => {
+    const knex = createKnex({ client: "pg", connection });
+    try {
+      const refs = await crossPlaneRefs(knex);
+      const expected = await readFromInformationSchema();
+
+      expect(refs.length).toBeGreaterThan(0);
+      expect(refs.map(render).sort()).toEqual(expected);
+      for (const ref of refs) {
+        expect(tablesOf("tenant")).toContain(ref.table);
+        expect(tablesOf("tenant")).not.toContain(ref.referencedTable);
+        expect(ref.constraintName).toEqual(expect.any(String));
+      }
+    } finally {
+      await knex.destroy();
+    }
   });
 });

@@ -10,7 +10,7 @@
  *
  * The knex mock is table-AND-key aware (part.dao.test.ts pattern, copied
  * locally on purpose): every builder remembers which connection key created it,
- * which is what lets the `users` lookup prove it does not run on `erp`.
+ * which is what lets the `users` lookup prove it does not run on `tenant`.
  */
 import {
   jest,
@@ -133,7 +133,7 @@ const DAO_SOURCE = fs.readFileSync(
 beforeEach(() => {
   fixtures = {};
   builders = [];
-  knexByKey = { erp: makeKnex("erp"), core: makeKnex("core") };
+  knexByKey = { tenant: makeKnex("tenant"), core: makeKnex("core") };
   fixtures.sales_orders = { rows: [], firstRows: [{ count: "0" }] };
 });
 
@@ -311,8 +311,8 @@ describe("column filters (AC-5, AC-7..AC-9, AC-13)", () => {
     expect(bound.toISOString()).toBe("2026-01-31T09:30:00.000Z");
   });
 
-  it("reads users on the CORE connection, never on erp", async () => {
-    // Regression guard: `users` is core-owned, so an erp-side lookup trips the
+  it("reads users on the CORE connection, never on tenant", async () => {
+    // Regression guard: `users` is core-owned, so a tenant-side lookup trips the
     // registry's wrong-database guard and 500s the whole list request outside
     // production (it only logs in production, which is worse).
     fixtures.users = { firstRows: [{ id: 55 }] };
@@ -321,7 +321,7 @@ describe("column filters (AC-5, AC-7..AC-9, AC-13)", () => {
     const userBuilders = builders.filter((b) => b.table === "users");
     expect(userBuilders).toHaveLength(1);
     expect(userBuilders[0].dbKey).toBe("core");
-    expect(orderBuilders()[0].dbKey).toBe("erp");
+    expect(orderBuilders()[0].dbKey).toBe("tenant");
     expect(fixtures.sales_orders.whereCalls).toContainEqual([
       "sales_orders.salesUserId",
       "=",
@@ -511,10 +511,10 @@ describe("derived predicates (AC-10..AC-12, AC-14..AC-16)", () => {
     expect(grouped).toHaveLength(1);
 
     // Replay the callback: NOT EXISTS … OR ( EXISTS … AND NOT EXISTS … ).
-    const probe = makeBuilder("erp", "probe");
+    const probe = makeBuilder("tenant", "probe");
     grouped[0][1][0](probe);
     expect(probe.calls.map((c) => c[0])).toEqual(["whereNotExists", "orWhere"]);
-    const inner = makeBuilder("erp", "probe-inner");
+    const inner = makeBuilder("tenant", "probe-inner");
     probe.calls[1][1][0](inner);
     expect(inner.calls.map((c) => c[0])).toEqual([
       "whereExists",

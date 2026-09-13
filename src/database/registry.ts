@@ -1,6 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { knex, Knex } from "knex";
 import pg from "pg";
-import { DB_KEYS, DbKey } from "./keys";
+import { DbKey, PhysicalKey } from "./keys";
 import { connectionFor } from "./env";
 import { DOMAIN_OWNER, ownerOf } from "./ownership";
 import {
@@ -22,33 +23,26 @@ import {
 pg.types.setTypeParser(1082, (value: string) => value);
 
 /**
- * Connections per key (AC-44, Q-2 default). `max_connections` is 100 on a
- * `traffic-postgres` shared with rolpel-api, rookito-api, the legacy
- * countdown-api and ad-hoc psql, on a t3.micro with 916 MB RAM — four pools in
- * one process must not multiply what used to be one pool of 15.
+ * Connections of the core pool (db-per-company D-10, D-30). `max_connections`
+ * is 100 on a `traffic-postgres` shared with rolpel-api, rookito-api, the
+ * legacy countdown-api and ad-hoc psql, on a t3.micro with 916 MB RAM.
+ *
+ * Until tenant pools exist, `tenant` is served by this same instance, so this
+ * is also the whole process's pool. That is enough because both planes share
+ * one ambient transaction per request instead of the split's up to three.
+ * The node-files extraction worker lives inside it — which is exactly why it
+ * never holds a connection across an LLM call (see node-files-worker.ts).
  */
-export const POOL_MAX: Record<DbKey, number> = {
-  core: 12,
-  erp: 15,
-  countdown: 5,
-  nodefiles: 5,
-};
-// sum = 37 of a 40 budget. The 5 freed by deleting the store key on 2026-08-24
-// were reserved for the `nodefiles` module (amendment-2026-08-24) and are now
-// spent: node-files Phase 1 took them, and the extraction worker lives inside
-// this budget — which is exactly why it never holds a connection across an LLM
-// call (see node-files-worker.ts).
+export const CORE_POOL_MAX = 10;
 
-/** The ceiling `sum(POOL_MAX)` may not exceed. Asserted by unit test. */
+/**
+ * The ceiling the core pool plus every tenant pool on the shared server may
+ * not exceed. Asserted by unit test.
+ */
 export const POOL_BUDGET = 40;
 
-/** Idle connections are not free on a t3.micro: only the hot keys keep one. */
-const POOL_MIN: Record<DbKey, number> = {
-  core: 1,
-  erp: 1,
-  countdown: 0,
-  nodefiles: 0,
-};
+/** Idle connections are not free on a t3.micro: the core pool keeps one. */
+const CORE_POOL_MIN = 1;
 
 const IDLE_TIMEOUT_MS = 20000;
 const ACQUIRE_TIMEOUT_MS = 30000;
@@ -191,34 +185,85 @@ const guard = <T extends object>(target: T, key: DbKey): T =>
  * `knex.raw()` names its tables inside a SQL string, where neither trap can see
  * them. The one raw cross-boundary query today is countdown's `findDue`, so raw
  * SQL is logged rather than rejected, and only outside production.
+ *
+ * A query event carries no key, only the instance it ran on, so the listener is
+ * per instance. Until tenant pools exist the shared core instance serves both
+ * planes, so no table is foreign to it: it carries no listener and logs
+ * nothing. Only an instance scoped by `withTenantTarget` gets one, attached on
+ * its first use.
  */
-const FOREIGN_TABLE_PATTERN: Record<DbKey, RegExp> = DB_KEYS.reduce(
-  (patterns, key) => {
-    const foreign = Object.keys(DOMAIN_OWNER).filter((table) => {
-      const owner = ownerOf(table);
-      return owner !== undefined && owner !== key;
-    });
-    return { ...patterns, [key]: new RegExp(`\\b(${foreign.join("|")})\\b`) };
-  },
-  {} as Record<DbKey, RegExp>,
+const FOREIGN_TO_TENANT = new RegExp(
+  `\\b(${Object.keys(DOMAIN_OWNER)
+    .filter((table) => ownerOf(table) === "core")
+    .join("|")})\\b`,
 );
 
-const attachRawBoundaryLogger = (instance: Knex, key: DbKey): void => {
+const attachRawBoundaryLogger = (instance: Knex): void => {
   if (process.env.NODE_ENV === "production") return;
   instance.on("query", (query: { sql?: string; method?: string }) => {
     // Builder-generated queries carry their verb ("select", "insert", …) and
     // are already covered by the callable guard; only raw SQL reaches here.
     if (query.method !== "raw" || typeof query.sql !== "string") return;
-    const match = FOREIGN_TABLE_PATTERN[key].exec(query.sql);
+    const match = FOREIGN_TO_TENANT.exec(query.sql);
     if (!match) return;
     console.warn(
-      `[db] raw query on "${key}" mentions "${match[1]}", owned by "${ownerOf(match[1] ?? "")}"`,
+      `[db] raw query on "tenant" mentions "${match[1]}", owned by "${ownerOf(match[1] ?? "")}"`,
     );
   });
 };
 
-const instances = new Map<DbKey, Knex>();
-const facades = new Map<DbKey, Knex>();
+/** A physical database and the one knex instance that reaches it (D-13). */
+export type PhysicalTarget = { physicalKey: PhysicalKey; instance: Knex };
+
+let coreInstance: Knex | undefined;
+
+/** Guarded facades per instance and key: a shared instance has one per plane. */
+const guardedFacades = new WeakMap<Knex, Map<DbKey, Knex>>();
+
+const tenantScope = new AsyncLocalStorage<PhysicalTarget>();
+const tenantInstancesWithLogger = new WeakSet<Knex>();
+
+/**
+ * Serve `db("tenant")` from `target` for everything `fn` runs. The caller owns
+ * the instance's lifecycle. This is the seam per-company resolution plugs into;
+ * until it exists the only callers are real-database tests that need a second
+ * physical target (AC-16).
+ */
+export const withTenantTarget = <T>(target: PhysicalTarget, fn: () => T): T =>
+  tenantScope.run(target, fn);
+
+/**
+ * Which physical database `key` reaches right now. `tenant` outside a
+ * `withTenantTarget` scope is the core database (db-per-company D-29), so the
+ * two planes share one instance and one ambient transaction (D-13).
+ */
+export const physicalKeyOf = (key: DbKey): PhysicalKey =>
+  key === "tenant" ? (tenantScope.getStore()?.physicalKey ?? "core") : "core";
+
+const resolveTarget = (key: DbKey): PhysicalTarget => {
+  if (!coreInstance) throw new DatabaseNotConnectedError(key);
+  const scoped = key === "tenant" ? tenantScope.getStore() : undefined;
+  if (!scoped) return { physicalKey: "core", instance: coreInstance };
+  if (!tenantInstancesWithLogger.has(scoped.instance)) {
+    tenantInstancesWithLogger.add(scoped.instance);
+    attachRawBoundaryLogger(scoped.instance);
+  }
+  return scoped;
+};
+
+const guardedFor = (instance: Knex, key: DbKey): Knex => {
+  let perKey = guardedFacades.get(instance);
+  if (!perKey) {
+    perKey = new Map();
+    guardedFacades.set(instance, perKey);
+  }
+  let facade = perKey.get(key);
+  if (!facade) {
+    facade = guard(instance, key);
+    perKey.set(key, facade);
+  }
+  return facade;
+};
 
 /**
  * The ambient (per-request) transaction facade — audit P1, handbook §P1.3.
@@ -229,9 +274,8 @@ const facades = new Map<DbKey, Knex>();
  * to the transaction until they are awaited**. This is the whole design: no DAO
  * signature changes, and no request holds a pooled connection it has not yet
  * used. Do not replace it with "open a transaction at request start" (that
- * spends one connection on all four pools for every mutating request, against
- * budgets of 12/15/5/5) or with "pass `trx` into every DAO" (the change this
- * exists to avoid).
+ * spends one connection on every physical database for every mutating request)
+ * or with "pass `trx` into every DAO" (the change this exists to avoid).
  *
  * **How it composes with the wrong-database guard.** There are two Proxies, and
  * the order matters: `ambientFacade` wraps the **guarded** facade, never the raw
@@ -265,10 +309,13 @@ const facades = new Map<DbKey, Knex>();
  * the builder survives the whole chain, and `catch`/`finally` route through it
  * (`knex/lib/builder-interface-augmenter.js:107`, `util/finally-mixin.js`).
  */
-const ambientFacades = new WeakMap<AuditRequestState, Map<DbKey, Knex>>();
+const ambientFacades = new WeakMap<AuditRequestState, Map<string, Knex>>();
 
 /**
- * One transaction per key per request, opened on the first awaited query.
+ * One transaction per PHYSICAL database per request, opened on the first
+ * awaited query. Keyed by `PhysicalKey`, not `DbKey`: two keys on one database
+ * holding two transactions is the self-blocking shape
+ * `company-purge.service.ts` documents (db-per-company D-13).
  *
  * The **promise** is memoised, never the resolved handle: two builders awaited
  * concurrently both arrive here before either transaction exists, and memoising
@@ -276,19 +323,18 @@ const ambientFacades = new WeakMap<AuditRequestState, Map<DbKey, Knex>>();
  * transactions, only one of which the middleware commits.
  */
 const ensureTrx = (
-  instance: Knex,
-  key: DbKey,
+  target: PhysicalTarget,
   state: AuditRequestState,
 ): Promise<Knex.Transaction> => {
-  const pending = state.trx.get(key);
+  const pending = state.trx.get(target.physicalKey);
   if (pending) return pending;
   const opening = (async (): Promise<Knex.Transaction> => {
     // Callback-less: a bare handle the middleware commits or rolls back itself.
-    const trx = await instance.transaction();
+    const trx = await target.instance.transaction();
     await applyAuditSetting(trx, state);
     return trx;
   })();
-  state.trx.set(key, opening);
+  state.trx.set(target.physicalKey, opening);
   return opening;
 };
 
@@ -310,28 +356,27 @@ type DeferrableQuery = {
  * awaited twice is safe.
  */
 const bindLazily = <T>(
-  target: T,
-  instance: Knex,
-  key: DbKey,
+  deferred: T,
+  target: PhysicalTarget,
   state: AuditRequestState,
 ): T => {
-  const query = target as DeferrableQuery;
+  const query = deferred as DeferrableQuery;
   const originalThen = query.then.bind(query);
   query.then = (onFulfilled?: Fulfilled, onRejected?: Rejected): unknown => {
     // Read at AWAIT time, not at build time: after the response ended, a late
     // query must run on the pool rather than on a closed transaction.
     const bound = state.finished
       ? Promise.resolve()
-      : ensureTrx(instance, key, state).then((trx) => {
+      : ensureTrx(target, state).then((trx) => {
           query.transacting(trx);
         });
     return bound.then(() => originalThen()).then(onFulfilled, onRejected);
   };
-  return target;
+  return deferred;
 };
 
 const ambientFacade = (
-  instance: Knex,
+  target: PhysicalTarget,
   guarded: Knex,
   key: DbKey,
   state: AuditRequestState,
@@ -342,8 +387,7 @@ const ambientFacade = (
       // must throw synchronously. Only the execution is deferred.
       return bindLazily(
         (guarded as unknown as Callable)(...args),
-        instance,
-        key,
+        target,
         state,
       );
     },
@@ -356,7 +400,7 @@ const ambientFacade = (
         // an inner rollback leaves the outer transaction alive). `wrapTransaction`
         // guards the handle exactly as it does off the plain facade.
         return (...args: unknown[]): Promise<unknown> =>
-          ensureTrx(instance, key, state).then((trx) =>
+          ensureTrx(target, state).then((trx) =>
             wrapTransaction(trx as unknown as Knex, key)(...args),
           );
       }
@@ -364,8 +408,7 @@ const ambientFacade = (
         return (...args: unknown[]): unknown =>
           bindLazily(
             (Reflect.get(obj, prop) as Callable)(...args),
-            instance,
-            key,
+            target,
             state,
           );
       }
@@ -374,8 +417,7 @@ const ambientFacade = (
         return (...args: unknown[]): unknown =>
           bindLazily(
             (Reflect.get(obj, prop) as Callable)(...args),
-            instance,
-            key,
+            target,
             state,
           );
       }
@@ -394,81 +436,70 @@ const ambientFacade = (
  * facade inert until the middleware (P1 track T3) arms a request.
  */
 export function db(key: DbKey): Knex {
-  const facade = facades.get(key);
-  if (!facade) throw new DatabaseNotConnectedError(key);
+  const target = resolveTarget(key);
+  const facade = guardedFor(target.instance, key);
   const state = getAuditState();
   // One question, one home: `isAmbientAuditActive` owns the whole condition
   // (mutating && armed && !detached && !finished). Re-deriving the flags here
   // is how one of them goes missing without a test noticing.
   if (!isAmbientAuditActive(state)) return facade;
-  const instance = instances.get(key);
-  if (!instance) throw new DatabaseNotConnectedError(key);
 
-  let perKey = ambientFacades.get(state);
-  if (!perKey) {
-    perKey = new Map();
-    ambientFacades.set(state, perKey);
+  let perTarget = ambientFacades.get(state);
+  if (!perTarget) {
+    perTarget = new Map();
+    ambientFacades.set(state, perTarget);
   }
-  let ambient = perKey.get(key);
+  const cacheKey = `${key}@${target.physicalKey}`;
+  let ambient = perTarget.get(cacheKey);
   if (!ambient) {
-    ambient = ambientFacade(instance, facade, key, state);
-    perKey.set(key, ambient);
+    ambient = ambientFacade(target, facade, key, state);
+    perTarget.set(cacheKey, ambient);
   }
   return ambient;
 }
 
 /**
- * Build every pool and prove every one of them answers, before the first
- * request is served. Any failure destroys whatever was created and rethrows, so
- * `server.ts` can exit(1) rather than serve half a database (AC-3).
+ * Build the core pool and prove it answers, before the first request is
+ * served. A failure destroys it and rethrows, so `server.ts` can exit(1) rather
+ * than serve a half-open database (AC-3).
  *
  * Idempotent: a second call while connected is a no-op, which is what keeps the
- * budget log to exactly one line per process (AC-44).
+ * budget log to exactly one line per process (AC-17).
  */
 export async function connectAll(): Promise<void> {
-  if (facades.size === DB_KEYS.length) return;
-  const created: Knex[] = [];
+  if (coreInstance) return;
+  let created: Knex | undefined;
   try {
-    for (const key of DB_KEYS) {
-      const instance = knex({
-        client: "pg",
-        connection: connectionFor(key),
-        pool: {
-          min: POOL_MIN[key],
-          max: POOL_MAX[key],
-          idleTimeoutMillis: IDLE_TIMEOUT_MS,
-          acquireTimeoutMillis: ACQUIRE_TIMEOUT_MS,
-        },
-      });
-      created.push(instance);
-      attachRawBoundaryLogger(instance, key);
-      instances.set(key, instance);
-      facades.set(key, guard(instance, key));
-    }
-    await Promise.all(created.map((instance) => instance.raw("SELECT 1")));
+    created = knex({
+      client: "pg",
+      connection: connectionFor("core"),
+      pool: {
+        min: CORE_POOL_MIN,
+        max: CORE_POOL_MAX,
+        idleTimeoutMillis: IDLE_TIMEOUT_MS,
+        acquireTimeoutMillis: ACQUIRE_TIMEOUT_MS,
+      },
+    });
+    // Set before the probe resolves, so a concurrent second call is a no-op
+    // instead of building a second pool.
+    coreInstance = created;
+    await created.raw("SELECT 1");
   } catch (error) {
-    instances.clear();
-    facades.clear();
-    await Promise.all(
-      created.map((instance) =>
-        instance.destroy().catch((destroyError: unknown) => {
-          console.error("Failed to destroy a half-open pool:", destroyError);
-        }),
-      ),
-    );
+    coreInstance = undefined;
+    await created?.destroy().catch((destroyError: unknown) => {
+      console.error("Failed to destroy a half-open pool:", destroyError);
+    });
     throw error;
   }
 
-  const sum = Object.values(POOL_MAX).reduce((total, max) => total + max, 0);
-  console.info("[db] pool budget", POOL_MAX, "sum", sum);
+  console.info("[db] pool budget", { core: CORE_POOL_MAX }, "of", POOL_BUDGET);
   console.info("Knex connections established");
 }
 
 export async function disconnectAll(): Promise<void> {
-  const open = [...instances.values()];
-  instances.clear();
-  facades.clear();
-  if (open.length === 0) return;
-  await Promise.all(open.map((instance) => instance.destroy()));
+  const open = coreInstance;
+  coreInstance = undefined;
+  if (!open) return;
+  await open.destroy();
   console.info("Knex connections closed");
 }

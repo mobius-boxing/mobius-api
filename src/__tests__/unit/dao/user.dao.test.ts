@@ -379,19 +379,18 @@ describe("UserDAO", () => {
     it("reads core and never bleeds into another key's stub", async () => {
       const testData = createTestUser();
       mockQueryBuilder.first.mockResolvedValue(testData);
-      // A row that exists only on the erp stub: if the DAO ever asked the wrong
-      // connection, this is what would come back.
-      mockOtherKeys.queryBuilders.erp.first.mockResolvedValue({
+      // A row that exists only on the tenant stub: if the DAO ever asked the
+      // wrong connection, this is what would come back.
+      mockOtherKeys.queryBuilders.tenant.first.mockResolvedValue({
         ...createTestUser(),
-        email: "bleed@erp.invalid",
+        email: "bleed@tenant.invalid",
       });
 
       const result = await dao.getUserByEmail(testData.email);
 
       expect(result?.email).toBe(testData.email);
       expect(mockKnex).toHaveBeenCalledWith("users");
-      expect(mockOtherKeys.mocks.erp).not.toHaveBeenCalled();
-      expect(mockOtherKeys.mocks.countdown).not.toHaveBeenCalled();
+      expect(mockOtherKeys.mocks.tenant).not.toHaveBeenCalled();
     });
   });
 

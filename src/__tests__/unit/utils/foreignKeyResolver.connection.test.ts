@@ -74,38 +74,38 @@ describe("foreignKeyResolver — connection choice", () => {
 
   describe("a table the manifest owns outright", () => {
     it("asks the owning database, and core tables through CoreClient only", async () => {
-      mockRows.erp = { id: 11 };
+      mockRows.tenant = { id: 11 };
       // What a registry read of `companies` would answer — it must not be asked.
       mockRows.core = { id: 55 };
 
       await expect(getIdByUuid(A_UUID, "customers")).resolves.toBe(11);
       await expect(getIdByUuid(A_UUID, "companies")).resolves.toBe(99);
 
-      expect(mockCalls).toEqual([{ key: "erp", table: "customers" }]);
+      expect(mockCalls).toEqual([{ key: "tenant", table: "customers" }]);
       expect(mockCoreLookups).toEqual([["companyIdByUuid", A_UUID]]);
     });
   });
 
   describe("a fanned-out table", () => {
-    it("resolves `files` on erp — palletization's technical/image assets", async () => {
-      mockRows.erp = { id: 42 };
+    it("resolves `files` on tenant — palletization's technical/image assets", async () => {
+      mockRows.tenant = { id: 42 };
 
       const id = await getIdByUuid(A_UUID, "files");
 
       expect(id).toBe(42);
-      expect(mockCalls).toEqual([{ key: "erp", table: "files" }]);
+      expect(mockCalls).toEqual([{ key: "tenant", table: "files" }]);
     });
 
     it("uses the same resolution from validateUuidExists", async () => {
-      mockRows.erp = { id: 42 };
+      mockRows.tenant = { id: 42 };
 
       await expect(validateUuidExists(A_UUID, "files")).resolves.toBe(true);
-      expect(mockCalls).toEqual([{ key: "erp", table: "files" }]);
+      expect(mockCalls).toEqual([{ key: "tenant", table: "files" }]);
     });
   });
 
   describe("a table no database claims", () => {
-    it("throws, naming the table, instead of quietly picking erp", async () => {
+    it("throws, naming the table, instead of quietly picking tenant", async () => {
       await expect(getIdByUuid(A_UUID, "not_a_real_table")).rejects.toThrow(
         /no database owns table "not_a_real_table"/,
       );
@@ -164,10 +164,10 @@ describe("foreignKeyResolver — connection choice", () => {
     });
 
     it("still reports a miss as null, not as an error", async () => {
-      mockRows.erp = null;
+      mockRows.tenant = null;
 
       await expect(getIdByUuid(A_UUID, "files")).resolves.toBeNull();
-      expect(mockCalls).toEqual([{ key: "erp", table: "files" }]);
+      expect(mockCalls).toEqual([{ key: "tenant", table: "files" }]);
     });
   });
 });

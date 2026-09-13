@@ -113,7 +113,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   private queryConfig = CORRUGATION_QUERY_CONFIG;
 
   async create(item: ICorrugation): Promise<ICorrugation> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const corrugation = await knex.transaction(async (trx) => {
       const [created] = await trx(this.tableName)
         .insert({
@@ -187,7 +187,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     corrugationId: number,
     layers: ICorrugationLayer[],
   ): Promise<void> {
-    const knex = db("erp");
+    const knex = db("tenant");
     await knex.transaction(async (trx) => {
       const existing: StoredLayer[] = await trx("corrugation_layers")
         .where("corrugationId", corrugationId)
@@ -256,7 +256,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   private async loadLayers(
     corrugationId: number,
   ): Promise<ICorrugationLayer[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const rows = await knex("corrugation_layers as cl")
       .select(
         "cl.*",
@@ -290,7 +290,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   }
 
   async getById(id: number): Promise<ICorrugation | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const corrugation = await knex(this.tableName).where("id", id).first();
 
     return corrugation ? this.mapToInterface(corrugation) : null;
@@ -300,7 +300,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<ICorrugation | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName)
       .select(
         `${this.tableName}.*`,
@@ -332,7 +332,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     id: number,
     item: Partial<ICorrugation>,
   ): Promise<ICorrugation | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
 
     // Layers are replaced wholesale when provided; undefined leaves them as-is.
     if (item.layers !== undefined) {
@@ -366,7 +366,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -377,7 +377,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<ICorrugation>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [corrugations, totalResult] = await Promise.all([
@@ -416,7 +416,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<ICorrugation>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);
@@ -506,7 +506,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();

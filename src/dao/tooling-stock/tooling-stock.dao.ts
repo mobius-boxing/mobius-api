@@ -91,7 +91,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
   private queryConfig = TOOLING_STOCK_QUERY_CONFIG;
 
   async create(item: IToolingStock): Promise<IToolingStock> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [record] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -110,7 +110,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
   }
 
   async getById(id: number): Promise<IToolingStock | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const record = await knex(this.tableName).where("id", id).first();
     return record ? this.mapToInterface(record) : null;
   }
@@ -119,7 +119,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IToolingStock | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     // SECURITY (C2): no direct companyId column — scope via warehouses.company_id.
     applyCompanyScopeViaWarehouse(query, this.tableName, companyId);
@@ -131,7 +131,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScopeViaWarehouse(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();
@@ -142,7 +142,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
     id: number,
     item: Partial<IToolingStock>,
   ): Promise<IToolingStock | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.warehouseId !== undefined)
@@ -168,7 +168,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -177,7 +177,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IToolingStock>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const query = this.buildJoinQuery(knex);
@@ -207,7 +207,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IToolingStock>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);
@@ -246,7 +246,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
   }
 
   async getWithDetails(uuid: string): Promise<IToolingStock | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.buildJoinQuery(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -258,7 +258,7 @@ export class ToolingStockDAO implements IBaseDAO<IToolingStock> {
   }
 
   async getAllByWarehouseId(warehouseId: number): Promise<IToolingStock[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const records = await this.buildJoinQuery(knex)
       .where(`${this.tableName}.warehouseId`, warehouseId)
       .orderBy(`${this.tableName}.createdAt`, "desc");

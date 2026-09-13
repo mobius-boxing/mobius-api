@@ -57,7 +57,7 @@ const mockRes = () => {
   // Two keys, because this script seeds a company and its RBAC catalogue
   // (core) and then exercises the ERP part/route domain.
   const core = db("core");
-  const erp = db("erp");
+  const tenant = db("tenant");
   const dao = new PartDAO();
   try {
     // ── Setup ────────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ const mockRes = () => {
       .insert({ uuid: uuidv4(), name: `Review Fix Co ${TAG}`, isActive: true })
       .returning("*");
     await RbacService.seedCompanyRbac(core, company.id);
-    const [pc] = await erp("paper_classes")
+    const [pc] = await tenant("paper_classes")
       .insert({
         uuid: uuidv4(),
         code: `PC-${TAG}`,
@@ -73,7 +73,7 @@ const mockRes = () => {
         companyId: company.id,
       })
       .returning("*");
-    const [corr] = await erp("corrugations")
+    const [corr] = await tenant("corrugations")
       .insert({
         uuid: uuidv4(),
         code: `C1-${TAG}`,
@@ -81,14 +81,14 @@ const mockRes = () => {
         theoreticalGrammage: 500,
       })
       .returning("*");
-    await erp("corrugation_layers").insert({
+    await tenant("corrugation_layers").insert({
       uuid: uuidv4(),
       corrugationId: corr.id,
       position: 1,
       isLiner: true,
       paperClassId: pc.id,
     });
-    const [customer] = await erp("customers")
+    const [customer] = await tenant("customers")
       .insert({
         uuid: uuidv4(),
         companyId: company.id,
@@ -96,7 +96,7 @@ const mockRes = () => {
         active: true,
       })
       .returning("*");
-    const [product] = await erp("products")
+    const [product] = await tenant("products")
       .insert({
         uuid: uuidv4(),
         companyId: company.id,
@@ -120,8 +120,8 @@ const mockRes = () => {
       p1.code === `BOX(A)${TAG}/1`,
       p1.code,
     );
-    const p1Row = await erp("parts").where("uuid", p1.uuid).first();
-    const route1 = await erp("production_routes")
+    const p1Row = await tenant("parts").where("uuid", p1.uuid).first();
+    const route1 = await tenant("production_routes")
       .where("id", p1Row.productionRouteId)
       .first();
     check(
@@ -138,7 +138,7 @@ const mockRes = () => {
     } as any);
     check("A3 second code /2", p2.code === `BOX(A)${TAG}/2`, p2.code);
     // Foreign-shaped sibling codes must NOT advance the counter
-    await erp("parts")
+    await tenant("parts")
       .where("uuid", p2.uuid)
       .update({ code: `BOX(A)${TAG}/9-old` });
     const p3 = await dao.create({
@@ -152,7 +152,7 @@ const mockRes = () => {
       p3.code === `BOX(A)${TAG}/2`,
       p3.code,
     );
-    await erp("parts")
+    await tenant("parts")
       .where("uuid", p2.uuid)
       .update({ code: `BOX(A)${TAG}/2x` });
     const p1Id = await dao.getIdByUuid(p1.uuid!);
@@ -168,13 +168,13 @@ const mockRes = () => {
       p4.code === `BOX(A)${TAG}/3`,
       p4.code,
     );
-    const route1After = await erp("production_routes")
+    const route1After = await tenant("production_routes")
       .where("id", p1Row.productionRouteId)
       .first();
     check("A6 private route cleaned after part delete", !route1After);
 
     // ── B: default-route fallback ───────────────────────────────────────────
-    const [defRoute] = await erp("production_routes")
+    const [defRoute] = await tenant("production_routes")
       .insert({
         uuid: uuidv4(),
         companyId: company.id,
@@ -190,12 +190,12 @@ const mockRes = () => {
       productId: product.id,
       corrugationId: corr.id,
     } as any);
-    const p5Row = await erp("parts").where("uuid", p5.uuid).first();
+    const p5Row = await tenant("parts").where("uuid", p5.uuid).first();
     check(
       "B1 default global route used instead of RUTA PROPIA",
       p5Row.productionRouteId === defRoute.id,
     );
-    const routesCount = await erp("production_routes")
+    const routesCount = await tenant("production_routes")
       .where({ companyId: company.id, isGlobal: false })
       .count("* as c")
       .first();
@@ -210,19 +210,19 @@ const mockRes = () => {
     // ── C: approval pair + events ───────────────────────────────────────────
     const p4Id = await dao.getIdByUuid(p4.uuid!);
     await dao.setApproval(p4Id!, "dimensions", "approve", "tester@x");
-    let p4Row = await erp("parts").where("id", p4Id).first();
+    let p4Row = await tenant("parts").where("id", p4Id).first();
     check(
       "C1 approve sets pair",
       p4Row.dimensionsApprovalAt != null &&
         p4Row.dimensionsApprovalBy === "tester@x",
     );
     await dao.setApproval(p4Id!, "dimensions", "cancel", "tester@x");
-    p4Row = await erp("parts").where("id", p4Id).first();
+    p4Row = await tenant("parts").where("id", p4Id).first();
     check(
       "C2 cancel clears approval, stamps cancellation",
       p4Row.dimensionsApprovalAt == null && p4Row.dimensionsCancelledAt != null,
     );
-    const events = await erp("part_approval_events")
+    const events = await tenant("part_approval_events")
       .where("partId", p4Id)
       .select("action");
     check("C3 two event rows", events.length === 2);
@@ -230,15 +230,15 @@ const mockRes = () => {
     // ── D: bulk quirks + 'unapprove' action ─────────────────────────────────
     const p3Id = await dao.getIdByUuid(p3.uuid!);
     await dao.bulkApprove([p3Id!, p4Id!], "bulk@x");
-    p4Row = await erp("parts").where("id", p4Id).first();
+    p4Row = await tenant("parts").where("id", p4Id).first();
     check(
       "D1 bulk approve keeps cancellation (quirk)",
       p4Row.dimensionsApprovalAt != null && p4Row.dimensionsCancelledAt != null,
     );
     await dao.bulkUnapprove([p3Id!, p4Id!], "bulk@x");
-    p4Row = await erp("parts").where("id", p4Id).first();
+    p4Row = await tenant("parts").where("id", p4Id).first();
     check("D2 bulk unapprove nulls approvals", p4Row.partApprovalAt == null);
-    const unapproveEvents = await erp("part_approval_events")
+    const unapproveEvents = await tenant("part_approval_events")
       .where({ partId: p4Id, action: "unapprove" })
       .count("* as c")
       .first();
@@ -275,17 +275,17 @@ const mockRes = () => {
       res.body?.cascaded === 1,
       res.body?.cascaded,
     );
-    const p4After = await erp("parts").where("id", p4Id).first();
+    const p4After = await tenant("parts").where("id", p4Id).first();
     check("E3 pending part STAYS pending", p4After.partCancelledAt == null);
-    const p3After = await erp("parts").where("id", p3Id).first();
+    const p3After = await tenant("parts").where("id", p3Id).first();
     check("E4 approved part now cancelled", p3After.partCancelledAt != null);
-    const prodRow = await erp("products").where("id", product.id).first();
+    const prodRow = await tenant("products").where("id", product.id).first();
     check("E5 product cancelled", prodRow.productCancellationAt != null);
 
     res = mockRes();
     superReq.body = { action: "approve", cascade: true };
     await controller.setApproval(superReq, res, () => {});
-    const allParts = await erp("parts")
+    const allParts = await tenant("parts")
       .where("productId", product.id)
       .select("partApprovalAt");
     check(

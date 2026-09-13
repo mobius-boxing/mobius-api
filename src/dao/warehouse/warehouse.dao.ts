@@ -65,7 +65,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   // A warehouse is created together with one row in warehouse_locations per grid cell,
   // atomically. Defaults to a 10x10 grid if dimensions are not provided.
   async create(item: IWarehouse): Promise<IWarehouse> {
-    const knex = db("erp");
+    const knex = db("tenant");
 
     const warehouse = await knex.transaction(async (trx) => {
       const [newWarehouse] = await trx(this.tableName)
@@ -109,7 +109,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   }
 
   async getById(id: number): Promise<IWarehouse | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const warehouse = await knex(this.tableName).where("id", id).first();
 
     return warehouse ? this.mapToInterface(warehouse) : null;
@@ -119,7 +119,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IWarehouse | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     // warehouses link to companies via the snake_case `company_id` column.
     applyCompanyScope(query, this.tableName, companyId, "company_id");
@@ -132,7 +132,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId, "company_id");
     const warehouse = await query.select(`${this.tableName}.id`).first();
@@ -147,7 +147,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     id: number,
     item: Partial<IWarehouse>,
   ): Promise<IWarehouse | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
 
     const gridChanged =
       item.gridRows !== undefined || item.gridCols !== undefined;
@@ -216,7 +216,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -227,7 +227,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IWarehouse>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [warehouses, totalResult] = await Promise.all([
@@ -253,7 +253,7 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IWarehouse>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

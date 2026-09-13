@@ -1,6 +1,7 @@
 /**
  * The connection registry: lifecycle, env resolution, the wrong-database guard
- * and the pool budget (AC-3, AC-4, AC-6, AC-31, AC-44).
+ * and the pool budget (AC-3, AC-4, AC-6, AC-31, AC-44; db-per-company AC-17,
+ * AC-18 and the D-13 dedupe).
  *
  * No database is touched. `knex` is mocked at the module boundary so the tests
  * exercise the registry's own logic — which pools it builds, with what config,
@@ -223,10 +224,12 @@ import {
   db,
   connectAll,
   disconnectAll,
-  POOL_MAX,
+  CORE_POOL_MAX,
   POOL_BUDGET,
   DatabaseNotConnectedError,
   WrongDatabaseError,
+  physicalKeyOf,
+  withTenantTarget,
 } from "../../../database/registry";
 import { MissingDatabaseNameError } from "../../../database/env";
 import { DB_KEYS, DbKey } from "../../../database/keys";
@@ -243,12 +246,22 @@ const DB_ENV_VARS = [
   "SQL_PASSWORD",
   "SQL_HOST",
   "SQL_PORT",
-  ...DB_KEYS.flatMap((key) => [
-    `SQL_${key.toUpperCase()}_DATABASE`,
-    `SQL_${key.toUpperCase()}_USER`,
-    `SQL_${key.toUpperCase()}_PASSWORD`,
-  ]),
+  "SQL_CORE_DATABASE",
+  "SQL_CORE_USER",
+  "SQL_CORE_PASSWORD",
+  "SQL_TENANT_DATABASE",
+  "SQL_TENANT_USER",
+  "SQL_TENANT_PASSWORD",
 ];
+
+/** A second physical database, as a tenant target of its own would be. */
+const ownTenantTarget = (): { physicalKey: "tenant:1"; instance: FakeKnex } => ({
+  physicalKey: "tenant:1",
+  instance: makeFakeKnex({ connection: { database: "tenant_one" } }),
+});
+
+const asTarget = (target: { physicalKey: "tenant:1"; instance: FakeKnex }) =>
+  target as unknown as Parameters<typeof withTenantTarget>[0];
 
 const configOf = (index: number): { connection: Record<string, unknown> } =>
   mockInstances[index]?.config as { connection: Record<string, unknown> };
@@ -286,19 +299,24 @@ describe("connection registry", () => {
   describe("lifecycle (AC-3)", () => {
     it("refuses to hand out a connection before connectAll() resolved", () => {
       expect(() => db("core")).toThrow(DatabaseNotConnectedError);
-      expect(() => db("erp")).toThrow(
-        /Knex connection for "erp" has not been established/,
+      expect(() => db("tenant")).toThrow(
+        /Knex connection for "tenant" has not been established/,
       );
     });
 
-    it("builds one pool per key and proves each one answers", async () => {
+    it("builds ONE pool for both planes and proves it answers (D-13, D-29)", async () => {
       await connectAll();
 
-      expect(mockInstances).toHaveLength(DB_KEYS.length);
-      for (const instance of mockInstances) {
-        expect(instance.raw).toHaveBeenCalledWith("SELECT 1");
-      }
+      expect(mockInstances).toHaveLength(1);
+      expect(mockInstances[0]?.raw).toHaveBeenCalledWith("SELECT 1");
       for (const key of DB_KEYS) expect(db(key)).toBeDefined();
+      // Both planes reach that one instance.
+      db("core").from("users");
+      db("tenant").from("products");
+      expect(mockInstances[0]?.from).toHaveBeenCalledWith("users");
+      expect(mockInstances[0]?.from).toHaveBeenCalledWith("products");
+      expect(physicalKeyOf("core")).toBe("core");
+      expect(physicalKeyOf("tenant")).toBe("core");
     });
 
     it("destroys every pool it opened and rethrows when one cannot connect", async () => {
@@ -306,7 +324,7 @@ describe("connection registry", () => {
 
       await expect(connectAll()).rejects.toThrow("connection refused");
 
-      expect(mockInstances).toHaveLength(DB_KEYS.length);
+      expect(mockInstances).toHaveLength(1);
       for (const instance of mockInstances) {
         expect(instance.destroy).toHaveBeenCalled();
       }
@@ -314,23 +332,24 @@ describe("connection registry", () => {
       expect(() => db("core")).toThrow(DatabaseNotConnectedError);
     });
 
-    it("destroys all four pools on disconnectAll()", async () => {
+    it("destroys the pool on disconnectAll()", async () => {
       await connectAll();
       await disconnectAll();
 
+      expect(mockInstances).toHaveLength(1);
       for (const instance of mockInstances) {
         expect(instance.destroy).toHaveBeenCalledTimes(1);
       }
-      expect(() => db("countdown")).toThrow(DatabaseNotConnectedError);
+      expect(() => db("tenant")).toThrow(DatabaseNotConnectedError);
     });
   });
 
   describe("environment resolution (AC-4)", () => {
-    it("resolves every key to one database when only SQL_DATABASE is set", async () => {
+    it("resolves both planes to one database when only SQL_DATABASE is set", async () => {
       await connectAll();
 
-      expect(mockInstances).toHaveLength(DB_KEYS.length);
-      for (let index = 0; index < DB_KEYS.length; index++) {
+      expect(mockInstances).toHaveLength(1);
+      for (let index = 0; index < mockInstances.length; index++) {
         expect(configOf(index).connection).toMatchObject({
           database: "one_database",
           user: "one_user",
@@ -342,25 +361,31 @@ describe("connection registry", () => {
       }
     });
 
-    it("lets a per-key variable override exactly one key", async () => {
+    it("lets the core variables override the shared ones, and reads no tenant variable", async () => {
       process.env.SQL_CORE_DATABASE = "core_only";
       process.env.SQL_CORE_USER = "core_user";
+      // A tenant's connection comes from its registry row, never from env
+      // (D-41). Every tenant-spelled variable is set, so a resolver that read
+      // any of them — or a second pool built from them — shows up below.
+      process.env.SQL_TENANT_DATABASE = "tenant_only";
+      process.env.SQL_TENANT_USER = "tenant_user";
+      process.env.SQL_TENANT_PASSWORD = "tenant_password";
 
       await connectAll();
 
-      const byKey = Object.fromEntries(
-        DB_KEYS.map((key, index) => [key, configOf(index).connection]),
-      ) as Record<DbKey, Record<string, unknown>>;
-
-      expect(byKey.core).toMatchObject({
+      expect(mockInstances).toHaveLength(1);
+      expect(configOf(0).connection).toStrictEqual({
+        host: "localhost",
+        port: 5432,
         database: "core_only",
         user: "core_user",
         // no SQL_CORE_PASSWORD: the shared value still applies
         password: "one_password",
+        ssl: false,
       });
-      for (const key of ["erp", "countdown"] as DbKey[]) {
-        expect(byKey[key]).toMatchObject({ database: "one_database" });
-      }
+      expect(JSON.stringify(mockInstances.map((i) => i.config))).not.toMatch(
+        /tenant_/,
+      );
     });
 
     it("refuses to start when no database name is set at all", async () => {
@@ -377,19 +402,14 @@ describe("connection registry", () => {
       expect(() => db("core")).toThrow(DatabaseNotConnectedError);
     });
 
-    it("accepts a per-key name as the only name", async () => {
+    it("accepts the core name as the only name", async () => {
       delete process.env.SQL_DATABASE;
-      for (const key of DB_KEYS) {
-        process.env[`SQL_${key.toUpperCase()}_DATABASE`] = `${key}_db`;
-      }
+      process.env.SQL_CORE_DATABASE = "core_db";
 
       await connectAll();
 
-      DB_KEYS.forEach((key, index) => {
-        expect(configOf(index).connection).toMatchObject({
-          database: `${key}_db`,
-        });
-      });
+      expect(mockInstances).toHaveLength(1);
+      expect(configOf(0).connection).toMatchObject({ database: "core_db" });
     });
   });
 
@@ -398,34 +418,42 @@ describe("connection registry", () => {
       await connectAll();
     });
 
-    it("throws when a table is queried on a connection that does not own it", () => {
-      expect(() => db("countdown")("users")).toThrow(WrongDatabaseError);
-      expect(() => db("countdown")("users")).toThrow(
+    it("throws when a table is queried on a connection that does not own it (AC-18)", () => {
+      expect(() => db("tenant")("users")).toThrow(WrongDatabaseError);
+      expect(() => db("tenant")("users")).toThrow(
         /"users" is owned by the "core" database/,
       );
-      expect(() => db("erp")("companies")).toThrow(WrongDatabaseError);
+      expect(() => db("tenant")("companies")).toThrow(WrongDatabaseError);
+      // Both directions, although both planes share one instance today.
+      expect(() => db("core")("products")).toThrow(WrongDatabaseError);
+      expect(() => db("core")("products")).toThrow(
+        /"products" is owned by the "tenant" database/,
+      );
+      expect(() => db("core")("countdown_documents")).toThrow(
+        WrongDatabaseError,
+      );
     });
 
     it("sees through an alias and a schema qualifier", () => {
-      expect(() => db("erp")("users as u")).toThrow(WrongDatabaseError);
-      expect(() => db("erp")("users AS u")).toThrow(WrongDatabaseError);
+      expect(() => db("tenant")("users as u")).toThrow(WrongDatabaseError);
+      expect(() => db("tenant")("users AS u")).toThrow(WrongDatabaseError);
       // The same alias with the keyword left out.
-      expect(() => db("erp")("users u")).toThrow(WrongDatabaseError);
-      expect(() => db("erp")("public.users")).toThrow(WrongDatabaseError);
-      expect(() => db("erp")('"users"')).toThrow(WrongDatabaseError);
+      expect(() => db("tenant")("users u")).toThrow(WrongDatabaseError);
+      expect(() => db("tenant")("public.users")).toThrow(WrongDatabaseError);
+      expect(() => db("tenant")('"users"')).toThrow(WrongDatabaseError);
     });
 
     it("sees a generic call, which a naive grep does not", () => {
       // `db(k)<IRow>("users")` compiles to the same call; this is the shape
       // that hid the countdown findRecipients regression.
-      expect(() => db("erp")<{ id: number }>("users")).toThrow(
+      expect(() => db("tenant")<{ id: number }>("users")).toThrow(
         WrongDatabaseError,
       );
     });
 
     it("guards the instance-level table shortcuts too", () => {
-      expect(() => db("erp").from("users")).toThrow(WrongDatabaseError);
-      expect(() => db("erp").table("users")).toThrow(WrongDatabaseError);
+      expect(() => db("tenant").from("users")).toThrow(WrongDatabaseError);
+      expect(() => db("tenant").table("users")).toThrow(WrongDatabaseError);
       expect(() => db("core").from("users")).not.toThrow();
       // Still delegates when it lets the call through.
       expect(mockInstances[0]?.from).toHaveBeenCalledWith("users");
@@ -434,14 +462,15 @@ describe("connection registry", () => {
     it("does not pretend to cover what it cannot see", () => {
       // Documented holes (see registry.ts): object aliases and casing. If any
       // of these ever starts throwing, the comment must be updated with it.
-      expect(() => db("erp")({ c: "companies" })).not.toThrow();
-      expect(() => db("erp")("COMPANIES")).not.toThrow();
+      expect(() => db("tenant")({ c: "companies" })).not.toThrow();
+      expect(() => db("tenant")("COMPANIES")).not.toThrow();
     });
 
     it("lets a table through on its own key", () => {
       expect(() => db("core")("users")).not.toThrow();
-      expect(() => db("erp")("products as p")).not.toThrow();
-      expect(() => db("countdown")("countdown_documents")).not.toThrow();
+      expect(() => db("tenant")("products as p")).not.toThrow();
+      expect(() => db("tenant")("countdown_documents")).not.toThrow();
+      expect(() => db("tenant")("nf_runs")).not.toThrow();
     });
 
     it("never objects to a fanned-out or unknown table", () => {
@@ -456,24 +485,37 @@ describe("connection registry", () => {
 
     it("carries the key into a transaction, so a cross-key trx throws", async () => {
       await expect(
-        db("erp").transaction(async (trx) => trx("users")),
+        db("tenant").transaction(async (trx) => trx("users")),
       ).rejects.toThrow(WrongDatabaseError);
 
       await expect(
-        db("erp").transaction(async (trx) => trx("products")),
+        db("tenant").transaction(async (trx) => trx("products")),
       ).resolves.toBeDefined();
     });
 
     it("carries the key into the callback-less transaction form too", async () => {
       // `const trx = await db(k).transaction()` resolves to a bare handle that
       // would otherwise escape the Proxy entirely.
-      const trx = await db("erp").transaction();
+      const trx = await db("tenant").transaction();
 
       expect(() => trx("users")).toThrow(WrongDatabaseError);
       expect(() => trx("products")).not.toThrow();
     });
 
-    it("logs, never throws, when raw SQL names a foreign table", () => {
+    it("logs, never throws, when raw SQL on a tenant target names a central table", () => {
+      // The shared instance serves both planes, so no table is foreign to it
+      // and it carries no listener.
+      expect(queryListeners).toHaveLength(0);
+
+      const target = ownTenantTarget();
+      withTenantTarget(asTarget(target), () => {
+        db("tenant");
+        db("tenant");
+      });
+      // Attached once per instance, however often the plane is asked for.
+      expect(target.instance.on).toHaveBeenCalledTimes(1);
+      expect(queryListeners).toHaveLength(1);
+
       const consoleWarn = jest
         .spyOn(console, "warn")
         .mockImplementation(() => undefined);
@@ -484,8 +526,14 @@ describe("connection registry", () => {
           listener({ method: "raw", sql: 'select 1 from "companies"' });
         }
         expect(consoleWarn).toHaveBeenCalledWith(
-          expect.stringContaining('raw query on "erp" mentions "companies"'),
+          expect.stringContaining('raw query on "tenant" mentions "companies"'),
         );
+        // A tenant table is not foreign to a tenant target.
+        consoleWarn.mockClear();
+        for (const listener of queryListeners) {
+          listener({ method: "raw", sql: 'select 1 from "products"' });
+        }
+        expect(consoleWarn).not.toHaveBeenCalled();
         // A builder query carries its verb and is already guarded upstream.
         consoleWarn.mockClear();
         for (const listener of queryListeners) {
@@ -497,6 +545,21 @@ describe("connection registry", () => {
       }
     });
 
+    it("guards a scoped tenant target as `tenant`, and leaves `core` on the shared pool", () => {
+      const target = ownTenantTarget();
+      withTenantTarget(asTarget(target), () => {
+        expect(physicalKeyOf("tenant")).toBe("tenant:1");
+        expect(physicalKeyOf("core")).toBe("core");
+        expect(() => db("tenant")("users")).toThrow(WrongDatabaseError);
+        db("tenant").from("products");
+        db("core").from("users");
+      });
+      expect(target.instance.from).toHaveBeenCalledWith("products");
+      expect(target.instance.from).not.toHaveBeenCalledWith("users");
+      expect(mockInstances[0]?.from).toHaveBeenCalledWith("users");
+      expect(physicalKeyOf("tenant")).toBe("core");
+    });
+
     it("logs instead of throwing in production", () => {
       const previous = process.env.NODE_ENV;
       const consoleError = jest
@@ -504,9 +567,13 @@ describe("connection registry", () => {
         .mockImplementation(() => undefined);
       process.env.NODE_ENV = "production";
       try {
-        expect(() => db("countdown")("users")).not.toThrow();
+        expect(() => db("tenant")("users")).not.toThrow();
         expect(consoleError).toHaveBeenCalledWith(
           expect.stringContaining('"users" is owned by the "core" database'),
+        );
+        expect(() => db("core")("products")).not.toThrow();
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining('"products" is owned by the "tenant" database'),
         );
       } finally {
         process.env.NODE_ENV = previous;
@@ -515,35 +582,20 @@ describe("connection registry", () => {
     });
   });
 
-  describe("pool budget (AC-44)", () => {
-    it("stays inside the ratified ceiling with the ratified split", () => {
-      expect(POOL_MAX).toEqual({
-        core: 12,
-        erp: 15,
-        countdown: 5,
-        nodefiles: 5,
-      });
-      const sum = Object.values(POOL_MAX).reduce((a, b) => a + b, 0);
-      expect(sum).toBe(37);
-      expect(sum).toBeLessThanOrEqual(POOL_BUDGET);
+  describe("pool budget (AC-44, AC-17)", () => {
+    it("stays inside the ratified ceiling with the model's constants", () => {
+      expect(CORE_POOL_MAX).toBe(10);
       expect(POOL_BUDGET).toBe(40);
+      expect(CORE_POOL_MAX).toBeLessThanOrEqual(POOL_BUDGET);
     });
 
-    it("gives the low-traffic key min 0 — idle connections are not free", async () => {
+    it("sizes the one shared instance with the core pool — min 1, max CORE_POOL_MAX (D-30)", async () => {
       await connectAll();
-      const pools = DB_KEYS.map(
-        (_key, index) =>
-          (mockInstances[index]?.config as { pool: Record<string, number> })
-            .pool,
-      );
-      const byKey = Object.fromEntries(
-        DB_KEYS.map((key, index) => [key, pools[index]]),
-      ) as Record<DbKey, Record<string, number>>;
 
-      expect(byKey.core).toMatchObject({ min: 1, max: 12 });
-      expect(byKey.erp).toMatchObject({ min: 1, max: 15 });
-      expect(byKey.countdown).toMatchObject({ min: 0, max: 5 });
-      expect(byKey.nodefiles).toMatchObject({ min: 0, max: 5 });
+      expect(mockInstances).toHaveLength(1);
+      expect(
+        (mockInstances[0]?.config as { pool: Record<string, number> }).pool,
+      ).toMatchObject({ min: 1, max: CORE_POOL_MAX });
     });
 
     it("logs the budget exactly once, however often connectAll is called", async () => {
@@ -560,9 +612,9 @@ describe("connection registry", () => {
         expect(budgetLogs).toHaveLength(1);
         expect(budgetLogs[0]).toEqual([
           "[db] pool budget",
-          POOL_MAX,
-          "sum",
-          37,
+          { core: CORE_POOL_MAX },
+          "of",
+          POOL_BUDGET,
         ]);
       } finally {
         consoleInfo.mockRestore();
@@ -579,8 +631,9 @@ describe("connection registry", () => {
    * wrong, not the test.
    */
   describe("ambient audit facade (AC-3, AC-4, AC-5, AC-9)", () => {
+    /** Both planes reach the one shared instance until tenant pools exist. */
     const instanceOf = (key: DbKey): FakeKnex => {
-      const instance = mockInstances[DB_KEYS.indexOf(key)];
+      const instance = mockInstances[0];
       if (!instance) throw new Error(`no fake pool for "${key}"`);
       return instance;
     };
@@ -608,10 +661,10 @@ describe("connection registry", () => {
 
     describe("inert until armed (AC-3, AC-5)", () => {
       it("hands out the plain facade and opens nothing outside a request", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
-        expect(db("erp")).toBe(db("erp"));
-        const builder = db("erp")("products") as unknown as FakeBuilder;
+        expect(db("tenant")).toBe(db("tenant"));
+        const builder = db("tenant")("products") as unknown as FakeBuilder;
         // No own `then` ⇒ nothing was deferred: this is the plain builder knex
         // would have returned before P1 existed.
         expect(hasOwnThen(builder)).toBe(false);
@@ -619,8 +672,8 @@ describe("connection registry", () => {
         await builder;
 
         expect(builder.boundTo).toBeNull();
-        expect(erp.transaction).not.toHaveBeenCalled();
-        expect(erp.opened).toHaveLength(0);
+        expect(tenant.transaction).not.toHaveBeenCalled();
+        expect(tenant.opened).toHaveLength(0);
       });
 
       it.each([
@@ -631,27 +684,27 @@ describe("connection registry", () => {
           (state: AuditRequestState) => (state.mutating = false),
         ],
       ])("stays plain for a %s state", async (_label, disarm) => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async (state) => {
           disarm(state);
-          const builder = db("erp")("products") as unknown as FakeBuilder;
+          const builder = db("tenant")("products") as unknown as FakeBuilder;
           expect(hasOwnThen(builder)).toBe(false);
           await builder;
           expect(builder.boundTo).toBeNull();
           expect(state.trx.size).toBe(0);
         });
 
-        expect(erp.transaction).not.toHaveBeenCalled();
-        expect(erp.opened).toHaveLength(0);
+        expect(tenant.transaction).not.toHaveBeenCalled();
+        expect(tenant.opened).toHaveLength(0);
       });
 
       it("never binds a builder awaited after the response finished", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
           // Built while armed — it carries the deferring `then`.
-          const late = db("erp")("products") as unknown as FakeBuilder;
+          const late = db("tenant")("products") as unknown as FakeBuilder;
           expect(hasOwnThen(late)).toBe(true);
 
           await finishAuditRequest(true);
@@ -659,41 +712,41 @@ describe("connection registry", () => {
 
           // A late query must reach the pool, never a closed transaction.
           expect(late.boundTo).toBeNull();
-          expect(erp.opened).toHaveLength(0);
+          expect(tenant.opened).toHaveLength(0);
         });
       });
     });
 
     describe("one transaction per key, opened on first await (AC-4)", () => {
       it("runs an awaited query on the request's transaction, not the pool", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
-          expect(db("erp")).not.toBe(db("core"));
+          expect(db("tenant")).not.toBe(db("core"));
           // Memoised per (state, key): a DAO calling `db(k)` per method must not
           // get a fresh Proxy each time.
-          expect(db("erp")).toBe(db("erp"));
+          expect(db("tenant")).toBe(db("tenant"));
 
-          const builder = db("erp")("products") as unknown as FakeBuilder;
+          const builder = db("tenant")("products") as unknown as FakeBuilder;
           // Nothing opens until the builder is awaited.
-          expect(erp.opened).toHaveLength(0);
+          expect(tenant.opened).toHaveLength(0);
 
           await builder;
 
-          expect(erp.opened).toHaveLength(1);
-          expect(builder.boundTo).toBe(erp.opened[0]);
+          expect(tenant.opened).toHaveLength(1);
+          expect(builder.boundTo).toBe(tenant.opened[0]);
         });
       });
 
       it("applies the audit setting once per transaction, with the contract JSON", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async (state) => {
-          await db("erp")("products");
-          await db("erp")("parts");
+          await db("tenant")("products");
+          await db("tenant")("parts");
 
-          const trx = erp.opened[0];
-          expect(erp.opened).toHaveLength(1);
+          const trx = tenant.opened[0];
+          expect(tenant.opened).toHaveLength(1);
           expect(trx?.rawCalls).toHaveLength(1);
           const [sql, bindings] = trx?.rawCalls[0] ?? [];
           expect(sql).toBe("select set_config('mobius.audit', ?, true)");
@@ -713,135 +766,184 @@ describe("connection registry", () => {
       });
 
       it("memoises the OPEN PROMISE, so two concurrent builders share one transaction", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
           // Both builders reach `ensureTrx` before either transaction exists.
           // Memoising the resolved handle instead of the promise lets both open
           // one, and the request then writes through a transaction nobody
           // commits — invisible in every other test here.
-          const first = db("erp")("products") as unknown as FakeBuilder;
-          const second = db("erp")("parts") as unknown as FakeBuilder;
+          const first = db("tenant")("products") as unknown as FakeBuilder;
+          const second = db("tenant")("parts") as unknown as FakeBuilder;
           await Promise.all([first, second]);
 
-          expect(erp.transaction).toHaveBeenCalledTimes(1);
-          expect(erp.opened).toHaveLength(1);
-          expect(first.boundTo).toBe(erp.opened[0]);
-          expect(second.boundTo).toBe(erp.opened[0]);
+          expect(tenant.transaction).toHaveBeenCalledTimes(1);
+          expect(tenant.opened).toHaveLength(1);
+          expect(first.boundTo).toBe(tenant.opened[0]);
+          expect(second.boundTo).toBe(tenant.opened[0]);
         });
       });
 
-      it("opens one transaction per database key, never one shared", async () => {
-        const erp = instanceOf("erp");
-        const core = instanceOf("core");
+      it("shares ONE transaction between core and tenant on one physical database (D-13)", async () => {
+        const shared = instanceOf("core");
 
         await withArmed(async (state) => {
-          const products = db("erp")("products") as unknown as FakeBuilder;
+          const products = db("tenant")("products") as unknown as FakeBuilder;
           const users = db("core")("users") as unknown as FakeBuilder;
           await Promise.all([products, users]);
 
-          expect(erp.opened).toHaveLength(1);
+          // Two transactions on one database is the self-blocking shape the
+          // purge documents; one is what makes this state bit-identical to a
+          // single connection.
+          expect(shared.transaction).toHaveBeenCalledTimes(1);
+          expect(shared.opened).toHaveLength(1);
+          expect(products.boundTo).toBe(shared.opened[0]);
+          expect(users.boundTo).toBe(shared.opened[0]);
+          expect([...state.trx.keys()]).toEqual(["core"]);
+          expect(shared.opened[0]?.rawCalls).toHaveLength(1);
+        });
+      });
+
+      it("opens one transaction per physical database once tenant has its own", async () => {
+        const core = instanceOf("core");
+        const target = ownTenantTarget();
+
+        await withTenantTarget(asTarget(target), () =>
+          withArmed(async (state) => {
+            const products = db("tenant")("products") as unknown as FakeBuilder;
+            const users = db("core")("users") as unknown as FakeBuilder;
+            await Promise.all([products, users]);
+
+            expect(target.instance.opened).toHaveLength(1);
+            expect(core.opened).toHaveLength(1);
+            expect(products.boundTo).toBe(target.instance.opened[0]);
+            expect(users.boundTo).toBe(core.opened[0]);
+            expect([...state.trx.keys()].sort()).toEqual(["core", "tenant:1"]);
+            // Both carry the setting; P2's trigger reads it per transaction.
+            expect(target.instance.opened[0]?.rawCalls).toHaveLength(1);
+            expect(core.opened[0]?.rawCalls).toHaveLength(1);
+          }),
+        );
+      });
+
+      it("keeps the ambient facade per physical target inside ONE request (D-114)", async () => {
+        const core = instanceOf("core");
+        const target = ownTenantTarget();
+
+        await withArmed(async (state) => {
+          // Same key, same request state, two physical targets: a facade cached
+          // by key alone would hand the second call the first call's target.
+          const before = db("tenant")("products") as unknown as FakeBuilder;
+          await before;
+          // Captured, not returned: an async function that returns a thenable
+          // resolves it, and the test needs the builder itself.
+          let inside: FakeBuilder | undefined;
+          await withTenantTarget(asTarget(target), async () => {
+            inside = db("tenant")("products") as unknown as FakeBuilder;
+            await inside;
+          });
+          const after = db("tenant")("products") as unknown as FakeBuilder;
+          await after;
+
           expect(core.opened).toHaveLength(1);
-          expect(products.boundTo).toBe(erp.opened[0]);
-          expect(users.boundTo).toBe(core.opened[0]);
-          expect(state.trx.size).toBe(2);
-          // Both carry the setting; P2's trigger reads it per transaction.
-          expect(erp.opened[0]?.rawCalls).toHaveLength(1);
-          expect(core.opened[0]?.rawCalls).toHaveLength(1);
+          expect(target.instance.opened).toHaveLength(1);
+          expect(before.boundTo).toBe(core.opened[0]);
+          expect(inside?.boundTo).toBe(target.instance.opened[0]);
+          expect(after.boundTo).toBe(core.opened[0]);
+          expect([...state.trx.keys()].sort()).toEqual(["core", "tenant:1"]);
         });
       });
 
       it("binds `raw` to the transaction as well as the builder", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
-          const raw = db("erp").raw("select 1") as unknown as FakeRaw;
+          const raw = db("tenant").raw("select 1") as unknown as FakeRaw;
           await raw;
 
-          expect(erp.opened).toHaveLength(1);
-          expect(raw.boundTo).toBe(erp.opened[0]);
+          expect(tenant.opened).toHaveLength(1);
+          expect(raw.boundTo).toBe(tenant.opened[0]);
         });
       });
     });
 
     describe("members that must NOT be deferred", () => {
       it("hands out `fn` untouched — `fn.now()` is a value, not a promise", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
-          const helper = db("erp").fn as unknown;
-          expect(helper).toBe(erp.fn);
+          const helper = db("tenant").fn as unknown;
+          expect(helper).toBe(tenant.fn);
 
-          const now = db("erp").fn.now() as unknown;
+          const now = db("tenant").fn.now() as unknown;
 
           // `nf-run.dao.ts:319` puts this straight into an update payload. A
           // lazily-bound `fn` would make it a promise and the write would store
           // garbage without failing.
           expect(now).toStrictEqual({ sql: "CURRENT_TIMESTAMP" });
           expect(now).not.toHaveProperty("then");
-          expect(erp.opened).toHaveLength(0);
+          expect(tenant.opened).toHaveLength(0);
         });
       });
 
       it("lets `schema` probes run on the pool, outside the ambient transaction", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
           // `sales-order-lifecycle.dao.ts:136,139` and
           // `production-route.dao.ts:655`: read-only introspection, deliberately
           // exempt (see registry.ts). It must not drag a transaction open.
-          expect(db("erp").schema as unknown).toBe(erp.schema);
-          await expect(db("erp").schema.hasTable("parts")).resolves.toBe(true);
+          expect(db("tenant").schema as unknown).toBe(tenant.schema);
+          await expect(db("tenant").schema.hasTable("parts")).resolves.toBe(true);
 
-          expect(erp.opened).toHaveLength(0);
-          expect(erp.transaction).not.toHaveBeenCalled();
+          expect(tenant.opened).toHaveLength(0);
+          expect(tenant.transaction).not.toHaveBeenCalled();
         });
       });
     });
 
     describe("the wrong-database guard still fires (AC-9)", () => {
       it("throws before anything is deferred, and opens no transaction", async () => {
-        const countdown = instanceOf("countdown");
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
-          expect(() => db("countdown")("users")).toThrow(WrongDatabaseError);
-          expect(() => db("erp")("users as u")).toThrow(WrongDatabaseError);
-          expect(() => db("erp").from("users")).toThrow(WrongDatabaseError);
-          expect(() => db("erp")("products")).not.toThrow();
+          expect(() => db("tenant")("users")).toThrow(WrongDatabaseError);
+          expect(() => db("core")("products")).toThrow(WrongDatabaseError);
+          expect(() => db("tenant")("users as u")).toThrow(WrongDatabaseError);
+          expect(() => db("tenant").from("users")).toThrow(WrongDatabaseError);
+          expect(() => db("tenant")("products")).not.toThrow();
 
-          expect(countdown.opened).toHaveLength(0);
-          expect(erp.opened).toHaveLength(0);
+          expect(tenant.opened).toHaveLength(0);
         });
       });
 
       it("carries the key into the savepoint a DAO's own transaction becomes", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
           await expect(
-            db("erp").transaction(async (trx) => trx("users")),
+            db("tenant").transaction(async (trx) => trx("users")),
           ).rejects.toThrow(WrongDatabaseError);
 
           await expect(
-            db("erp").transaction(async (trx) => trx("products")),
+            db("tenant").transaction(async (trx) => trx("products")),
           ).resolves.toBeDefined();
 
           // One real transaction; the DAO's own two are savepoints on it.
-          expect(erp.opened).toHaveLength(1);
-          expect(erp.opened[0]?.savepoints).toHaveLength(2);
+          expect(tenant.opened).toHaveLength(1);
+          expect(tenant.opened[0]?.savepoints).toHaveLength(2);
         });
       });
 
       it("rolls an inner savepoint back without completing the request's transaction", async () => {
-        const erp = instanceOf("erp");
+        const tenant = instanceOf("tenant");
 
         await withArmed(async () => {
-          await db("erp").transaction(async (trx) => {
+          await db("tenant").transaction(async (trx) => {
             await trx.rollback();
           });
 
-          const outer = erp.opened[0];
+          const outer = tenant.opened[0];
           const savepoint = outer?.savepoints[0];
           // knex 3.1: nested rollback is `ROLLBACK TO SAVEPOINT`, so the outer
           // transaction survives and the middleware still decides its fate

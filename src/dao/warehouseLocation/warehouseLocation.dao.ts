@@ -95,7 +95,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   private queryConfig = WAREHOUSE_LOCATION_QUERY_CONFIG;
 
   async create(item: IWarehouseLocation): Promise<IWarehouseLocation> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [location] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -119,7 +119,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   async batchCreate(
     items: IWarehouseLocation[],
   ): Promise<IWarehouseLocation[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const records = items.map((item) => ({
       uuid: item.uuid,
       warehouse_id: item.warehouseId,
@@ -141,7 +141,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
     warehouseId: number,
     updates: Array<{ row: number; col: number; [key: string]: any }>,
   ): Promise<IWarehouseLocation[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const results: IWarehouseLocation[] = [];
 
     // Atomic batch — single transaction so partial application can't leave a half-resized grid.
@@ -184,7 +184,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   }
 
   async getById(id: number): Promise<IWarehouseLocation | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const location = await knex(this.tableName).where("id", id).first();
 
     return location ? this.mapToInterface(location) : null;
@@ -194,7 +194,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IWarehouseLocation | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     // SECURITY (C2): no direct companyId column — scope via the parent warehouse's company.
     applyCompanyScopeViaWarehouse(
@@ -212,7 +212,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScopeViaWarehouse(
       query,
@@ -228,7 +228,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   async getAllByWarehouseId(
     warehouseId: number,
   ): Promise<IWarehouseLocation[]> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const locations = await knex(this.tableName)
       .where("warehouse_id", warehouseId)
       .orderBy("row", "asc")
@@ -241,7 +241,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
     id: number,
     item: Partial<IWarehouseLocation>,
   ): Promise<IWarehouseLocation | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.status !== undefined) updateData.status = item.status;
@@ -271,7 +271,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -279,7 +279,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
 
   // Used when a warehouse grid is resized.
   async deleteByWarehouseId(warehouseId: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName)
       .where("warehouse_id", warehouseId)
       .delete();
@@ -292,7 +292,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IWarehouseLocation>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [locations, totalResult] = await Promise.all([
@@ -321,7 +321,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IWarehouseLocation>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // No direct companyId column: scope through the parent warehouse, as

@@ -25,7 +25,7 @@ export interface INodeFilesDocumentWriteInput {
 /**
  * Uploaded documents. node-files owns this metadata instead of borrowing the
  * `files` table: `files` belongs to the `core` key and is fanned out per
- * database, and `FileDAO` hard-codes `db("erp")` — depending on either would
+ * database, and `FileDAO` hard-codes `db("tenant")` — depending on either would
  * drag that debt across a key boundary (brief D-2). Only the stateless storage
  * *driver* is shared.
  *
@@ -33,7 +33,7 @@ export interface INodeFilesDocumentWriteInput {
  */
 export class NfDocumentDAO {
   private scoped(companyId: number) {
-    return db("nodefiles")(TABLE).where(`${TABLE}.companyId`, companyId);
+    return db("tenant")(TABLE).where(`${TABLE}.companyId`, companyId);
   }
 
   /**
@@ -51,7 +51,7 @@ export class NfDocumentDAO {
     input: INodeFilesDocumentWriteInput,
     runUuid: string,
   ): Promise<{ document: INodeFilesDocumentRow; run: INodeFilesRunRow }> {
-    return db("nodefiles").transaction(async (trx) => {
+    return db("tenant").transaction(async (trx) => {
       const [document] = await trx(TABLE)
         .insert({
           uuid: input.uuid,

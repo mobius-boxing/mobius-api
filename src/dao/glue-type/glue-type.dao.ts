@@ -63,7 +63,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   private queryConfig = GLUE_TYPE_QUERY_CONFIG;
 
   async create(item: IGlueType): Promise<IGlueType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [glueType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,7 +77,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   }
 
   async getById(id: number): Promise<IGlueType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const glueType = await knex(this.tableName).where("id", id).first();
 
     return glueType ? this.mapToInterface(glueType) : null;
@@ -87,7 +87,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IGlueType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const glueType = await query.select(`${this.tableName}.*`).first();
@@ -99,7 +99,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     id: number,
     item: Partial<IGlueType>,
   ): Promise<IGlueType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -117,7 +117,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -130,7 +130,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IGlueType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [glueTypes, totalResult] = await Promise.all([
@@ -156,7 +156,7 @@ export class GlueTypeDAO implements IBaseDAO<IGlueType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IGlueType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

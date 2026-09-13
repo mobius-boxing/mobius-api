@@ -252,7 +252,7 @@ export class ProductionOrderDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IProductionOrder | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -281,7 +281,7 @@ export class ProductionOrderDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -290,7 +290,7 @@ export class ProductionOrderDAO {
 
   // ── Writes ───────────────────────────────────────────────────────────────
   async create(item: IProductionOrder): Promise<IProductionOrder> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const insertData = this.toInsertData(item);
     const [row] = await knex(this.tableName).insert(insertData).returning("*");
     return (await this.getByUuid(row.uuid)) ?? this.mapToInterface(row);
@@ -337,7 +337,7 @@ export class ProductionOrderDAO {
     id: number,
     item: Partial<IProductionOrder>,
   ): Promise<IProductionOrder | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: Record<string, unknown> = {};
     const source = item as Record<string, unknown>;
     for (const key of SCALAR_COLUMNS) {
@@ -354,7 +354,7 @@ export class ProductionOrderDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -438,7 +438,7 @@ export class ProductionOrderDAO {
     companyId?: CompanyScope,
   ): Promise<ILockedSalesOrder | null> {
     return this.readSalesOrder(
-      db("erp"),
+      db("tenant"),
       (q: any) => q.where("sales_orders.uuid", uuid),
       companyId,
       false,
@@ -455,7 +455,7 @@ export class ProductionOrderDAO {
     orderDataId: number,
   ): Promise<ILockedSalesOrder | null> {
     return this.readSalesOrder(
-      db("erp"),
+      db("tenant"),
       (q: any) => q.where("sales_orders.orderDataId", orderDataId),
       undefined,
       false,
@@ -514,7 +514,7 @@ export class ProductionOrderDAO {
    * generation transaction is opened through the DAO that lives inside it.
    */
   async transaction<T>(body: (trx: any) => Promise<T>): Promise<T> {
-    return db("erp").transaction(body);
+    return db("tenant").transaction(body);
   }
 
   /**
@@ -523,7 +523,7 @@ export class ProductionOrderDAO {
    * eligibility path.
    */
   async countByOrderDataId(orderDataId: number, trx?: any): Promise<number> {
-    const knex = trx ?? db("erp");
+    const knex = trx ?? db("tenant");
     const row = await knex(this.tableName)
       .where("orderDataId", orderDataId)
       .count("* as count")
@@ -546,7 +546,7 @@ export class ProductionOrderDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const query = db("erp")(table)
+    const query = db("tenant")(table)
       .where(`${table}.uuid`, uuid)
       .select(`${table}.id`);
     applyCompanyScope(query, table, companyId);
@@ -556,7 +556,7 @@ export class ProductionOrderDAO {
 
   /** `order_data.number`, the parent key of the pedido-dependent OP number. */
   async getOrderDataNumber(orderDataId: number): Promise<string | null> {
-    const row = await db("erp")("order_data")
+    const row = await db("tenant")("order_data")
       .where("id", orderDataId)
       .select("number")
       .first();
@@ -573,7 +573,7 @@ export class ProductionOrderDAO {
     trx?: any,
   ): Promise<IOrderValidationContextRow | null> {
     if (!args.partId) return null;
-    const knex = trx ?? db("erp");
+    const knex = trx ?? db("tenant");
     const part = await knex("parts")
       .where("parts.id", args.partId)
       .leftJoin("products as prod", "parts.productId", "prod.id")
@@ -611,7 +611,7 @@ export class ProductionOrderDAO {
     req: Request,
     scopedCompanyId?: CompanyScope,
   ): Promise<IDataPaginator<IProductionOrder>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // SECURITY (L-009): the caller's company scope arrives as an explicit

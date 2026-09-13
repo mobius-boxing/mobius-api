@@ -63,7 +63,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   private queryConfig = PAPER_TYPE_QUERY_CONFIG;
 
   async create(item: IPaperType): Promise<IPaperType> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [paperType] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,7 +77,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   }
 
   async getById(id: number): Promise<IPaperType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const paperType = await knex(this.tableName).where("id", id).first();
 
     return paperType ? this.mapToInterface(paperType) : null;
@@ -87,7 +87,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IPaperType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const paperType = await query.select(`${this.tableName}.*`).first();
@@ -99,7 +99,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();
@@ -110,7 +110,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     id: number,
     item: Partial<IPaperType>,
   ): Promise<IPaperType | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -128,7 +128,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -141,7 +141,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<IPaperType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [paperTypes, totalResult] = await Promise.all([
@@ -167,7 +167,7 @@ export class PaperTypeDAO implements IBaseDAO<IPaperType> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IPaperType>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

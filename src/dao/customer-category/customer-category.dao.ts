@@ -57,7 +57,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   private queryConfig = CUSTOMER_CATEGORY_QUERY_CONFIG;
 
   async create(item: ICustomerCategory): Promise<ICustomerCategory> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [category] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -70,7 +70,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   }
 
   async getById(id: number): Promise<ICustomerCategory | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const category = await knex(this.tableName).where("id", id).first();
 
     return category ? this.mapToInterface(category) : null;
@@ -81,7 +81,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<ICustomerCategory | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
 
     applyCompanyScope(query, this.tableName, companyId);
@@ -92,7 +92,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const category = await knex(this.tableName)
       .where("uuid", uuid)
       .select("id")
@@ -105,7 +105,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     id: number,
     item: Partial<ICustomerCategory>,
   ): Promise<ICustomerCategory | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.name !== undefined) updateData.name = item.name;
@@ -122,7 +122,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -133,7 +133,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     limit: number,
     companyId?: CompanyScope,
   ): Promise<IDataPaginator<ICustomerCategory>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const query = knex(this.tableName);
@@ -167,7 +167,7 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<ICustomerCategory>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

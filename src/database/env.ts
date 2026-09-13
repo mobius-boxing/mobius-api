@@ -1,5 +1,3 @@
-import { DbKey } from "./keys";
-
 export type ConnectionSettings = {
   host: string | undefined;
   port: number;
@@ -11,7 +9,7 @@ export type ConnectionSettings = {
 };
 
 export class MissingDatabaseNameError extends Error {
-  constructor(key: DbKey, perKeyVariable: string) {
+  constructor(key: "core", perKeyVariable: string) {
     super(
       `No database name for the "${key}" connection: neither ${perKeyVariable} ` +
         `nor SQL_DATABASE is set. Refusing to start rather than let pg fall ` +
@@ -24,13 +22,14 @@ export class MissingDatabaseNameError extends Error {
 /**
  * The only place database environment variable names appear (AC-4, AC-42).
  *
- * Per key `K` the registry reads `SQL_<K>_DATABASE` / `_USER` / `_PASSWORD` and
- * falls back to the shared `SQL_DATABASE` / `SQL_USER` / `SQL_PASSWORD` when the
- * per-key variable is unset. `SQL_HOST` and `SQL_PORT` are always shared.
+ * The core connection reads `SQL_CORE_DATABASE` / `_USER` / `_PASSWORD` and
+ * falls back to the shared `SQL_DATABASE` / `SQL_USER` / `SQL_PASSWORD` when
+ * the per-key variable is unset. `SQL_HOST` and `SQL_PORT` are always shared.
  *
- * The consequence is the point of the whole track: with none of the per-key
- * variables set, all four keys resolve to one physical database and the
- * deployed behaviour is bit-identical to a single connection.
+ * There is no tenant variant on purpose: a tenant's connection comes from its
+ * central registry row, never from the environment (db-per-company D-7, D-41).
+ * Until tenant resolution exists, `tenant` is served by this same connection
+ * (D-29).
  *
  * The database name variable is `SQL_DATABASE` (D-8), the name
  * `NEW_PROJECT_ON_SHARED_INFRA.md` §4.1 already declares normative; the older
@@ -40,9 +39,9 @@ export class MissingDatabaseNameError extends Error {
  * database *named after the connecting user* when none is given, so an env file
  * that still carries the pre-D-8 spelling would not fail — it would connect
  * somewhere plausible and wrong. That is precisely the mis-ordered-deploy
- * scenario this track creates, so it is refused here instead.
+ * scenario, so it is refused here instead.
  */
-export function connectionFor(key: DbKey): ConnectionSettings {
+export function connectionFor(key: "core"): ConnectionSettings {
   const prefix = `SQL_${key.toUpperCase()}_`;
   const perKeyVariable = `${prefix}DATABASE`;
   const database = process.env[perKeyVariable] ?? process.env.SQL_DATABASE;

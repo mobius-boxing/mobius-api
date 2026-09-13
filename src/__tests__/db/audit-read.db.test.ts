@@ -129,7 +129,7 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
    * failure mode this whole file exists to prevent.
    */
   const capture = async (run: () => Promise<unknown>): Promise<Captured[]> => {
-    const knex = db("erp");
+    const knex = db("tenant");
     const captured: Captured[] = [];
     const listener = (query: { sql: string; bindings: readonly unknown[] }) => {
       captured.push({ sql: query.sql, bindings: query.bindings });

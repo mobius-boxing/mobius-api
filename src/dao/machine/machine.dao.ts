@@ -100,7 +100,7 @@ export class MachineDAO {
   }
 
   async create(item: IMachine): Promise<IMachine> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const insertData: any = { uuid: item.uuid, companyId: item.companyId };
     for (const key of SCALAR_FIELDS) {
       if (item[key] !== undefined) insertData[key] = item[key];
@@ -113,7 +113,7 @@ export class MachineDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IMachine | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -127,7 +127,7 @@ export class MachineDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -135,7 +135,7 @@ export class MachineDAO {
   }
 
   async update(id: number, item: Partial<IMachine>): Promise<IMachine | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     for (const key of SCALAR_FIELDS) {
       if (item[key] !== undefined) updateData[key] = item[key];
@@ -151,13 +151,13 @@ export class MachineDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IMachine>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

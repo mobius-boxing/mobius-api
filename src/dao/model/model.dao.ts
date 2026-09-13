@@ -104,7 +104,7 @@ export class ModelDAO {
   }
 
   async create(item: IModel): Promise<IModel> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const insertData = {
       uuid: item.uuid,
       companyId: item.companyId,
@@ -118,7 +118,7 @@ export class ModelDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IModel | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -132,7 +132,7 @@ export class ModelDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -140,7 +140,7 @@ export class ModelDAO {
   }
 
   async update(id: number, item: Partial<IModel>): Promise<IModel | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData = this.buildWriteData(item);
     updateData.updatedAt = knex.fn.now();
     const [row] = await knex(this.tableName)
@@ -153,7 +153,7 @@ export class ModelDAO {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
@@ -162,7 +162,7 @@ export class ModelDAO {
   async countPartsReferencing(
     id: number,
   ): Promise<{ count: number; codes: string[] }> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [totalResult, rows] = await Promise.all([
       knex("parts").where("modelId", id).count("* as count").first(),
       knex("parts")
@@ -181,7 +181,7 @@ export class ModelDAO {
     req: Request,
     scopedCompanyId?: CompanyScope,
   ): Promise<IDataPaginator<IModel>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     // SECURITY (L-009): the caller's company scope arrives as an explicit

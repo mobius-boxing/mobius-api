@@ -51,7 +51,7 @@ export class ColorDAO implements IBaseDAO<IColor> {
   private queryConfig = COLOR_QUERY_CONFIG;
 
   async create(item: IColor): Promise<IColor> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [row] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -68,7 +68,7 @@ export class ColorDAO implements IBaseDAO<IColor> {
   }
 
   async getById(id: number): Promise<IColor | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const row = await knex(this.tableName).where("id", id).first();
     return row ? this.mapToInterface(row) : null;
   }
@@ -77,7 +77,7 @@ export class ColorDAO implements IBaseDAO<IColor> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IColor | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.*`).first();
@@ -88,7 +88,7 @@ export class ColorDAO implements IBaseDAO<IColor> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -96,7 +96,7 @@ export class ColorDAO implements IBaseDAO<IColor> {
   }
 
   async update(id: number, item: Partial<IColor>): Promise<IColor | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     if (item.code !== undefined) updateData.code = item.code;
     if (item.name !== undefined) updateData.name = item.name;
@@ -117,14 +117,14 @@ export class ColorDAO implements IBaseDAO<IColor> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
     return deleted > 0;
   }
 
   /** @deprecated Use getAllWithFilters for advanced querying. */
   async getAll(page: number, limit: number): Promise<IDataPaginator<IColor>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
     const [rows, totalResult] = await Promise.all([
       knex(this.tableName)
@@ -147,7 +147,7 @@ export class ColorDAO implements IBaseDAO<IColor> {
   }
 
   async getAllWithFilters(req: Request): Promise<IDataPaginator<IColor>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);

@@ -63,7 +63,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   private queryConfig = CORRUGATION_CLASS_QUERY_CONFIG;
 
   async create(item: ICorrugationClass): Promise<ICorrugationClass> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const [corrugationClass] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -77,7 +77,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   }
 
   async getById(id: number): Promise<ICorrugationClass | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const corrugationClass = await knex(this.tableName).where("id", id).first();
 
     return corrugationClass ? this.mapToInterface(corrugationClass) : null;
@@ -87,7 +87,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<ICorrugationClass | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const corrugationClass = await query.select(`${this.tableName}.*`).first();
@@ -99,7 +99,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     id: number,
     item: Partial<ICorrugationClass>,
   ): Promise<ICorrugationClass | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
 
     if (item.code !== undefined) updateData.code = item.code;
@@ -117,7 +117,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   }
 
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const deleted = await knex(this.tableName).where("id", id).delete();
 
     return deleted > 0;
@@ -130,7 +130,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     page: number,
     limit: number,
   ): Promise<IDataPaginator<ICorrugationClass>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const offset = (page - 1) * limit;
 
     const [corrugationClasses, totalResult] = await Promise.all([
@@ -158,7 +158,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<ICorrugationClass>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);
@@ -220,7 +220,7 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const record = await query.select(`${this.tableName}.id`).first();

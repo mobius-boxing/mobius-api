@@ -192,7 +192,7 @@ export class PartDAO {
    * Procusto's IndexOf/Count+1 (which duplicates after a middle deletion).
    */
   async generateCode(productId: number, trx?: any): Promise<string> {
-    const knex = trx ?? db("erp");
+    const knex = trx ?? db("tenant");
     const product = await knex("products")
       .where("id", productId)
       .select("code")
@@ -225,7 +225,7 @@ export class PartDAO {
   async create(
     item: IPart & { createdByUsername?: string | null },
   ): Promise<IPart> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const created = await knex.transaction(async (trx) => {
       let routeId = item.productionRouteId;
       if (!routeId) {
@@ -357,7 +357,7 @@ export class PartDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<IPart | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = this.selectWithJoins(knex).where(
       `${this.tableName}.uuid`,
       uuid,
@@ -371,7 +371,7 @@ export class PartDAO {
     uuid: string,
     companyId?: CompanyScope,
   ): Promise<number | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const row = await query.select(`${this.tableName}.id`).first();
@@ -379,7 +379,7 @@ export class PartDAO {
   }
 
   async update(id: number, item: Partial<IPart>): Promise<IPart | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const updateData: any = {};
     for (const key of SCALAR_COLUMNS) {
       if ((item as any)[key] !== undefined)
@@ -398,7 +398,7 @@ export class PartDAO {
    * other part references, the route goes with it.
    */
   async delete(id: number): Promise<boolean> {
-    const knex = db("erp");
+    const knex = db("tenant");
     return knex.transaction(async (trx) => {
       const part = await trx(this.tableName)
         .where("id", id)
@@ -435,7 +435,7 @@ export class PartDAO {
     action: "approve" | "cancel",
     username: string,
   ): Promise<IPart | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const cols = MACHINE_COLUMNS[machine];
     const updateData: any = { updatedAt: knex.fn.now() };
     if (action === "approve") {
@@ -471,7 +471,7 @@ export class PartDAO {
    */
   async bulkApprove(ids: number[], username: string): Promise<number> {
     if (!ids.length) return 0;
-    const knex = db("erp");
+    const knex = db("tenant");
     return knex.transaction(async (trx) => {
       const updateData: any = { updatedAt: trx.fn.now() };
       for (const machine of BULK_MACHINES) {
@@ -502,7 +502,7 @@ export class PartDAO {
   /** Bulk unapprove — nulls approvals leaving PENDING, not CANCELLED (quirk kept). */
   async bulkUnapprove(ids: number[], username: string): Promise<number> {
     if (!ids.length) return 0;
-    const knex = db("erp");
+    const knex = db("tenant");
     return knex.transaction(async (trx) => {
       const updateData: any = { updatedAt: trx.fn.now() };
       for (const machine of BULK_MACHINES) {
@@ -596,7 +596,7 @@ export class PartDAO {
     field: CascadeField,
     value: number | null,
   ): Promise<IPart | null> {
-    const knex = db("erp");
+    const knex = db("tenant");
     // Transaction + row lock: two concurrent cascades on the same part must
     // serialize, or each computes from the pre-other-write state and the
     // second silently clobbers the first's cascaded values.
@@ -671,7 +671,7 @@ export class PartDAO {
     req: Request,
     extraFilters?: Record<string, string>,
   ): Promise<IDataPaginator<IPart>> {
-    const knex = db("erp");
+    const knex = db("tenant");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
     Object.assign(parsedQuery.filters, extraFilters ?? {});
 
