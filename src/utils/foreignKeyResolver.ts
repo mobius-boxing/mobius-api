@@ -3,6 +3,8 @@ import { db } from "../database/registry";
 import { DbKey } from "../database/keys";
 import { ownerOf } from "../database/ownership";
 import { validate as isUuid } from "uuid";
+import { CoreClient } from "../services/core-client.service";
+import { applyCompanyScope, type CompanyScope } from "./daoScope";
 
 /**
  * Which database to ask for a table whose name only exists at runtime
@@ -23,8 +25,9 @@ import { validate as isUuid } from "uuid";
  * coding error, and only on the uuid branch — numeric pass-through and
  * empty→null are untouched.
  *
- * T2b routes the `companies` and `users` branches through `CoreClient`; the
- * other 11 configs stay module-local.
+ * `companies` and `users` never reach a connection here: they resolve through
+ * `CoreClient` (`CORE_LOOKUPS`), so the ~15 callers that name them keep working
+ * once the central plane is its own database.
  */
 const FANNED_OUT_RESOLUTION: Record<string, DbKey> = {
   // The only live caller is palletization's `technicalFileUuid` /
@@ -32,6 +35,13 @@ const FANNED_OUT_RESOLUTION: Record<string, DbKey> = {
   // through here would need its own deliberate entry; do not widen this into a
   // general fallback.
   files: "erp",
+};
+
+const CORE_LOOKUPS: Readonly<
+  Record<string, (uuid: string) => Promise<number | null>>
+> = {
+  companies: (uuid) => CoreClient.companyIdByUuid(uuid),
+  users: (uuid) => CoreClient.userIdByUuid(uuid),
 };
 
 const connectionFor = (tableName: string): Knex => {
@@ -44,6 +54,29 @@ const connectionFor = (tableName: string): Knex => {
     );
   }
   return db(key);
+};
+
+/**
+ * `companyId` narrows a tenant table to that company's rows (a foreign company's
+ * uuid then misses, L-009). It is ignored for `companies`/`users`, which are
+ * identity lookups, not tenant rows.
+ */
+const idByUuid = async (
+  tableName: string,
+  uuid: string,
+  companyId?: CompanyScope,
+  uuidColumn = "uuid",
+  idColumn = "id",
+): Promise<number | null> => {
+  const coreLookup = CORE_LOOKUPS[tableName];
+  if (coreLookup) return coreLookup(uuid);
+
+  const query = connectionFor(tableName)(tableName)
+    .select(idColumn)
+    .where(uuidColumn, uuid);
+  applyCompanyScope(query, tableName, companyId);
+  const record = await query.first();
+  return record ? record[idColumn] : null;
 };
 
 export interface ForeignKeyConfig {
@@ -83,21 +116,22 @@ export async function resolveUuidToId(
   }
 
   if (typeof value === "string" && isUuid(value)) {
-    const knex = connectionFor(tableName);
+    const id = await idByUuid(
+      tableName,
+      value,
+      undefined,
+      uuidColumn,
+      idColumn,
+    );
 
-    const record = await knex(tableName)
-      .select(idColumn)
-      .where(uuidColumn, value)
-      .first();
-
-    if (!record) {
+    if (id === null) {
       return {
         success: false,
         error: `Invalid ${tableName.replace(/_/g, " ")} reference`,
       };
     }
 
-    return { success: true, id: record[idColumn] };
+    return { success: true, id };
   }
 
   return {
@@ -145,10 +179,7 @@ export async function validateUuidExists(
     return false;
   }
 
-  const knex = connectionFor(tableName);
-  const record = await knex(tableName).where("uuid", uuid).select("id").first();
-
-  return !!record;
+  return (await idByUuid(tableName, uuid)) !== null;
 }
 
 /**
@@ -157,6 +188,7 @@ export async function validateUuidExists(
 export async function getIdByUuid(
   uuid: string | undefined | null,
   tableName: string,
+  companyId?: CompanyScope,
 ): Promise<number | null> {
   if (!uuid) {
     return null;
@@ -167,10 +199,7 @@ export async function getIdByUuid(
     return isNaN(parsed) ? null : parsed;
   }
 
-  const knex = connectionFor(tableName);
-  const record = await knex(tableName).where("uuid", uuid).select("id").first();
-
-  return record ? record.id : null;
+  return idByUuid(tableName, uuid, companyId);
 }
 
 export const FK_CONFIGS = {

@@ -40,6 +40,16 @@ jest.mock("../../../database/registry", () => ({
   db: () => mockKnex,
 }));
 
+/** Core's users, as `CoreClient.usersByIds` would answer for the asked ids. */
+let mockCoreUsers = [];
+jest.mock("../../../services/core-client.service", () => ({
+  ...jest.requireActual("../../../services/core-client.service"),
+  CoreClient: {
+    usersByIds: async (ids) =>
+      mockCoreUsers.filter((user) => ids.includes(user.id)),
+  },
+}));
+
 import { CountdownAssignmentDAO } from "../../../dao/countdown/countdown-assignment.dao";
 
 const ASSIGNMENTS = "countdown_document_assignments";
@@ -72,9 +82,68 @@ const deletedIds = () => {
 beforeEach(() => {
   mock = createTableAwareKnexMock();
   mockKnex = mock.knexMock;
+  mockCoreUsers = [];
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+describe("CountdownAssignmentDAO.forDocuments — assignee names (L-009)", () => {
+  const COMPANY_ID = 7;
+  const person = (id, overrides = {}) => ({
+    id,
+    uuid: `user-${id}`,
+    email: `user${id}@example.com`,
+    firstName: `First${id}`,
+    lastName: `Last${id}`,
+    isActive: true,
+    companyId: COMPANY_ID,
+    role: "member",
+    ...overrides,
+  });
+  const assigned = (kind, userId) => ({
+    documentId: DOCUMENT_ID,
+    kind,
+    userId,
+    groupUuid: null,
+    groupName: null,
+  });
+
+  beforeEach(() => {
+    mock.fixture(`${ASSIGNMENTS} as da`).rows = [
+      assigned("resolver", 10),
+      assigned("watcher", 11),
+      assigned("watcher", 12),
+    ];
+  });
+
+  it("keeps showing a deactivated assignee of the document's company", async () => {
+    mockCoreUsers = [person(10), person(11, { isActive: false })];
+
+    const result = await new CountdownAssignmentDAO().forDocuments(
+      [DOCUMENT_ID],
+      COMPANY_ID,
+    );
+
+    expect(result.get(DOCUMENT_ID).resolvers.users).toStrictEqual([
+      { uuid: "user-10", name: "First10 Last10" },
+    ]);
+    expect(result.get(DOCUMENT_ID).watchers.users).toStrictEqual([
+      { uuid: "user-11", name: "First11 Last11" },
+    ]);
+  });
+
+  it("never prints a user of another company", async () => {
+    mockCoreUsers = [person(10), person(12, { companyId: 9 })];
+
+    const result = await new CountdownAssignmentDAO().forDocuments(
+      [DOCUMENT_ID],
+      COMPANY_ID,
+    );
+
+    expect(result.get(DOCUMENT_ID).watchers.users).toStrictEqual([]);
+    expect(JSON.stringify([...result.values()])).not.toContain("user-12");
+  });
+});
 
 describe("CountdownAssignmentDAO.replace — unchanged sets write nothing (AC-3)", () => {
   it("issues zero INSERT, UPDATE and DELETE for an identical assignment set", async () => {

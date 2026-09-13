@@ -30,6 +30,25 @@ jest.mock("../../../database/registry", () => ({
   db: () => mockKnex,
 }));
 
+// Company and sales person hydrate through CoreClient, never a join.
+const mockCoreCalls: Array<[string, unknown]> = [];
+let mockCoreCompanies: any[] = [];
+let mockCoreUsers: any[] = [];
+jest.mock("../../../services/core-client.service", () => ({
+  ...jest.requireActual("../../../services/core-client.service"),
+  __esModule: true,
+  CoreClient: {
+    companiesByIds: async (ids: number[]) => {
+      mockCoreCalls.push(["companiesByIds", ids]);
+      return mockCoreCompanies;
+    },
+    usersByIds: async (ids: number[]) => {
+      mockCoreCalls.push(["usersByIds", ids]);
+      return mockCoreUsers;
+    },
+  },
+}));
+
 // Import DAO after mocking
 import { CustomerDAO } from "../../../dao/customer/customer.dao";
 
@@ -46,6 +65,9 @@ describe("CustomerDAO", () => {
       now: jest.fn().mockReturnValue(new Date().toISOString()),
     };
     (mockKnex as any).raw = jest.fn().mockReturnValue("");
+    mockCoreCalls.length = 0;
+    mockCoreCompanies = [];
+    mockCoreUsers = [];
 
     dao = new CustomerDAO();
   });
@@ -375,11 +397,46 @@ describe("CustomerDAO", () => {
       });
 
       mockQueryBuilder.first.mockResolvedValue(testData);
+      mockCoreCompanies = [company];
+      mockCoreUsers = [salesPerson];
 
       const result = await dao.getCustomerWithDetails(testData.uuid);
 
-      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledTimes(3);
+      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledTimes(1);
+      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledWith(
+        "customer_categories",
+        "customers.categoryId",
+        "customer_categories.id",
+      );
+      expect(mockCoreCalls).toEqual([
+        ["companiesByIds", [company.id]],
+        ["usersByIds", [salesPerson.id]],
+      ]);
       expect(result?.uuid).toBe(testData.uuid);
+      expect(result?.company).toBe(company);
+      expect(result?.category).toBe(category);
+      expect(result?.salesPerson).toStrictEqual({
+        uuid: salesPerson.uuid,
+        email: salesPerson.email,
+        firstName: salesPerson.firstName,
+        lastName: salesPerson.lastName,
+        role: salesPerson.role,
+      });
+    });
+
+    it("answers salesPerson null, asking core for no user, when salesPersonId is null", async () => {
+      const company = createTestCompany();
+      const testData = createTestCustomer({
+        companyId: company.id,
+        salesPersonId: null,
+      });
+      mockQueryBuilder.first.mockResolvedValue(testData);
+      mockCoreCompanies = [company];
+
+      const result = await dao.getCustomerWithDetails(testData.uuid);
+
+      expect(result?.salesPerson).toBeNull();
+      expect(mockCoreCalls).toEqual([["companiesByIds", [company.id]]]);
     });
 
     it("should filter by company id when provided", async () => {

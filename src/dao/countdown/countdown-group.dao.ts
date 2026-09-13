@@ -5,10 +5,10 @@ import {
   INamedRef,
 } from "../../interfaces/countdown/countdown.interfaces";
 import { diffSets } from "../../utils/setDiff";
+import { CoreClient, displayName } from "../../services/core-client.service";
 
 const GROUPS_TABLE = "countdown_groups";
 const MEMBERS_TABLE = "countdown_group_members";
-const USERS_TABLE = "users";
 
 /** Internal row shape — carries the serial id the API must never expose. */
 export interface ICountdownGroupRow {
@@ -20,19 +20,9 @@ export interface ICountdownGroupRow {
   updatedAt: Date;
 }
 
-interface IMemberRow {
+interface IMembershipRow {
   groupId: number;
-  uuid: string;
-  firstName: string | null;
-  lastName: string | null;
-}
-
-/** Mobius users have firstName/lastName; countdown's UI prints one string. */
-function displayName(row: {
-  firstName: string | null;
-  lastName: string | null;
-}): string {
-  return `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim();
+  userId: number;
 }
 
 export class CountdownGroupDAO {
@@ -45,42 +35,42 @@ export class CountdownGroupDAO {
       .orderBy("name");
     if (groups.length === 0) return [];
 
-    // Only active users of the same company are listed: a deactivated member is
-    // no longer a recipient or a resolver, and the companyId filter keeps a
-    // stray membership row from ever printing another tenant's name.
-    const members = (await knex(MEMBERS_TABLE)
-      .join(USERS_TABLE, `${USERS_TABLE}.id`, `${MEMBERS_TABLE}.userId`)
+    const memberships: IMembershipRow[] = await knex(MEMBERS_TABLE)
       .whereIn(
         `${MEMBERS_TABLE}.groupId`,
         groups.map((group) => group.id),
       )
-      .andWhere(`${USERS_TABLE}.isActive`, true)
-      .andWhere(`${USERS_TABLE}.companyId`, companyId)
-      .select(
-        `${MEMBERS_TABLE}.groupId`,
-        `${USERS_TABLE}.uuid`,
-        `${USERS_TABLE}.firstName`,
-        `${USERS_TABLE}.lastName`,
-      )
-      // Ordering on the name parts matches ordering on "firstName lastName".
-      .orderBy([
-        { column: `${USERS_TABLE}.firstName` },
-        { column: `${USERS_TABLE}.lastName` },
-      ])) as IMemberRow[];
+      .select(`${MEMBERS_TABLE}.groupId`, `${MEMBERS_TABLE}.userId`);
 
-    return groups.map((group) => ({
-      uuid: group.uuid,
-      name: group.name,
-      createdAt: group.createdAt,
-      members: members
-        .filter((member) => member.groupId === group.id)
-        .map(
-          (member): INamedRef => ({
-            uuid: member.uuid,
-            name: displayName(member),
-          }),
-        ),
-    }));
+    // Only active users of the same company are listed: a deactivated member is
+    // no longer a recipient or a resolver, and the companyId filter keeps a
+    // stray membership row from ever printing another tenant's name.
+    const people = (
+      await CoreClient.usersByIds([
+        ...new Set(memberships.map((row) => row.userId)),
+      ])
+    ).filter((user) => user.isActive === true && user.companyId === companyId);
+
+    return groups.map((group) => {
+      const memberIds = new Set(
+        memberships
+          .filter((row) => row.groupId === group.id)
+          .map((row) => row.userId),
+      );
+      return {
+        uuid: group.uuid,
+        name: group.name,
+        createdAt: group.createdAt,
+        members: people
+          .filter((person) => memberIds.has(person.id))
+          .map(
+            (person): INamedRef => ({
+              uuid: person.uuid,
+              name: displayName(person),
+            }),
+          ),
+      };
+    });
   }
 
   /**

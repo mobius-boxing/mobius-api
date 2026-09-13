@@ -12,6 +12,10 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import { applyCompanyScope, type CompanyScope } from "../../utils/daoScope";
+import {
+  asCompanyPayload,
+  CoreClient,
+} from "../../services/core-client.service";
 import { Request } from "express";
 
 const PAPER_SUPPLY_FILTERS: FilterConfigs = {
@@ -348,7 +352,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         "paper_supplies.*",
         knex.raw("to_jsonb(manufacturers.*) as manufacturer"),
         knex.raw("to_jsonb(suppliers.*) as supplier"),
-        knex.raw("to_jsonb(companies.*) as company"),
         knex.raw('to_jsonb(paper_types.*) as "paperType"'),
       )
       .leftJoin(
@@ -357,7 +360,6 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
         "manufacturers.id",
       )
       .leftJoin("suppliers", "paper_supplies.supplierId", "suppliers.id")
-      .leftJoin("companies", "paper_supplies.companyId", "companies.id")
       .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id")
       .where("paper_supplies.uuid", uuid);
 
@@ -366,6 +368,11 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     const paperSupply = await query.first();
 
     if (!paperSupply) return null;
+
+    const [company] =
+      paperSupply.companyId === null
+        ? []
+        : await CoreClient.companiesByIds([paperSupply.companyId]);
 
     const mapped = this.mapToInterface(paperSupply);
     if (paperSupply.manufacturer) {
@@ -376,9 +383,9 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       const { id, ...supplierWithoutId } = paperSupply.supplier;
       mapped.supplier = supplierWithoutId;
     }
-    if (paperSupply.company) {
-      const { id, ...companyWithoutId } = paperSupply.company;
-      mapped.company = companyWithoutId;
+    if (company) {
+      const { id, ...companyWithoutId } = company;
+      mapped.company = asCompanyPayload(companyWithoutId);
     }
     if (paperSupply.paperType) {
       const { id, ...paperTypeWithoutId } = paperSupply.paperType;

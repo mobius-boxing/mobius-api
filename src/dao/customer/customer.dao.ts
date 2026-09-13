@@ -2,6 +2,10 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import {
+  asCompanyPayload,
+  CoreClient,
+} from "../../services/core-client.service";
+import {
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -267,19 +271,13 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const query = knex(this.tableName)
       .select(
         "customers.*",
-        knex.raw("to_jsonb(companies.*) as company"),
         knex.raw("to_jsonb(customer_categories.*) as category"),
-        knex.raw(
-          `to_jsonb(row(users.id, users.uuid, users.email, users.first_name, users.last_name, users.role)::record) as sales_person`,
-        ),
       )
-      .leftJoin("companies", "customers.companyId", "companies.id")
       .leftJoin(
         "customer_categories",
         "customers.categoryId",
         "customer_categories.id",
       )
-      .leftJoin("users", "customers.salesPersonId", "users.id")
       .where("customers.uuid", uuid);
 
     applyCompanyScope(query, this.tableName, companyId);
@@ -288,10 +286,27 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
     if (!customer) return null;
 
+    const [[company], [salesPerson]] = await Promise.all([
+      typeof customer.companyId === "number"
+        ? CoreClient.companiesByIds([customer.companyId])
+        : [],
+      typeof customer.salesPersonId === "number"
+        ? CoreClient.usersByIds([customer.salesPersonId])
+        : [],
+    ]);
+
     const mapped = this.mapToInterface(customer);
-    mapped.company = customer.company;
+    mapped.company = company && asCompanyPayload(company);
     mapped.category = customer.category;
-    mapped.salesPerson = customer.sales_person;
+    mapped.salesPerson = salesPerson
+      ? {
+          uuid: salesPerson.uuid,
+          email: salesPerson.email,
+          firstName: salesPerson.firstName,
+          lastName: salesPerson.lastName,
+          role: salesPerson.role,
+        }
+      : null;
 
     return mapped;
   }

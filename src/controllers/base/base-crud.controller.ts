@@ -2,9 +2,13 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { IBaseController } from "../../types.d";
 import { IDataPaginator } from "../../database/d.types";
-import { getCompanyForCreate } from "../../utils/companyScope";
-import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import { companyFilterScope, type CompanyScope } from "../../utils/daoScope";
+import { getCompanyForCreate, getCompanyScope } from "../../utils/companyScope";
+import { CoreClient } from "../../services/core-client.service";
+import {
+  companyFilterScope,
+  UNRESOLVED_COMPANY,
+  type CompanyScope,
+} from "../../utils/daoScope";
 
 type WithId = { id?: number | null };
 
@@ -96,9 +100,22 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
    * DAO so cross-company records are invisible. SuperAdmins (undefined) keep full access.
    */
   protected itemCompanyScope(req: Request): CompanyScope | undefined {
-    return this.isCompanyScopedOnItem()
-      ? companyFilterScope(req)
-      : undefined;
+    return this.isCompanyScopedOnItem() ? companyFilterScope(req) : undefined;
+  }
+
+  /**
+   * SECURITY (L-009): the scope for resolving a client-supplied reference (a
+   * type, class or supplier uuid in a payload). It is the list filter's scope,
+   * or else the company a superAdmin operates as (`body.companyId`), so a write
+   * for company X can never pick up a row of Y. A named company that did not
+   * resolve matches nothing; `undefined` only for a superAdmin who names no
+   * company at all, which stays unscoped until T7.
+   */
+  protected referenceScope(req: Request): CompanyScope | undefined {
+    const filterScope = companyFilterScope(req);
+    if (filterScope !== undefined) return filterScope;
+    if (!getCompanyScope(req).companyUuid) return undefined;
+    return req.companyId ?? UNRESOLVED_COMPANY;
   }
 
   protected async getOneByUuid(
@@ -185,7 +202,9 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
       ) {
         const company = getCompanyForCreate(req);
         if (company.success) {
-          const companyId = await getIdByUuid(company.companyUuid, "companies");
+          const companyId = await CoreClient.companyIdByUuid(
+            company.companyUuid,
+          );
           if (companyId) (payload as any).companyId = companyId;
         } else if ((req as any).user?.role !== "superAdmin") {
           res.status(400).json({ success: false, message: company.message });
@@ -196,7 +215,9 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
         typeof (payload as any).companyId === "string"
       ) {
         // A uuid slipped through a DTO — resolve it to the numeric id.
-        const companyId = await getIdByUuid((payload as any).companyId, "companies");
+        const companyId = await CoreClient.companyIdByUuid(
+          (payload as any).companyId,
+        );
         if (!companyId) {
           res.status(400).json({ success: false, message: "Invalid company" });
           return;
@@ -205,9 +226,7 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
       }
 
       const autoUuid = this.options.autoGenerateUuid ?? true;
-      const dataToCreate = autoUuid
-        ? { uuid: uuidv4(), ...payload }
-        : payload;
+      const dataToCreate = autoUuid ? { uuid: uuidv4(), ...payload } : payload;
 
       const result = await this.dao.create(dataToCreate as TEntity);
 

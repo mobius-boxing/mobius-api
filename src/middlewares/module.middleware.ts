@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from "express";
-import { CompanyModuleDAO } from "../dao/company-module/company-module.dao";
+import { CoreClient } from "../services/core-client.service";
 import { getCompanyScope } from "../utils/companyScope";
 
 /**
  * requireModule(slug): 403s unless the effective company has the module enabled
- * (CompanyModuleDAO.isEnabled).
+ * (CoreClient.isModuleEnabled).
  *
  * SECURITY: the company is `req.companyId`, resolved once by `authenticate` with
  * companyScope precedence, so this gate and the data-scoping never disagree.
@@ -39,7 +39,9 @@ export const requireModule = (slug: string) => {
         return;
       }
 
-      const enabled = await new CompanyModuleDAO().isEnabled(companyId, slug);
+      // A core outage (CoreUnavailableError) goes to next(err) and answers 503:
+      // this gate must never read "unknown" as "enabled".
+      const enabled = await CoreClient.isModuleEnabled(companyId, slug);
       if (!enabled) {
         res.status(403).json({
           success: false,

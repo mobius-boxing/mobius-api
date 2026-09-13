@@ -56,11 +56,13 @@ export class ToolingController extends BaseCrudController<ITooling> {
 
   protected async beforeCreate(
     inputDTO: any,
-    _req: Request,
+    req: Request,
     res: Response,
   ): Promise<any | null> {
+    const companyScope = this.referenceScope(req);
     const toolingTypeId = await this._toolingTypeDAO.getIdByUuid(
       inputDTO.toolingTypeUuid,
+      companyScope,
     );
     if (!toolingTypeId) {
       res
@@ -72,8 +74,10 @@ export class ToolingController extends BaseCrudController<ITooling> {
     let manufacturerId: number | undefined;
     if (inputDTO.manufacturerUuid) {
       manufacturerId =
-        (await this._manufacturerDAO.getIdByUuid(inputDTO.manufacturerUuid)) ??
-        undefined;
+        (await this._manufacturerDAO.getIdByUuid(
+          inputDTO.manufacturerUuid,
+          companyScope,
+        )) ?? undefined;
       if (!manufacturerId) {
         res
           .status(400)
@@ -85,8 +89,10 @@ export class ToolingController extends BaseCrudController<ITooling> {
     let supplierId: number | undefined;
     if (inputDTO.supplierUuid) {
       supplierId =
-        (await this._supplierDAO.getIdByUuid(inputDTO.supplierUuid)) ??
-        undefined;
+        (await this._supplierDAO.getIdByUuid(
+          inputDTO.supplierUuid,
+          companyScope,
+        )) ?? undefined;
       if (!supplierId) {
         res.status(400).json({ success: false, message: "Supplier not found" });
         return null;
@@ -107,9 +113,10 @@ export class ToolingController extends BaseCrudController<ITooling> {
   protected async beforeUpdate(
     inputDTO: any,
     _existingId: number,
-    _req: Request,
+    req: Request,
     res: Response,
   ): Promise<any | null> {
+    const companyScope = this.referenceScope(req);
     const updateData: Partial<ITooling> = {
       name: inputDTO.name,
       description: inputDTO.description,
@@ -119,6 +126,7 @@ export class ToolingController extends BaseCrudController<ITooling> {
     if (inputDTO.toolingTypeUuid) {
       const toolingTypeId = await this._toolingTypeDAO.getIdByUuid(
         inputDTO.toolingTypeUuid,
+        companyScope,
       );
       if (!toolingTypeId) {
         res
@@ -138,6 +146,7 @@ export class ToolingController extends BaseCrudController<ITooling> {
       } else {
         const manufacturerId = await this._manufacturerDAO.getIdByUuid(
           inputDTO.manufacturerUuid,
+          companyScope,
         );
         if (!manufacturerId) {
           res
@@ -155,6 +164,7 @@ export class ToolingController extends BaseCrudController<ITooling> {
       } else {
         const supplierId = await this._supplierDAO.getIdByUuid(
           inputDTO.supplierUuid,
+          companyScope,
         );
         if (!supplierId) {
           res

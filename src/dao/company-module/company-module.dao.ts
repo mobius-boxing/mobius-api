@@ -5,7 +5,10 @@ import {
 } from "../../interfaces/company-module/company-module.interfaces";
 
 /** Subscription statuses that block module access. */
-const BLOCKED_SUB_STATUSES: SubscriptionStatus[] = ["canceled", "past_due"];
+export const BLOCKED_SUB_STATUSES: SubscriptionStatus[] = [
+  "canceled",
+  "past_due",
+];
 
 export class CompanyModuleDAO {
   private tableName = "company_modules";

@@ -42,6 +42,21 @@ jest.mock("../../../database/registry", () => ({
   },
 }));
 
+const mockCoreLookups: Array<[string, string]> = [];
+jest.mock("../../../services/core-client.service", () => ({
+  __esModule: true,
+  CoreClient: {
+    companyIdByUuid: async (uuid: string) => {
+      mockCoreLookups.push(["companyIdByUuid", uuid]);
+      return 99;
+    },
+    userIdByUuid: async (uuid: string) => {
+      mockCoreLookups.push(["userIdByUuid", uuid]);
+      return 98;
+    },
+  },
+}));
+
 import {
   getIdByUuid,
   resolveUuidToId,
@@ -53,21 +68,21 @@ const A_UUID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 describe("foreignKeyResolver — connection choice", () => {
   beforeEach(() => {
     mockCalls.length = 0;
+    mockCoreLookups.length = 0;
     for (const key of Object.keys(mockRows)) delete mockRows[key];
   });
 
   describe("a table the manifest owns outright", () => {
-    it("asks the owning database", async () => {
+    it("asks the owning database, and core tables through CoreClient only", async () => {
       mockRows.erp = { id: 11 };
-      mockRows.core = { id: 99 };
+      // What a registry read of `companies` would answer — it must not be asked.
+      mockRows.core = { id: 55 };
 
       await expect(getIdByUuid(A_UUID, "customers")).resolves.toBe(11);
       await expect(getIdByUuid(A_UUID, "companies")).resolves.toBe(99);
 
-      expect(mockCalls).toEqual([
-        { key: "erp", table: "customers" },
-        { key: "core", table: "companies" },
-      ]);
+      expect(mockCalls).toEqual([{ key: "erp", table: "customers" }]);
+      expect(mockCoreLookups).toEqual([["companyIdByUuid", A_UUID]]);
     });
   });
 

@@ -8,18 +8,16 @@ import {
   emptyCountdownAssignments,
 } from "../../interfaces/countdown/countdown.interfaces";
 import { diffSets } from "../../utils/setDiff";
+import { CoreClient, personName } from "../../services/core-client.service";
 
 const ASSIGNMENTS_TABLE = "countdown_document_assignments";
 const GROUPS_TABLE = "countdown_groups";
 const GROUP_MEMBERS_TABLE = "countdown_group_members";
-const USERS_TABLE = "users";
 
-interface IJoinedAssignmentRow {
+interface IAssignmentListRow {
   documentId: number;
   kind: CountdownAssignmentKind;
-  userUuid: string | null;
-  userFirstName: string | null;
-  userLastName: string | null;
+  userId: number | null;
   groupUuid: string | null;
   groupName: string | null;
 }
@@ -66,15 +64,6 @@ function assignmentKey(row: {
     : `${row.kind}|g:${row.groupId}`;
 }
 
-/** Same composition the reminder DAO uses, so a person reads the same everywhere. */
-function personName(
-  firstName: string | null,
-  lastName: string | null,
-): string | null {
-  const name = [firstName, lastName].filter(Boolean).join(" ").trim();
-  return name === "" ? null : name;
-}
-
 /**
  * Assignments of documents to people and groups.
  *
@@ -89,33 +78,40 @@ export class CountdownAssignmentDAO {
   /** One query for a whole page of documents — never N+1 inside a list. */
   async forDocuments(
     documentIds: number[],
+    companyId: number,
   ): Promise<Map<number, ICountdownAssignments>> {
     const result = new Map<number, ICountdownAssignments>();
     if (documentIds.length === 0) return result;
 
     const knex = db("countdown");
-    const rows: IJoinedAssignmentRow[] = await knex(
-      `${ASSIGNMENTS_TABLE} as da`,
-    )
-      .leftJoin(`${USERS_TABLE} as u`, "u.id", "da.userId")
+    const rows: IAssignmentListRow[] = await knex(`${ASSIGNMENTS_TABLE} as da`)
       .leftJoin(`${GROUPS_TABLE} as g`, "g.id", "da.groupId")
       .whereIn("da.documentId", documentIds)
       .select(
         "da.documentId",
         "da.kind",
-        "u.uuid as userUuid",
-        "u.firstName as userFirstName",
-        "u.lastName as userLastName",
+        "da.userId",
         "g.uuid as groupUuid",
         "g.name as groupName",
       );
 
+    const userIds = new Set<number>();
+    for (const row of rows) if (row.userId !== null) userIds.add(row.userId);
+    // Attribution on an existing record: a deactivated assignee keeps showing,
+    // but a user of another company never does (L-009).
+    const users = new Map(
+      (await CoreClient.usersByIds([...userIds]))
+        .filter((user) => user.companyId === companyId)
+        .map((user) => [user.id, user]),
+    );
+
     for (const row of rows) {
       const entry = result.get(row.documentId) ?? emptyCountdownAssignments();
       const bucket = row.kind === "resolver" ? entry.resolvers : entry.watchers;
-      const userName = personName(row.userFirstName, row.userLastName);
-      if (row.userUuid && userName) {
-        bucket.users.push({ uuid: row.userUuid, name: userName });
+      const user = row.userId === null ? undefined : users.get(row.userId);
+      const userName = user ? personName(user.firstName, user.lastName) : null;
+      if (user && userName) {
+        bucket.users.push({ uuid: user.uuid, name: userName });
       } else if (row.groupUuid && row.groupName) {
         bucket.groups.push({ uuid: row.groupUuid, name: row.groupName });
       }

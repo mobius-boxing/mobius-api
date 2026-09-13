@@ -82,11 +82,17 @@ jest.mock("@sundaysf/utils", () => ({
 // Export mock functions for access in the mock
 export { mockFunctions };
 
-// Company injection (base-crud) resolves the caller's company via the
-// shared foreignKeyResolver — stub it so create paths get companyId 1.
-jest.mock("../../../utils/foreignKeyResolver", () => ({
-  ...jest.requireActual("../../../utils/foreignKeyResolver"),
-  getIdByUuid: jest.fn().mockResolvedValue(1),
+// Company injection (base-crud) resolves the caller's company through
+// CoreClient — stub it so create paths get companyId 1, and record the uuid.
+const mockCompanyLookups: string[] = [];
+jest.mock("../../../services/core-client.service", () => ({
+  ...jest.requireActual("../../../services/core-client.service"),
+  CoreClient: {
+    companyIdByUuid: async (uuid: string) => {
+      mockCompanyLookups.push(uuid);
+      return 1;
+    },
+  },
 }));
 
 // Import controller after mocking
@@ -224,11 +230,13 @@ describe("CorrugationClassController", () => {
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
+      expect(mockCompanyLookups).toContain("company-uuid");
       expect(mockFunctions.create).toHaveBeenCalledWith(
         expect.objectContaining({
           uuid: "generated-uuid",
           code: "NEW001",
           description: "New Class",
+          companyId: 1,
         }),
       );
       expect(mockRes.status).toHaveBeenCalledWith(201);

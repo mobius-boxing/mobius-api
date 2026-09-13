@@ -12,11 +12,11 @@ import {
   emptyCountdownAssignments,
 } from "../../interfaces/countdown/countdown.interfaces";
 import { toCountOut } from "../../utils/numbers";
+import { CoreClient, personName } from "../../services/core-client.service";
 
 const DOCUMENTS_TABLE = "countdown_documents";
 const CATEGORIES_TABLE = "countdown_categories";
 const SUBCATEGORIES_TABLE = "countdown_subcategories";
-const USERS_TABLE = "users";
 
 /** How many rows an export may carry. Well past anything this module will see;
  *  present so a runaway query cannot exhaust a 256 MB container. */
@@ -47,17 +47,18 @@ interface IJoinedDocumentRow extends ICountdownDocumentRow {
   daysUntilDue: number;
 }
 
+/** The row as the query returns it, before `withPeople` adds the names. */
+type IDocumentQueryRow = Omit<
+  IJoinedDocumentRow,
+  | "uploaderUuid"
+  | "uploaderFirstName"
+  | "uploaderLastName"
+  | "resolverFirstName"
+  | "resolverLastName"
+>;
+
 function named(uuid: string | null, name: string | null): INamedRef | null {
   return uuid && name ? { uuid, name } : null;
-}
-
-/** Same composition the reminder DAO uses, so a person reads the same everywhere. */
-function personName(
-  firstName: string | null,
-  lastName: string | null,
-): string | null {
-  const name = [firstName, lastName].filter(Boolean).join(" ").trim();
-  return name === "" ? null : name;
 }
 
 function toCountdownDocument(row: IJoinedDocumentRow): ICountdownDocument {
@@ -154,16 +155,6 @@ export class CountdownDocumentDAO {
     const knex = db("countdown");
     return knex(DOCUMENTS_TABLE)
       .leftJoin(
-        `${USERS_TABLE} as uploader`,
-        "uploader.id",
-        `${DOCUMENTS_TABLE}.uploadedBy`,
-      )
-      .leftJoin(
-        `${USERS_TABLE} as resolver`,
-        "resolver.id",
-        `${DOCUMENTS_TABLE}.resolvedBy`,
-      )
-      .leftJoin(
         CATEGORIES_TABLE,
         `${CATEGORIES_TABLE}.id`,
         `${DOCUMENTS_TABLE}.categoryId`,
@@ -176,11 +167,6 @@ export class CountdownDocumentDAO {
       .where(`${DOCUMENTS_TABLE}.companyId`, companyId)
       .select(
         `${DOCUMENTS_TABLE}.*`,
-        "uploader.uuid as uploaderUuid",
-        "uploader.firstName as uploaderFirstName",
-        "uploader.lastName as uploaderLastName",
-        "resolver.firstName as resolverFirstName",
-        "resolver.lastName as resolverLastName",
         `${CATEGORIES_TABLE}.uuid as categoryUuid`,
         `${CATEGORIES_TABLE}.name as categoryName`,
         `${SUBCATEGORIES_TABLE}.uuid as subcategoryUuid`,
@@ -223,12 +209,12 @@ export class CountdownDocumentDAO {
     ).count<{ count: string }[]>("* as count");
 
     const [rows, countRows] = await Promise.all([
-      rowsQuery as unknown as Promise<IJoinedDocumentRow[]>,
+      rowsQuery as unknown as Promise<IDocumentQueryRow[]>,
       countQuery,
     ]);
 
     return {
-      rows: rows.map((row) => ({
+      rows: (await this.withPeople(rows)).map((row) => ({
         id: row.id,
         document: toCountdownDocument(row),
       })),
@@ -252,9 +238,9 @@ export class CountdownDocumentDAO {
     )
       .orderBy(sortColumn, filters.sortOrder)
       .orderBy(`${DOCUMENTS_TABLE}.id`, "asc")
-      .limit(COUNTDOWN_EXPORT_ROW_CAP)) as unknown as IJoinedDocumentRow[];
+      .limit(COUNTDOWN_EXPORT_ROW_CAP)) as unknown as IDocumentQueryRow[];
 
-    return rows.map((row) => ({
+    return (await this.withPeople(rows)).map((row) => ({
       id: row.id,
       document: toCountdownDocument(row),
     }));
@@ -267,8 +253,45 @@ export class CountdownDocumentDAO {
   ): Promise<ICountdownDocumentEntry | undefined> {
     const row = (await this.baseQuery(companyId, today)
       .where(`${DOCUMENTS_TABLE}.uuid`, uuid)
-      .first()) as IJoinedDocumentRow | undefined;
-    return row ? { id: row.id, document: toCountdownDocument(row) } : undefined;
+      .first()) as IDocumentQueryRow | undefined;
+    if (!row) return undefined;
+    const [hydrated] = await this.withPeople([row]);
+    return hydrated
+      ? { id: hydrated.id, document: toCountdownDocument(hydrated) }
+      : undefined;
+  }
+
+  /** Uploader and resolver names for a page of rows, in one core query. */
+  private async withPeople(
+    rows: IDocumentQueryRow[],
+  ): Promise<IJoinedDocumentRow[]> {
+    const ids = new Set<number>();
+    for (const row of rows) {
+      ids.add(row.uploadedBy);
+      if (row.resolvedBy !== null) ids.add(row.resolvedBy);
+    }
+    const people = new Map(
+      (await CoreClient.usersByIds([...ids])).map((user) => [user.id, user]),
+    );
+
+    return rows.map((row) => {
+      // Attribution on an existing record: a deactivated uploader or resolver
+      // keeps their name, but a user of another company is never printed (L-009).
+      const person = (id: number | null) => {
+        const user = id === null ? undefined : people.get(id);
+        return user?.companyId === row.companyId ? user : undefined;
+      };
+      const uploader = person(row.uploadedBy);
+      const resolver = person(row.resolvedBy);
+      return {
+        ...row,
+        uploaderUuid: uploader?.uuid ?? null,
+        uploaderFirstName: uploader?.firstName ?? null,
+        uploaderLastName: uploader?.lastName ?? null,
+        resolverFirstName: resolver?.firstName ?? null,
+        resolverLastName: resolver?.lastName ?? null,
+      };
+    });
   }
 
   /** Explicit id resolution (L-005): never `if (!row.id)` after a stripping mapper. */

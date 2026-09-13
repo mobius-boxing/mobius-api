@@ -1,5 +1,6 @@
 import { db } from "../../database/registry";
 import { ICountdownReminderOutcome } from "../../interfaces/countdown/countdown.interfaces";
+import { CoreClient, displayName } from "../../services/core-client.service";
 
 /** One pending document inside its reminder window, with its computed offset. */
 export interface ICountdownDueDocumentRow {
@@ -15,17 +16,7 @@ export interface ICountdownDueDocumentRow {
   companyId: number;
 }
 
-/** The bits of a `users` row a reminder needs to address an email. */
-export interface ICountdownReminderRecipientRow {
-  id: number;
-  email: string;
-  firstName: string;
-  lastName: string;
-  isActive: boolean;
-  companyId: number;
-}
-
-/** Same shape with the display name already assembled. */
+/** The bits of a `users` row a reminder needs, display name assembled. */
 export interface ICountdownReminderRecipient {
   id: number;
   email: string;
@@ -62,10 +53,11 @@ export class CountdownReminderDAO {
    * offset day landed on a weekend and went quiet forever once a document was
    * late; this cannot.
    *
-   * The module filter mirrors `CompanyModuleDAO.isEnabled` (enabled link + a
-   * subscription state that is not canceled/past_due): a company that stopped
-   * paying must stop receiving mail, and the scheduler is the one code path that
-   * runs without a request — no middleware upstream of it to check that.
+   * The module filter is `CoreClient.companyIdsWithModuleEnabled`, which applies
+   * `CompanyModuleDAO.isEnabled`'s predicate (enabled link + a subscription
+   * state that is not canceled/past_due): a company that stopped paying must
+   * stop receiving mail, and the scheduler is the one code path that runs
+   * without a request — no middleware upstream of it to check that.
    *
    * `today` is bound, never `current_date`: the host sets no session timezone, so
    * the database's day is UTC and would flip three hours before the customer's.
@@ -76,6 +68,10 @@ export class CountdownReminderDAO {
    * service: a recipient is only ever shown documents of their own company.
    */
   async findDue(today: string): Promise<ICountdownDueDocumentRow[]> {
+    const companyIds =
+      await CoreClient.companyIdsWithModuleEnabled("countdown");
+    if (companyIds.length === 0) return [];
+
     const knex = db("countdown");
     const result = await knex.raw<{ rows: ICountdownDueDocumentRow[] }>(
       `select d.id,
@@ -86,17 +82,11 @@ export class CountdownReminderDAO {
               d."uploadedBy",
               d."companyId"
          from countdown_documents d
-         join company_modules cm
-           on cm."companyId" = d."companyId"
-          and cm.enabled = true
-          and cm."subscriptionStatus" not in ('canceled','past_due')
-         join modules m
-           on m.id = cm."moduleId"
-          and m.slug = 'countdown'
-        where d.status = 'pending'
+        where d."companyId" = any(?)
+          and d.status = 'pending'
           and (d."dueDate" - ?::date) <= d."reminderDays"
         order by d."dueDate" asc, d.title asc, d.id asc`,
-      [today, today],
+      [today, [...companyIds], today],
     );
     return result.rows;
   }
@@ -109,19 +99,22 @@ export class CountdownReminderDAO {
     userIds: number[],
   ): Promise<ICountdownReminderRecipient[]> {
     if (userIds.length === 0) return [];
-    // `users` is core's, not countdown's — the end-state key, and what AC-15.4
-    // replaces with `CoreClient.usersByIds` in T2b.
-    const knex = db("core");
-    const rows = await knex<ICountdownReminderRecipientRow>("users")
-      .whereIn("id", userIds)
-      .select("id", "email", "firstName", "lastName", "isActive", "companyId");
-    return rows.map((row) => ({
-      id: row.id,
-      email: row.email,
-      name: [row.firstName, row.lastName].filter(Boolean).join(" ").trim(),
-      isActive: row.isActive,
-      companyId: row.companyId,
-    }));
+    const users = await CoreClient.usersByIds(userIds);
+    // A user with no company can never match a document's company, so the
+    // service would drop them at pairing anyway; leaving them out counts the same.
+    return users.flatMap((user) =>
+      user.companyId === null
+        ? []
+        : [
+            {
+              id: user.id,
+              email: user.email,
+              name: displayName(user),
+              isActive: user.isActive === true,
+              companyId: user.companyId,
+            },
+          ],
+    );
   }
 
   /**
@@ -138,41 +131,20 @@ export class CountdownReminderDAO {
    * are in the set by virtue of being active users; so is the uploader, who is
    * therefore never unioned in separately.
    *
-   * `is distinct from` rather than `<> 'superAdmin'`: `users.role` is
-   * `text NOT NULL` today, so the two agree right now — but `<>` answers NULL,
-   * not true, for a null role, and would therefore drop exactly the role-less
-   * plain members this fallback exists for the day the column is relaxed. The
-   * null-safe form costs nothing and cannot rot that way.
-   *
-   * One query for the whole batch, keyed by the distinct companyIds that
-   * actually need a fallback (D-7) — a query per document would be hundreds of
-   * round trips on a busy morning. Company-scoped by argument (L-009): the
-   * scheduler has no request scope to inherit, and the pairing loop's
-   * `recipient.companyId === row.companyId` check remains the second belt.
-   *
-   * `users` is core's, not countdown's — the same seam `findRecipients` reads,
-   * and the same one AC-15.4 replaces with `CoreClient.usersByIds` in T2b.
+   * One query for the whole batch (`CoreClient.activeUserIdsByCompanies`, which
+   * owns the null-safe superAdmin predicate), keyed by the distinct companyIds
+   * that actually need a fallback (D-7) — a query per document would be
+   * hundreds of round trips on a busy morning. Company-scoped by argument
+   * (L-009): the scheduler has no request scope to inherit, and the pairing
+   * loop's `recipient.companyId === row.companyId` check remains the second belt.
    */
   async findCompanyRecipientIds(
     companyIds: number[],
   ): Promise<Map<number, number[]>> {
-    const byCompany = new Map<number, number[]>();
-    if (companyIds.length === 0) return byCompany;
-
-    const knex = db("core");
-    const rows = await knex<{ id: number; companyId: number }>("users")
-      .whereIn("companyId", companyIds)
-      .where("isActive", true)
-      .whereRaw(`"role" is distinct from ?`, ["superAdmin"])
-      .select("id", "companyId")
-      .orderBy("id");
-
-    for (const row of rows) {
-      const ids = byCompany.get(row.companyId) ?? [];
-      ids.push(row.id);
-      byCompany.set(row.companyId, ids);
-    }
-    return byCompany;
+    const byCompany = await CoreClient.activeUserIdsByCompanies(companyIds);
+    return new Map(
+      [...byCompany].map(([companyId, ids]) => [companyId, [...ids]]),
+    );
   }
 
   /** Who has already had their digest for this send day. */
