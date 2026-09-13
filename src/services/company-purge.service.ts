@@ -123,12 +123,43 @@ export type CompanyPurgeResult = {
 export const purgeTargets = (): DbKey[] => {
   const representatives = new Map<string, DbKey>();
   for (const key of DB_KEYS) {
-    const { host, port, database } = connectionFor(key);
-    const physical = `${host ?? ""}:${port}/${database}`;
+    const physical = physicalDatabaseOf(key);
     if (!representatives.has(physical)) representatives.set(physical, key);
   }
   return [...representatives.values()];
 };
+
+const physicalDatabaseOf = (key: DbKey): string => {
+  const { host, port, database } = connectionFor(key);
+  return `${host ?? ""}:${port}/${database}`;
+};
+
+/**
+ * The node-files tables carry `companyId` with no foreign key to `companies`,
+ * so the cascade never reaches them and they are deleted explicitly
+ * (db-per-company T0, finding F-1). Children before parents, so the order is
+ * safe whatever each foreign key's delete rule is (`nf_runs.workflowId` is
+ * RESTRICT); `__tests__/db/company-purge.db.test.ts` checks it against
+ * `pg_constraint`.
+ */
+export const NODE_FILES_PURGE_ORDER = [
+  "nf_node_runs",
+  "nf_runs",
+  "nf_documents",
+  "nf_workflow_credentials",
+  "nf_workflows",
+  "nf_credentials",
+] as const;
+
+/**
+ * Every table whose company rows no `ON DELETE CASCADE` from `companies`
+ * removes, because this routine deletes them itself. The P scripts refuse a
+ * database holding any other such table.
+ */
+export const EXPLICITLY_PURGED_TABLES: readonly string[] = [
+  "audit_logs",
+  ...NODE_FILES_PURGE_ORDER,
+];
 
 /** `is_local = true` — see the "two settings" note above. Never `false`. */
 const MAINTENANCE_ON =
@@ -138,8 +169,9 @@ const SKIP_ON = "select set_config('mobius.audit_skip', 'on', true)";
 /**
  * Remove a company: its audit trail first (explicitly — `audit_logs."companyId"`
  * carries NO foreign key under ruling R-B, so nothing cascades it away), then
- * the company row itself, whose existing `ON DELETE CASCADE`s take the tenant's
- * business data with it.
+ * its node-files rows (explicitly, for the same reason — see
+ * `NODE_FILES_PURGE_ORDER`), then the company row itself, whose existing
+ * `ON DELETE CASCADE`s take the tenant's business data with it.
  *
  * @param companyId internal numeric id (`CompanyDAO.getIdByUuid` / `.getByUuid`)
  */
@@ -158,6 +190,20 @@ export async function purgeCompany(
       ledgerRowsDeleted += await trx("audit_logs")
         .where({ companyId })
         .delete();
+
+      if (physicalDatabaseOf(key) === physicalDatabaseOf("nodefiles")) {
+        for (const table of NODE_FILES_PURGE_ORDER) {
+          // Raw, because this transaction is guarded as `key` — `core` while
+          // node-files shares its database — and the wrong-database guard
+          // rejects a nodefiles-owned table name there. A second transaction on
+          // `db("nodefiles")` is not an option: see "One transaction per
+          // physical DATABASE" above.
+          await trx.raw('delete from ?? where "companyId" = ?', [
+            table,
+            companyId,
+          ]);
+        }
+      }
 
       // `companies` lives in core, and `core` is always a target (see
       // `purgeTargets`), so this branch always runs exactly once.

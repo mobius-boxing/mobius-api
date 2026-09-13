@@ -80,9 +80,17 @@ jest.mock("../../../database/registry", () => ({
 }));
 
 import {
+  NODE_FILES_PURGE_ORDER,
   purgeCompany,
   purgeTargets,
 } from "../../../services/company-purge.service";
+
+const NODE_FILES_DELETE_SQL = 'delete from ?? where "companyId" = ?';
+
+/** The node-files deletes, as `sequenceOf` renders them, children first. */
+const NODE_FILES_DELETES = NODE_FILES_PURGE_ORDER.map(
+  (table) => `raw ${NODE_FILES_DELETE_SQL} [${table},${COMPANY_ID}]`,
+);
 
 /** Make one key's mock trace itself into the shared ordered log. */
 const traced = (key, mock) => {
@@ -99,8 +107,8 @@ const traced = (key, mock) => {
     return builder;
   });
 
-  facade.raw = jest.fn((sql) => {
-    log.push({ key, op: "raw", sql });
+  facade.raw = jest.fn((sql, bindings) => {
+    log.push({ key, op: "raw", sql, bindings });
     return sql;
   });
 
@@ -125,7 +133,9 @@ const sequenceOf = (key) =>
     .filter((entry) => entry.key === key)
     .map((entry) =>
       entry.op === "raw"
-        ? `raw ${entry.sql}`
+        ? entry.bindings
+          ? `raw ${entry.sql} [${entry.bindings.join(",")}]`
+          : `raw ${entry.sql}`
         : entry.op === "delete"
           ? `delete ${entry.table}`
           : entry.op,
@@ -250,6 +260,7 @@ describe("purgeCompany — maintenance mode and statement order", () => {
       `raw ${MAINTENANCE_SQL}`,
       `raw ${SKIP_SQL}`,
       "delete audit_logs",
+      ...NODE_FILES_DELETES,
       "delete companies",
       "commit",
     ]);
@@ -266,6 +277,7 @@ describe("purgeCompany — maintenance mode and statement order", () => {
         `raw ${MAINTENANCE_SQL}`,
         `raw ${SKIP_SQL}`,
         "delete audit_logs",
+        ...(key === "nodefiles" ? NODE_FILES_DELETES : []),
         "commit",
       ]);
     }
@@ -276,7 +288,11 @@ describe("purgeCompany — maintenance mode and statement order", () => {
 
     await purgeCompany(COMPANY_ID);
 
-    const settings = log.filter((entry) => entry.op === "raw");
+    const raws = log.filter((entry) => entry.op === "raw");
+    const settings = raws.filter((entry) => entry.sql !== NODE_FILES_DELETE_SQL);
+    // Every raw statement is a setting or a node-files delete — nothing else
+    // may slip past the pattern below by not being counted as a setting.
+    expect(raws.length - settings.length).toBe(NODE_FILES_PURGE_ORDER.length);
     expect(settings).toHaveLength(DB_KEYS.length * 2);
     for (const entry of settings) {
       // The third argument of set_config is `is_local`. `false` would leave
@@ -381,6 +397,47 @@ describe("purgeCompany — what it deletes", () => {
   });
 });
 
+describe("purgeCompany — node-files rows (no FK to companies, F-1)", () => {
+  const nodeFilesDeletesBy = (key) =>
+    log.filter(
+      (entry) =>
+        entry.key === key &&
+        entry.op === "raw" &&
+        entry.sql === NODE_FILES_DELETE_SQL,
+    );
+
+  it("deletes every node-files table once, children first, scoped to the company", async () => {
+    await purgeCompany(COMPANY_ID);
+
+    expect(nodeFilesDeletesBy("core").map((e) => e.bindings)).toStrictEqual(
+      NODE_FILES_PURGE_ORDER.map((table) => [table, COMPANY_ID]),
+    );
+  });
+
+  it("deletes them before the company row, inside the same transaction as the settings", async () => {
+    await purgeCompany(COMPANY_ID);
+
+    const core = sequenceOf("core");
+    const first = core.indexOf(NODE_FILES_DELETES[0]);
+    const last = core.indexOf(NODE_FILES_DELETES[NODE_FILES_DELETES.length - 1]);
+    expect(core.indexOf(`raw ${SKIP_SQL}`)).toBeLessThan(first);
+    expect(last).toBeLessThan(core.indexOf("delete companies"));
+    expect(core[core.length - 1]).toBe("commit");
+  });
+
+  it("deletes them on node-files' own database once it has one, and nowhere else", async () => {
+    givenOneDatabasePerKey();
+
+    await purgeCompany(COMPANY_ID);
+
+    for (const key of DB_KEYS) {
+      expect(nodeFilesDeletesBy(key)).toHaveLength(
+        key === "nodefiles" ? NODE_FILES_PURGE_ORDER.length : 0,
+      );
+    }
+  });
+});
+
 describe("purgeCompany — failure", () => {
   it("rolls the transaction back when the company delete fails", async () => {
     const boom = new Error("deadlock detected");
@@ -405,6 +462,7 @@ describe("purgeCompany — failure", () => {
       `raw ${MAINTENANCE_SQL}`,
       `raw ${SKIP_SQL}`,
       "delete audit_logs",
+      ...NODE_FILES_DELETES,
       "delete companies",
       "rollback",
     ]);
