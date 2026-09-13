@@ -36,6 +36,16 @@ jest.mock("../../../database/registry", () => ({
   db: () => mockKnex,
 }));
 
+/** Core's users, as `CoreClient.usersByIds` would answer for the asked ids. */
+let mockCoreUsers = [];
+jest.mock("../../../services/core-client.service", () => ({
+  ...jest.requireActual("../../../services/core-client.service"),
+  CoreClient: {
+    usersByIds: async (ids) =>
+      mockCoreUsers.filter((user) => ids.includes(user.id)),
+  },
+}));
+
 import { CountdownGroupDAO } from "../../../dao/countdown/countdown-group.dao";
 
 const MEMBERS = "countdown_group_members";
@@ -51,9 +61,71 @@ const stored = (...userIds) => userIds.map((userId) => ({ userId }));
 beforeEach(() => {
   mock = createTableAwareKnexMock();
   mockKnex = mock.knexMock;
+  mockCoreUsers = [];
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+describe("CountdownGroupDAO.list — members are active users of the group's company (L-009)", () => {
+  const COMPANY_ID = 7;
+  const person = (id, overrides = {}) => ({
+    id,
+    uuid: `user-${id}`,
+    email: `user${id}@example.com`,
+    firstName: `First${id}`,
+    lastName: `Last${id}`,
+    isActive: true,
+    companyId: COMPANY_ID,
+    role: "member",
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    mock.fixture("countdown_groups").rows = [
+      {
+        id: GROUP_ID,
+        uuid: "group-uuid",
+        companyId: COMPANY_ID,
+        name: "Pagos",
+      },
+    ];
+    mock.fixture(MEMBERS).rows = [
+      { groupId: GROUP_ID, userId: 10 },
+      { groupId: GROUP_ID, userId: 11 },
+      { groupId: GROUP_ID, userId: 12 },
+    ];
+  });
+
+  it("lists an active member of the same company", async () => {
+    mockCoreUsers = [person(10)];
+
+    const [group] = await new CountdownGroupDAO().list(COMPANY_ID);
+
+    expect(group.members).toStrictEqual([
+      { uuid: "user-10", name: "First10 Last10" },
+    ]);
+  });
+
+  it("leaves out a deactivated member", async () => {
+    mockCoreUsers = [person(10), person(11, { isActive: false })];
+
+    const [group] = await new CountdownGroupDAO().list(COMPANY_ID);
+
+    expect(group.members.map((member) => member.uuid)).toStrictEqual([
+      "user-10",
+    ]);
+  });
+
+  it("leaves out a member who belongs to another company", async () => {
+    mockCoreUsers = [person(10), person(12, { companyId: 9 })];
+
+    const [group] = await new CountdownGroupDAO().list(COMPANY_ID);
+
+    expect(group.members.map((member) => member.uuid)).toStrictEqual([
+      "user-10",
+    ]);
+  });
+});
 
 describe("CountdownGroupDAO.setMembers — unchanged sets write nothing (AC-3)", () => {
   it("issues zero INSERT, UPDATE and DELETE when the member set is identical", async () => {

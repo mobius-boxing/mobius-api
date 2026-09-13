@@ -12,6 +12,7 @@ import {
   BaseCrudOptions,
 } from "../base/base-crud.controller";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
+import { type CompanyScope } from "../../utils/daoScope";
 import { ICorrugationLayer } from "../../interfaces/corrugation/corrugation.interfaces";
 
 export class CorrugationController extends BaseCrudController<ICorrugation> {
@@ -44,6 +45,7 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
         }>
       | undefined,
     res: Response,
+    companyScope: CompanyScope | undefined,
   ): Promise<ICorrugationLayer[] | null | undefined> {
     if (layers === undefined) return undefined;
 
@@ -56,7 +58,7 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
     const resolved: ICorrugationLayer[] = [];
     for (const [index, layer] of ordered.entries()) {
       const paperClassId = layer.paperClassUuid
-        ? await getIdByUuid(layer.paperClassUuid, "paper_classes")
+        ? await getIdByUuid(layer.paperClassUuid, "paper_classes", companyScope)
         : null;
       if (layer.paperClassUuid && !paperClassId) {
         res.status(400).json({
@@ -66,7 +68,7 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
         return null;
       }
       const fluteTypeId = layer.fluteTypeUuid
-        ? await getIdByUuid(layer.fluteTypeUuid, "flute_types")
+        ? await getIdByUuid(layer.fluteTypeUuid, "flute_types", companyScope)
         : null;
       if (layer.fluteTypeUuid && !fluteTypeId) {
         res.status(400).json({
@@ -118,14 +120,16 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
 
   protected async beforeCreate(
     inputDTO: any,
-    _req: Request,
+    req: Request,
     res: Response,
   ): Promise<any | null> {
+    const companyScope = this.referenceScope(req);
     // SECURITY: resolve client-supplied UUID to internal numeric ID before storing.
     let corrugationClassId: number | undefined;
     if (inputDTO.corrugationClassUuid) {
       const classId = await this._corrugationClassDAO.getIdByUuid(
         inputDTO.corrugationClassUuid,
+        companyScope,
       );
       if (!classId) {
         res.status(400).json({
@@ -137,7 +141,7 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
       corrugationClassId = classId;
     }
 
-    const layers = await this.resolveLayers(inputDTO.layers, res);
+    const layers = await this.resolveLayers(inputDTO.layers, res, companyScope);
     if (layers === null) return null;
 
     return {
@@ -154,20 +158,22 @@ export class CorrugationController extends BaseCrudController<ICorrugation> {
   protected async beforeUpdate(
     inputDTO: any,
     _existingId: number,
-    _req: Request,
+    req: Request,
     res: Response,
   ): Promise<any | null> {
+    const companyScope = this.referenceScope(req);
     const updateData: any = { ...inputDTO };
     delete updateData.corrugationClassUuid;
     delete updateData.layers;
 
-    const layers = await this.resolveLayers(inputDTO.layers, res);
+    const layers = await this.resolveLayers(inputDTO.layers, res, companyScope);
     if (layers === null) return null;
     if (layers !== undefined) updateData.layers = layers;
 
     if (inputDTO.corrugationClassUuid) {
       const corrugationClassId = await this._corrugationClassDAO.getIdByUuid(
         inputDTO.corrugationClassUuid,
+        companyScope,
       );
       if (!corrugationClassId) {
         res.status(400).json({

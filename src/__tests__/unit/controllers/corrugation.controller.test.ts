@@ -96,11 +96,18 @@ jest.mock("@sundaysf/utils", () => ({
 // Export mock functions for access in the mock
 export { mockCorrugationDAO, mockCorrugationClassDAO };
 
-// Company injection (base-crud) resolves the caller's company via the
-// shared foreignKeyResolver — stub it so create paths get companyId 1.
+// Layer lookups (paper class, flute type) go through the shared
+// foreignKeyResolver — stub it so they resolve to 1.
 jest.mock("../../../utils/foreignKeyResolver", () => ({
   ...jest.requireActual("../../../utils/foreignKeyResolver"),
   getIdByUuid: jest.fn().mockResolvedValue(1),
+}));
+
+// Company injection (base-crud) resolves the caller's company through
+// CoreClient — stub it so create paths get companyId 1.
+jest.mock("../../../services/core-client.service", () => ({
+  ...jest.requireActual("../../../services/core-client.service"),
+  CoreClient: { companyIdByUuid: async () => 1 },
 }));
 
 // Import controller after mocking
@@ -223,12 +230,14 @@ describe("CorrugationController", () => {
 
       const mockReq = createBodyRequest(inputData, {
         user: { role: "admin", companyId: "company-uuid" },
+        companyId: 7,
       } as any) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
       expect(mockCorrugationClassDAO.getIdByUuid).toHaveBeenCalledWith(
         "11111111-1111-4111-8111-111111111111",
+        7,
       );
       expect(mockCorrugationDAO.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -348,12 +357,15 @@ describe("CorrugationController", () => {
       const mockReq = {
         ...createUuidParamRequest(testUuid),
         body: updateData,
+        user: { role: "admin", companyId: "company-uuid" },
+        companyId: 7,
       } as Request;
 
       await controller.update(mockReq, mockRes as Response, mockNext);
 
       expect(mockCorrugationClassDAO.getIdByUuid).toHaveBeenCalledWith(
         "33333333-3333-4333-8333-333333333333",
+        7,
       );
       expect(mockCorrugationDAO.update).toHaveBeenCalledWith(
         existingId,
@@ -384,7 +396,10 @@ describe("CorrugationController", () => {
 
       const mockReq = {
         ...createUuidParamRequest("existing-uuid"),
-        body: { code: "UPDATED", corrugationClassUuid: "44444444-4444-4444-8444-444444444444" },
+        body: {
+          code: "UPDATED",
+          corrugationClassUuid: "44444444-4444-4444-8444-444444444444",
+        },
       } as Request;
 
       await controller.update(mockReq, mockRes as Response, mockNext);
@@ -463,13 +478,17 @@ describe("CorrugationController", () => {
 
       const mockReq = createBodyRequest(
         { code: "NEW001", corrugationClassUuid: classUuid },
-        { user: { role: "admin", companyId: "company-uuid" } } as any,
+        {
+          user: { role: "admin", companyId: "company-uuid" },
+          companyId: 7,
+        } as any,
       ) as Request;
 
       await controller.create(mockReq, mockRes as Response, mockNext);
 
       expect(mockCorrugationClassDAO.getIdByUuid).toHaveBeenCalledWith(
         classUuid,
+        7,
       );
       expect(mockCorrugationDAO.create).toHaveBeenCalledWith(
         expect.objectContaining({ corrugationClassId: classId }),

@@ -3,7 +3,7 @@ import { setAuditAction } from "../../database/audit-context";
 import { IBaseController } from "../../types.d";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { ProductDAO } from "../../dao/product/product.dao";
-import { CompanyDAO } from "../../dao/company/company.dao";
+import { CoreClient } from "../../services/core-client.service";
 import { CustomerDAO } from "../../dao/customer/customer.dao";
 import { ProductTypeDAO } from "../../dao/product-type/product-type.dao";
 import { BoxTypeDAO } from "../../dao/box-type/box-type.dao";
@@ -134,10 +134,9 @@ export class ProductController implements IBaseController {
           });
           return;
         }
-        const companyDAO = new CompanyDAO();
         const numericId =
           typeof data.companyId === "string"
-            ? await companyDAO.getIdByUuid(data.companyId)
+            ? await CoreClient.companyIdByUuid(data.companyId)
             : data.companyId;
         if (!numericId) {
           res.status(400).json({
@@ -156,8 +155,7 @@ export class ProductController implements IBaseController {
           });
           return;
         }
-        const companyDAO = new CompanyDAO();
-        const numericId = await companyDAO.getIdByUuid(user.companyId);
+        const numericId = await CoreClient.companyIdByUuid(user.companyId);
         if (!numericId) {
           res.status(400).json({
             success: false,

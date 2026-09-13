@@ -133,20 +133,15 @@ describe("AC-56 — the registry is the only door", () => {
    * lookup. Before adding an entry, read the SQL, not the file name.
    */
   const MOVES_TO_CORE_CLIENT_IN_T2B = [
-    // → CoreClient.companyIdByUuid (AC-19). Each holds one `companies` query
-    // and no other SQL, so each stops importing the registry entirely in T2b.
-    "controllers/box-type/box-type.controller.ts",
-    "controllers/color-type/color-type.controller.ts",
-    "controllers/color/color.controller.ts",
+    // What T2 left in this block (db-per-company D-101): the ten lookup
+    // controllers now resolve through CoreClient and hold no connection. These
+    // three are central controllers (AC-10's CENTRAL_PATHS) whose own SQL reads
+    // the central plane directly, so they have no CoreClient method to move to.
+    // `getStats`: company, active-company and user counts over `companies`/`users`.
     "controllers/companies/companies.controller.ts",
-    "controllers/complement/complement.controller.ts",
-    "controllers/flap-type/flap-type.controller.ts",
-    "controllers/fsc-type/fsc-type.controller.ts",
-    "controllers/glue-type/glue-type.controller.ts",
+    // `getStats`: invitation counts by status over `invitations`.
     "controllers/invitations/invitations.controller.ts",
-    "controllers/product-type/product-type.controller.ts",
-    "controllers/strapping-type/strapping-type.controller.ts",
-    "controllers/trace-type/trace-type.controller.ts",
+    // `getStats`: user counts by role plus recent `invitations`, company-scoped.
     "controllers/users/users.controller.ts",
   ];
 
@@ -182,6 +177,9 @@ describe("AC-56 — the registry is the only door", () => {
     // this check is import-based. (It was invisible to the previous, `../`-
     // anchored matcher — a top-level file imports `./database/registry`.)
     "server.ts",
+    // The door itself (db-per-company T2): every read module code makes of
+    // `companies`/`users`/`company_modules`/`modules` is a query here.
+    "services/core-client.service.ts",
   ];
 
   const NON_DAO_CONNECTION_HOLDERS = [
@@ -215,8 +213,8 @@ describe("AC-56 — the registry is the only door", () => {
   });
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
-    expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(13);
-    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(10);
+    expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(3);
+    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(11);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(
       NON_DAO_CONNECTION_HOLDERS.length,
@@ -236,5 +234,118 @@ describe("AC-7 (db-per-company T1) — company scoping is a local predicate", ()
 
   it("scopes by the company column without joining companies", () => {
     expect(read("utils/daoScope.ts")).not.toMatch(/join\(\s*"companies"/);
+  });
+});
+
+describe("AC-10 (db-per-company T2) — central tables are read only by the central plane", () => {
+  const CENTRAL_TABLE =
+    "(?:companies|users|roles|permissions|role_permissions|company_modules|modules|invitations|emailTokens)";
+
+  /**
+   * A call whose FIRST string argument is a central table, alias included:
+   * `knex("users as u")`, `.leftJoin("users u", …)`, `db("core")("companies")`,
+   * each with or without a type argument (`knex<IRow>("users")`). The join
+   * family (`join`/`leftJoin`/`from`/`into`/`table`…) is the same shape with a
+   * method name, so one pattern covers both. A table passed as the resolver's
+   * SECOND argument (`getIdByUuid(uuid, "companies")`) cannot match: the
+   * resolver routes those through CoreClient (AC-11).
+   */
+  const TABLE_CALL = new RegExp(
+    `(?:\\b\\w+|\\))(?:<[^()]*>)?\\s*\\(\\s*["'\`]${CENTRAL_TABLE}(?:\\s+(?:as\\s+)?\\w+)?["'\`]`,
+  );
+  /** A constant whose value is exactly the table: `const USERS_TABLE = "users"`. */
+  const TABLE_CONSTANT = new RegExp(`=\\s*["'\`]${CENTRAL_TABLE}["'\`]`);
+  /** Raw SQL inside a string literal: `knex.raw("… join users u …")`. */
+  const RAW_SQL = new RegExp(
+    `\\b(?:from|join)\\s+"?${CENTRAL_TABLE}"?\\b`,
+    "i",
+  );
+  const STRING_LITERAL = /(["'`])(?:\\.|(?!\1)[\s\S])*\1/g;
+
+  // Prose mentions a table in backticks all the time; only code counts.
+  const withoutComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  const readsCentralTable = (source: string): boolean => {
+    const code = withoutComments(source);
+    return (
+      TABLE_CALL.test(code) ||
+      TABLE_CONSTANT.test(code) ||
+      (code.match(STRING_LITERAL) ?? []).some((literal) =>
+        RAW_SQL.test(literal),
+      )
+    );
+  };
+
+  const CENTRAL_PATHS: readonly RegExp[] = [
+    /^dao\/(company|user|company-module|invitation|role|permission|module|email-token)\//,
+    /^services\/(core-client|rbac|auth[^/]*|company-purge)\.service\.ts$/,
+    /^middlewares\/(auth|audit-context)\.middleware\.ts$/,
+    /^controllers\/(auth|companies|users|invitations|modules|public)\//,
+    /^database\//,
+  ];
+
+  /** Permanent: each reason is why this file may never go through CoreClient. */
+  const CORE_TABLE_READER_EXEMPTIONS: readonly string[] = [
+    // P code (T0, D-74): reads the monolith whole at state P — the snapshot and
+    // gate compare every table, `users` included, before any plane exists.
+    "services/purge-snapshot.service.ts",
+    // P script (T0, D-74): its refusal message names the `companies` cascade it
+    // checks, which is the raw-SQL shape; it reads the monolith at state P.
+    "scripts/purge-companies.ts",
+    // Developer smoke script, never imported by the app: it seeds and removes
+    // its own company, role and users directly.
+    "scripts/review-fix-smoke.ts",
+  ];
+
+  const isCentral = (file: string): boolean =>
+    CENTRAL_PATHS.some((pattern) => pattern.test(file));
+
+  it("finds central-table access only in CENTRAL_PATHS or the exemptions", () => {
+    const offenders = matching(
+      (contents, file) =>
+        !file.startsWith("__tests__/") &&
+        !isCentral(file) &&
+        !CORE_TABLE_READER_EXEMPTIONS.includes(file) &&
+        readsCentralTable(contents),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("has no stale exemption", () => {
+    const stale = CORE_TABLE_READER_EXEMPTIONS.filter(
+      (file) =>
+        !fs.existsSync(path.join(SRC, file)) || !readsCentralTable(read(file)),
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it("recognises every access shape, and nothing the resolver routes", () => {
+    const hits = [
+      `knex("users")`,
+      `db("core")("companies")`,
+      `.leftJoin("users as u", "u.id", "d.userId")`,
+      `.join("company_modules cm", "cm.moduleId", "m.id")`,
+      `.from('roles')`,
+      "trx(`emailTokens`)",
+      `const USERS_TABLE = "users";`,
+      `knex<{ id: number }>("users")`,
+      `db("core")<ICompanyRow>("companies as c")`,
+      `knex.raw("select id from users where uuid = ?")`,
+      'knex.raw(`select d.id from countdown_documents d join users u on u.id = d."uploadedBy"`)',
+      `knex.raw('select 1 from "company_modules" cm')`,
+    ];
+    const misses = [
+      `getIdByUuid(uuid, "companies")`,
+      `resolveUuidToId(value, { tableName: "users" })`,
+      `.where("users.companyId", 7)`,
+      `knex("users_archive")`,
+      `// knex("users")`,
+      `import { UserDAO } from "../dao/users";`,
+      `knex.raw("select id from users_archive")`,
+      `const message = "join us from the dashboard";`,
+    ];
+    expect(hits.filter((line) => !readsCentralTable(line))).toEqual([]);
+    expect(misses.filter(readsCentralTable)).toEqual([]);
   });
 });

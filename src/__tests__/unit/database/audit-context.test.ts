@@ -17,7 +17,7 @@
  * - `auditSettingJson`'s key set is a contract with P2's trigger.
  */
 import { jest, describe, it, expect, beforeEach } from "@jest/globals";
-import type { Request } from "express";
+import type { NextFunction, Request, Response } from "express";
 import type { Knex } from "knex";
 
 /**
@@ -35,18 +35,59 @@ const mockIds: Record<string, number> = {};
 
 const mockCurrentState = (): unknown => getAuditState();
 
-// `companyScope` is deliberately NOT mocked: the superAdmin operating-as case
-// is the reason the effective company exists (L-009), and a stub would assert
-// nothing about it. `foreignKeyResolver` is mocked because it imports the
-// registry, which owns real pools.
-jest.mock("../../../utils/foreignKeyResolver", () => ({
-  __esModule: true,
-  getIdByUuid: async (
-    uuid: string | null | undefined,
-    table: string,
-  ): Promise<number | null> => {
-    mockLookupCalls.push({ uuid, table, state: mockCurrentState() });
-    return mockIds[`${table}:${uuid}`] ?? null;
+/** Set by a test to make every CoreClient lookup throw it. */
+let mockCoreFailure: Error | null = null;
+
+// The effective company is `req.companyId`, which `resolveTenantContext` sets
+// with companyScope precedence (pinned in tenant-context.middleware.test.ts), so
+// requests here carry it the way T1 leaves them. `core-client` is mocked
+// because it imports the registry, which owns real pools.
+jest.mock("../../../services/core-client.service", () => {
+  class CoreUnavailableError extends Error {
+    readonly cause: unknown;
+
+    constructor(cause: unknown) {
+      super("Core database unavailable");
+      this.name = "CoreUnavailableError";
+      this.cause = cause;
+    }
+  }
+  const lookup =
+    (table: string) =>
+    async (uuid: string): Promise<number | null> => {
+      mockLookupCalls.push({ uuid, table, state: mockCurrentState() });
+      if (mockCoreFailure) throw mockCoreFailure;
+      return mockIds[`${table}:${uuid}`] ?? null;
+    };
+  return {
+    __esModule: true,
+    CoreUnavailableError,
+    CoreClient: {
+      userIdByUuid: lookup("users"),
+      companyIdByUuid: lookup("companies"),
+    },
+  };
+});
+
+// `authenticate` drives the fail-closed case end to end; its own collaborators
+// (token, user row, tenant resolution) are not what is under test.
+jest.mock("jsonwebtoken", () => ({
+  verify: () => ({
+    userId: "11111111-1111-4111-8111-111111111111",
+    email: "root@example.com",
+    role: "superAdmin",
+    companyId: "22222222-2222-4222-8222-222222222222",
+  }),
+}));
+jest.mock("../../../dao", () => ({
+  UserDAO: function UserDAO() {
+    return { getByUuid: async () => ({ isActive: true }) };
+  },
+}));
+jest.mock("../../../middlewares/tenant-context.middleware", () => ({
+  resolveTenantContext: async (req: { companyId?: number }) => {
+    req.companyId = 9;
+    return true;
   },
 }));
 
@@ -66,6 +107,10 @@ import {
   type AuditRequestState,
 } from "../../../database/audit-context";
 import { DbKey } from "../../../database/keys";
+import { authenticate } from "../../../middlewares/auth.middleware";
+import { errorMiddleware } from "../../../middlewares/error/error.middleware";
+import { CoreUnavailableError } from "../../../services/core-client.service";
+import { createMockResponse } from "../../mocks/express.mock";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-9][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -83,6 +128,9 @@ type FakeRequestInit = {
   /** `undefined` ⇒ no `req.route`, as in app-level middleware. */
   routePath?: string;
   user?: Request["user"];
+  /** What `resolveTenantContext` set before `armAudit` runs. */
+  companyId?: number;
+  headers?: Record<string, string>;
   query?: Record<string, string>;
   body?: Record<string, string>;
 };
@@ -99,6 +147,8 @@ const fakeRequest = (init: FakeRequestInit = {}): Request =>
     path: init.path ?? "/",
     route: init.routePath === undefined ? undefined : { path: init.routePath },
     user: init.user,
+    companyId: init.companyId,
+    headers: init.headers ?? {},
     query: init.query ?? {},
     body: init.body ?? {},
     get: (name: string): string | undefined =>
@@ -406,6 +456,51 @@ describe("withoutAudit", () => {
   });
 });
 
+describe("AC-12 (db-per-company T2) — a core outage fails a mutating request closed", () => {
+  beforeEach(() => {
+    mockCoreFailure = null;
+    process.env.JWT_SECRET = "audit-context-test-secret";
+  });
+
+  afterEach(() => {
+    mockCoreFailure = null;
+  });
+
+  it("answers 503 through the error middleware before the handler, with nothing armed", async () => {
+    mockCoreFailure = new CoreUnavailableError(
+      new Error("connect ECONNREFUSED"),
+    );
+    const req = fakeRequest({
+      method: "POST",
+      baseUrl: "/api/customers",
+      routePath: "/",
+      headers: { authorization: "Bearer token" },
+    });
+    const res = createMockResponse() as Response;
+    const next = jest.fn();
+
+    await runInContext(req, async (state) => {
+      await authenticate(req, res, next as unknown as NextFunction);
+
+      expect(state.armed).toBe(false);
+      expect(state.actor).toBeNull();
+    });
+
+    // The handler is whatever `next()` with no argument would reach.
+    expect(next).toHaveBeenCalledTimes(1);
+    const [error] = next.mock.calls[0] ?? [];
+    expect(error).toBeInstanceOf(CoreUnavailableError);
+
+    const errorRes = createMockResponse() as Response;
+    errorMiddleware(error, req, errorRes, jest.fn() as unknown as NextFunction);
+    expect(errorRes.status).toHaveBeenCalledWith(503);
+    expect(errorRes.json).toHaveBeenCalledWith({
+      success: false,
+      message: "Core database unavailable",
+    });
+  });
+});
+
 describe("AC-2 — armAudit", () => {
   const superAdmin: Request["user"] = {
     userId: USER_UUID,
@@ -444,7 +539,6 @@ describe("AC-2 — armAudit", () => {
   it("resolves the actor's uuids to numbers, effective company included", async () => {
     mockIds[`users:${USER_UUID}`] = 42;
     mockIds[`companies:${ACTOR_COMPANY_UUID}`] = 7;
-    mockIds[`companies:${TARGET_COMPANY_UUID}`] = 9;
     const req = fakeRequest({
       method: "PUT",
       baseUrl: "/api/customers",
@@ -453,6 +547,7 @@ describe("AC-2 — armAudit", () => {
       // A superAdmin operating as another tenant: the effective company comes
       // from the request, the actor's own from the token (L-009).
       query: { companyId: TARGET_COMPANY_UUID },
+      companyId: 9,
     });
 
     await runInContext(req, async (state) => {
@@ -470,11 +565,12 @@ describe("AC-2 — armAudit", () => {
     });
   });
 
-  it("asks for exactly three ids, on the tables that own them", async () => {
+  it("asks core for exactly two ids — the effective company is never looked up again", async () => {
     const req = fakeRequest({
       method: "POST",
       user: superAdmin,
       query: { companyId: TARGET_COMPANY_UUID },
+      companyId: 9,
     });
 
     await runInContext(req, async () => {
@@ -485,7 +581,6 @@ describe("AC-2 — armAudit", () => {
       [
         { uuid: USER_UUID, table: "users" },
         { uuid: ACTOR_COMPANY_UUID, table: "companies" },
-        { uuid: TARGET_COMPANY_UUID, table: "companies" },
       ],
     );
   });
@@ -495,15 +590,15 @@ describe("AC-2 — armAudit", () => {
       method: "POST",
       user: superAdmin,
       query: { companyId: TARGET_COMPANY_UUID },
+      companyId: 9,
     });
 
     await runInContext(req, async () => {
       await armAudit(req);
     });
 
-    expect(mockLookupCalls).toHaveLength(3);
+    expect(mockLookupCalls).toHaveLength(2);
     expect(mockLookupCalls.map((call) => call.state)).toEqual([
-      undefined,
       undefined,
       undefined,
     ]);
@@ -522,6 +617,7 @@ describe("AC-2 — armAudit", () => {
       },
       // Ignored: a member may not target another tenant.
       query: { companyId: TARGET_COMPANY_UUID },
+      companyId: 7,
     });
 
     await runInContext(req, async (state) => {

@@ -18,7 +18,7 @@ import {
   ProductionRouteUpdateInputDTO,
   IStageInput,
 } from "../../dto/input/production-route";
-import { getIdByUuid } from "../../utils/foreignKeyResolver";
+import { CoreClient } from "../../services/core-client.service";
 import { getCompanyForCreate } from "../../utils/companyScope";
 import { companyFilterScope } from "../../utils/daoScope";
 
@@ -194,7 +194,7 @@ export class ProductionRouteController {
         res.status(400).json({ success: false, message: company.message });
         return;
       }
-      const companyId = await getIdByUuid(company.companyUuid, "companies");
+      const companyId = await CoreClient.companyIdByUuid(company.companyUuid);
       if (!companyId) {
         res.status(400).json({ success: false, message: "Company not found" });
         return;

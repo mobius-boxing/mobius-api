@@ -1,5 +1,6 @@
 import { NextFunction, Response, Request } from "express";
 import { ValidationError } from "../../dto/input/shared/ValidationError";
+import { CoreUnavailableError } from "../../services/core-client.service";
 
 // SECURITY (M2): verbose error detail is gated on an EXPLICIT opt-in flag, not on NODE_ENV.
 // When off (the default), responses are generic and never leak DB column/constraint names,
@@ -28,6 +29,13 @@ export const errorMiddleware = (
   _next: NextFunction,
 ) => {
   console.error("Error:", err);
+
+  if (err instanceof CoreUnavailableError) {
+    return res.status(503).json({
+      success: false,
+      message: "Core database unavailable",
+    });
+  }
 
   if (err.name === "TokenExpiredError") {
     return res.status(401).json({

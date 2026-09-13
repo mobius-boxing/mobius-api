@@ -7,7 +7,7 @@ import {
   GlueTypeUpdateInputDTO,
 } from "../../dto/input/glueType";
 import { getCompanyForCreate } from "../../utils/companyScope";
-import { db } from "../../database/registry";
+import { CoreClient } from "../../services/core-client.service";
 import {
   BaseCrudController,
   BaseCrudOptions,
@@ -63,16 +63,15 @@ export class GlueTypeController extends BaseCrudController<IGlueType> {
       return null;
     }
 
-    const knex = db("core");
-    const company = await knex("companies")
-      .where("uuid", companyResult.companyUuid)
-      .first();
+    const companyId = await CoreClient.companyIdByUuid(
+      companyResult.companyUuid,
+    );
 
-    if (!company) {
+    if (companyId === null) {
       res.status(400).json({ success: false, message: "Company not found" });
       return null;
     }
 
-    return { ...payload, companyId: company.id };
+    return { ...payload, companyId };
   }
 }

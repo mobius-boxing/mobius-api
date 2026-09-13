@@ -82,12 +82,45 @@ jest.mock("../../../database/registry", () => ({
   },
 }));
 
+/**
+ * The core side of both reads is `CoreClient` (its own queries and predicates
+ * are pinned in core-client.service.test.ts); here it is a recorder, so what
+ * this DAO asks of core is asserted exactly.
+ */
+const mockCoreCalls: Array<{ method: string; args: unknown[] }> = [];
+let mockEnabledCompanyIds: number[] = [];
+let mockCoreUsers: unknown[] = [];
+let mockCompanyUserIds = new Map<number, number[]>();
+
+jest.mock("../../../services/core-client.service", () => ({
+  ...jest.requireActual<object>("../../../services/core-client.service"),
+  __esModule: true,
+  CoreClient: {
+    companyIdsWithModuleEnabled: async (...args: unknown[]) => {
+      mockCoreCalls.push({ method: "companyIdsWithModuleEnabled", args });
+      return mockEnabledCompanyIds;
+    },
+    usersByIds: async (...args: unknown[]) => {
+      mockCoreCalls.push({ method: "usersByIds", args });
+      return mockCoreUsers;
+    },
+    activeUserIdsByCompanies: async (...args: unknown[]) => {
+      mockCoreCalls.push({ method: "activeUserIdsByCompanies", args });
+      return mockCompanyUserIds;
+    },
+  },
+}));
+
 const resetCaptures = (): void => {
   for (const key of Object.keys(mockRawCalls)) {
     mockRawCalls[key].length = 0;
     mockTableCalls[key].length = 0;
     mockRows[key] = [];
   }
+  mockCoreCalls.length = 0;
+  mockEnabledCompanyIds = [];
+  mockCoreUsers = [];
+  mockCompanyUserIds = new Map();
 };
 
 import { CountdownReminderDAO } from "../../../dao/countdown/countdown-reminder.dao";
@@ -98,6 +131,7 @@ describe("CountdownReminderDAO.findDue", () => {
 
   beforeEach(async () => {
     resetCaptures();
+    mockEnabledCompanyIds = [3, 6];
     await new CountdownReminderDAO().findDue("2026-08-13");
     const call = mockRawCalls.countdown[0];
     if (!call) throw new Error("findDue emitted no query on the countdown key");
@@ -116,14 +150,14 @@ describe("CountdownReminderDAO.findDue", () => {
     expect(sql).toContain(`(d."dueDate" - ?::date) <= d."reminderDays"`);
     // The offset list is gone: a fixed 7/3/1/0 escalation dropped any document
     // whose offset day landed on a weekend and never mentioned an overdue one.
-    // (The one surviving `in (` is the subscription-status gate, below.)
     expect(sql).not.toMatch(/\?::date\)\s*in \(/);
   });
 
   it("binds the caller's today exactly twice — never `current_date`", () => {
     // The session is UTC; the customer's day comes from todayInBuenosAires, and
-    // one definition of today serves the claim and the work.
-    expect(bindings).toEqual(["2026-08-13", "2026-08-13"]);
+    // one definition of today serves the claim and the work. Between the two
+    // sits the enabled-company list from core.
+    expect(bindings).toEqual(["2026-08-13", [3, 6], "2026-08-13"]);
     expect(sql).not.toContain("current_date");
   });
 
@@ -139,15 +173,33 @@ describe("CountdownReminderDAO.findDue", () => {
   });
 
   it("keeps the module-enablement and subscription gate", () => {
-    expect(sql).toContain(`cm.enabled = true`);
-    expect(sql).toContain(
-      `cm."subscriptionStatus" not in ('canceled','past_due')`,
-    );
-    expect(sql).toContain(`m.slug = 'countdown'`);
+    // The gate itself (enabled link, not canceled/past_due, slug) is
+    // CoreClient.companyIdsWithModuleEnabled's predicate; here: it is asked for
+    // countdown, once, and its answer is the only company filter.
+    expect(mockCoreCalls).toEqual([
+      { method: "companyIdsWithModuleEnabled", args: ["countdown"] },
+    ]);
+    expect(sql).toContain(`d."companyId" = any(?)`);
+    expect(bindings[1]).toEqual(mockEnabledCompanyIds);
   });
 
   it("orders deterministically, so a digest and its log rows are reproducible", () => {
     expect(sql).toContain(`order by d."dueDate" asc, d.title asc, d.id asc`);
+  });
+});
+
+describe("CountdownReminderDAO.findDue — no company has the module", () => {
+  beforeEach(() => {
+    resetCaptures();
+  });
+
+  it("selects nothing and sends no query at all", async () => {
+    mockEnabledCompanyIds = [];
+
+    await expect(
+      new CountdownReminderDAO().findDue("2026-08-13"),
+    ).resolves.toEqual([]);
+    for (const calls of Object.values(mockRawCalls)) expect(calls).toEqual([]);
   });
 });
 
@@ -157,18 +209,20 @@ describe("CountdownReminderDAO.findRecipients", () => {
   });
 
   it("reads `users` on the core connection and on no other", async () => {
-    mockRows.core = [
+    mockCoreUsers = [
       {
         id: 7,
+        uuid: "0b0e2a54-1d61-4a4c-8a3f-1b2c3d4e5f60",
         email: "ada@example.com",
         firstName: "Ada",
         lastName: "Lovelace",
         isActive: true,
         companyId: 3,
+        role: "member",
       },
     ];
-    // The row a countdown-keyed lookup would have returned. Under the real
-    // registry that call throws instead; here the wrong row is the tell.
+    // The row a countdown-keyed lookup would have returned; any table read on
+    // any connection is the tell.
     mockRows.countdown = [
       {
         id: 99,
@@ -182,10 +236,9 @@ describe("CountdownReminderDAO.findRecipients", () => {
 
     const recipients = await new CountdownReminderDAO().findRecipients([7]);
 
-    expect(mockTableCalls.core.map((call) => call.table)).toEqual(["users"]);
-    expect(mockTableCalls.countdown).toEqual([]);
-    expect(mockTableCalls.erp).toEqual([]);
-    expect(mockTableCalls.store).toEqual([]);
+    expect(mockCoreCalls).toEqual([{ method: "usersByIds", args: [[7]] }]);
+    for (const calls of Object.values(mockTableCalls))
+      expect(calls).toEqual([]);
     expect(recipients).toEqual([
       {
         id: 7,
@@ -200,22 +253,57 @@ describe("CountdownReminderDAO.findRecipients", () => {
   it("batches the whole id list into one query", async () => {
     await new CountdownReminderDAO().findRecipients([7, 8, 9]);
 
-    expect(mockTableCalls.core).toHaveLength(1);
-    expect(mockTableCalls.core[0]?.whereIn).toEqual(["id", [7, 8, 9]]);
-    expect(mockTableCalls.core[0]?.select).toEqual([
-      "id",
-      "email",
-      "firstName",
-      "lastName",
-      "isActive",
-      "companyId",
+    expect(mockCoreCalls).toEqual([
+      { method: "usersByIds", args: [[7, 8, 9]] },
     ]);
+  });
+
+  it("never returns a user with no company — no document can pair with one", async () => {
+    mockCoreUsers = [
+      {
+        id: 1,
+        uuid: "9c8b7a65-4321-4f0e-9d1c-2b3a4c5d6e7f",
+        email: "root@example.com",
+        firstName: "Root",
+        lastName: "",
+        isActive: true,
+        companyId: null,
+        role: "superAdmin",
+      },
+    ];
+
+    await expect(
+      new CountdownReminderDAO().findRecipients([1]),
+    ).resolves.toEqual([]);
   });
 
   it("touches no connection at all for an empty id list", async () => {
     const recipients = await new CountdownReminderDAO().findRecipients([]);
 
     expect(recipients).toEqual([]);
+    expect(mockCoreCalls).toEqual([]);
+    for (const calls of Object.values(mockTableCalls))
+      expect(calls).toEqual([]);
+  });
+});
+
+describe("CountdownReminderDAO.findCompanyRecipientIds", () => {
+  beforeEach(() => {
+    resetCaptures();
+  });
+
+  it("asks core once for every company, and hands back a map it can own", async () => {
+    mockCompanyUserIds = new Map([[3, [7, 8]]]);
+
+    const byCompany = await new CountdownReminderDAO().findCompanyRecipientIds([
+      3, 6,
+    ]);
+
+    expect(mockCoreCalls).toEqual([
+      { method: "activeUserIdsByCompanies", args: [[3, 6]] },
+    ]);
+    expect(byCompany).toEqual(new Map([[3, [7, 8]]]));
+    expect(byCompany.get(3)).not.toBe(mockCompanyUserIds.get(3));
     for (const calls of Object.values(mockTableCalls))
       expect(calls).toEqual([]);
   });

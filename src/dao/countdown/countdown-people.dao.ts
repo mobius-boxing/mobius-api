@@ -1,18 +1,5 @@
-import { db } from "../../database/registry";
 import { INamedRef } from "../../interfaces/countdown/countdown.interfaces";
-
-const USERS_TABLE = "users";
-
-interface IPersonRow {
-  uuid: string;
-  firstName: string | null;
-  lastName: string | null;
-}
-
-/** Mobius users have firstName/lastName; countdown's pickers print one string. */
-function displayName(row: IPersonRow): string {
-  return `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim();
-}
+import { CoreClient } from "../../services/core-client.service";
 
 /**
  * The roster the assignment pickers read: the company's active users, uuid and
@@ -24,17 +11,7 @@ function displayName(row: IPersonRow): string {
  */
 export class CountdownPeopleDAO {
   async list(companyId: number): Promise<INamedRef[]> {
-    const knex = db("core");
-    const rows = (await knex(USERS_TABLE)
-      .where({ companyId, isActive: true })
-      .select("uuid", "firstName", "lastName")
-      // Ordering on the name parts matches ordering on "firstName lastName".
-      .orderBy([
-        { column: "firstName" },
-        { column: "lastName" },
-      ])) as IPersonRow[];
-
-    return rows.map((row) => ({ uuid: row.uuid, name: displayName(row) }));
+    return [...(await CoreClient.listCompanyPeople(companyId))];
   }
 
   /**
@@ -47,12 +24,6 @@ export class CountdownPeopleDAO {
     companyId: number,
     uuids: string[],
   ): Promise<number[]> {
-    if (uuids.length === 0) return [];
-    const knex = db("core");
-    const rows = (await knex(USERS_TABLE)
-      .where({ companyId, isActive: true })
-      .whereIn("uuid", uuids)
-      .select("id")) as { id: number }[];
-    return rows.map((row) => row.id);
+    return [...(await CoreClient.activeUserIdsByUuids(companyId, uuids))];
   }
 }

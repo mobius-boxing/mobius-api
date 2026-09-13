@@ -37,6 +37,7 @@ import {
   CODE_SCOPES,
 } from "../../services/code-generator.service";
 import { OrderDataDAO } from "../order-data/order-data.dao";
+import { CoreClient, type CoreUser } from "../../services/core-client.service";
 
 /** An upper bound with no time part, e.g. `2026-03-31`. */
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -203,9 +204,6 @@ export class SalesOrderDAO {
             `CASE WHEN prod.id IS NOT NULL THEN to_jsonb(prod) END as "product"`,
           ),
           knex.raw(
-            `CASE WHEN su.id IS NOT NULL THEN to_jsonb(su) END as "salesUser"`,
-          ),
-          knex.raw(
             `CASE WHEN od.id IS NOT NULL THEN to_jsonb(od) END as "orderData"`,
           ),
           knex.raw(
@@ -225,10 +223,6 @@ export class SalesOrderDAO {
           "cust.id",
         )
         .leftJoin("products as prod", `${this.tableName}.productId`, "prod.id")
-        // TODO(core-cutover): users is core-owned; this leftJoin 42P01s once the
-        // DBs split. Repo-wide pattern (the registry guard cannot see joins), so
-        // it is flagged here rather than refactored in this feature.
-        .leftJoin("users as su", `${this.tableName}.salesUserId`, "su.id")
         .leftJoin("order_data as od", `${this.tableName}.orderDataId`, "od.id")
         .leftJoin("delivery_locations as dl", "od.deliveryLocationId", "dl.id")
         // JOINS LIVE ON THE DATA QUERY ONLY (AC-18): the count query runs on the
@@ -252,7 +246,8 @@ export class SalesOrderDAO {
       uuid,
     );
     applyCompanyScope(query, this.tableName, companyId);
-    const row = await query.first();
+    const found = await query.first();
+    const [row] = found ? await this.withSalesUsers([found]) : [];
     // L-005: re-attach the numeric id explicitly — mapToInterface strips it,
     // and callers that guard on `existing.id` would 404 forever otherwise.
     // `partId` rides along for the same reason (the PUT immutability check on
@@ -495,32 +490,33 @@ export class SalesOrderDAO {
     // four siblings unreachable on a uuid-only API.
     const resolvedIds: Array<[string, number]> = [];
     const resolveUuid = async (
-      connection: any,
       filterKey: string,
-      table: string,
       column: string,
+      idByUuid: (uuid: string) => Promise<number | null>,
     ): Promise<void> => {
-      const id = await this.resolveUuidFilter(
-        connection,
-        parsedQuery,
-        filterKey,
-        table,
-      );
+      const id = await this.resolveUuidFilter(parsedQuery, filterKey, idByUuid);
       if (id !== undefined) resolvedIds.push([column, id]);
     };
+    const erpIdByUuid =
+      (table: string) =>
+      async (uuid: string): Promise<number | null> =>
+        (await knex(table).where("uuid", uuid).select("id").first())?.id ??
+        null;
 
-    await resolveUuid(knex, "customerUuid", "customers", "customerId");
-    await resolveUuid(knex, "productUuid", "products", "productId");
-    await resolveUuid(knex, "partUuid", "parts", "partId");
+    await resolveUuid("customerUuid", "customerId", erpIdByUuid("customers"));
+    await resolveUuid("productUuid", "productId", erpIdByUuid("products"));
+    await resolveUuid("partUuid", "partId", erpIdByUuid("parts"));
     // Plancha pedidos point at the board catalogue (`paper_sheets`), the only
     // uuid-keyed sheet table in the schema; `sales_orders.sheetSupplyId` is
     // FK-less because the supplies module has not landed yet.
-    await resolveUuid(knex, "sheetSupplyUuid", "paper_sheets", "sheetSupplyId");
-    // `users` belongs to the CORE database, not erp: reading it on the erp
-    // connection trips the registry's wrong-database guard (a throw outside
-    // production, a warning in it). Cross-database reads name their own
-    // connection, exactly as CountdownPeopleDAO does.
-    await resolveUuid(db("core"), "salesUserUuid", "users", "salesUserId");
+    await resolveUuid(
+      "sheetSupplyUuid",
+      "sheetSupplyId",
+      erpIdByUuid("paper_sheets"),
+    );
+    await resolveUuid("salesUserUuid", "salesUserId", (uuid) =>
+      CoreClient.userIdByUuid(uuid),
+    );
 
     /**
      * Everything that is not a column operator lives here, and this closure is
@@ -591,7 +587,9 @@ export class SalesOrderDAO {
 
     return {
       success: true,
-      data: rows.map((row: any) => this.mapToInterface(row)),
+      data: (await this.withSalesUsers(rows)).map((row) =>
+        this.mapToInterface(row),
+      ),
       page: parsedQuery.page,
       limit: parsedQuery.limit,
       count: rows.length,
@@ -616,16 +614,34 @@ export class SalesOrderDAO {
    * cannot match, never an unfiltered 200) and `undefined` when it was absent.
    */
   private async resolveUuidFilter(
-    knex: any,
     parsedQuery: ParsedQuery,
     filterKey: string,
-    table: string,
+    idByUuid: (uuid: string) => Promise<number | null>,
   ): Promise<number | undefined> {
     const uuid = assertUuidParam(filterKey, parsedQuery.filters[filterKey]);
     delete parsedQuery.filters[filterKey];
     if (!uuid) return undefined;
-    const row = await knex(table).where("uuid", uuid).select("id").first();
-    return row?.id ?? -1;
+    return (await idByUuid(uuid)) ?? -1;
+  }
+
+  /** Each row's vendedor from core, in one query for the whole page. */
+  private async withSalesUsers<T extends { salesUserId?: number | null }>(
+    rows: T[],
+  ): Promise<Array<T & { salesUser: CoreUser | null }>> {
+    const ids = new Set<number>();
+    for (const row of rows) {
+      if (typeof row.salesUserId === "number") ids.add(row.salesUserId);
+    }
+    const users = new Map(
+      (await CoreClient.usersByIds([...ids])).map((user) => [user.id, user]),
+    );
+    return rows.map((row) => ({
+      ...row,
+      salesUser:
+        typeof row.salesUserId === "number"
+          ? (users.get(row.salesUserId) ?? null)
+          : null,
+    }));
   }
 
   // ── Associated production orders (OrdenesAsociadasForm) ──────────────────

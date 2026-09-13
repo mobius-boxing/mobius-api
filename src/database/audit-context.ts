@@ -38,6 +38,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import type { Request } from "express";
 import type { Knex } from "knex";
+import { validate as isUuid } from "uuid";
 import { DbKey } from "./keys";
 
 /** Where the write came from. Contractual: P2's trigger stores it verbatim. */
@@ -297,26 +298,33 @@ export async function armAudit(req: Request): Promise<void> {
 
   const user = req.user;
   if (user) {
-    // Imported lazily: `foreignKeyResolver` imports the registry, which (from
-    // T2 on) imports this module. A static import would close that cycle at
-    // load time and hand one of the two modules a half-initialised copy of the
-    // other.
-    const { getIdByUuid } = await import("../utils/foreignKeyResolver");
-    const { getCompanyScope } = await import("../utils/companyScope");
-    const effectiveCompanyUuid = getCompanyScope(req).companyUuid;
-    // These three reads run OUTSIDE the state on purpose. Not as a deadlock
+    // Imported lazily: `core-client` imports the registry, which imports this
+    // module. A static import would close that cycle at load time and hand one
+    // of the two modules a half-initialised copy of the other.
+    const { CoreClient } = await import("../services/core-client.service");
+    const lookup = (
+      uuid: string | undefined,
+      resolve: (uuid: string) => Promise<number | null>,
+    ): Promise<number | null> =>
+      uuid && isUuid(uuid) ? resolve(uuid) : Promise.resolve(null);
+    // These two reads run OUTSIDE the state on purpose. Not as a deadlock
     // guard — `state.armed` is still false here, so `db()` already returns the
     // plain facade. Without it, a later reordering would have every mutating
     // request open a `core` transaction purely to resolve two uuids, spending a
     // pooled connection on a read-only preamble, and the invariant would be
     // implicit in a line order nobody is watching.
-    const [userId, actorCompanyId, companyId] = await withoutAudit(() =>
+    //
+    // A CoreUnavailableError is not caught: `authenticate` answers 503 before the
+    // handler runs, because an unattributed ledger row is worse than a refused
+    // write. The effective company needs no lookup — `resolveTenantContext` has
+    // already set `req.companyId`.
+    const [userId, actorCompanyId] = await withoutAudit(() =>
       Promise.all([
-        getIdByUuid(user.userId, "users"),
-        getIdByUuid(user.companyId ?? null, "companies"),
-        getIdByUuid(effectiveCompanyUuid ?? null, "companies"),
+        lookup(user.userId, CoreClient.userIdByUuid),
+        lookup(user.companyId, CoreClient.companyIdByUuid),
       ]),
     );
+    const companyId = req.companyId ?? null;
     state.actor = {
       userId,
       username: user.email,

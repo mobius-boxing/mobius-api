@@ -8,7 +8,7 @@ import {
   ColorUpdateInputDTO,
 } from "../../dto/input/color";
 import { getCompanyForCreate } from "../../utils/companyScope";
-import { db } from "../../database/registry";
+import { CoreClient } from "../../services/core-client.service";
 import {
   BaseCrudController,
   BaseCrudOptions,
@@ -65,11 +65,10 @@ export class ColorController extends BaseCrudController<IColor> {
       return null;
     }
 
-    const knex = db("core");
-    const company = await knex("companies")
-      .where("uuid", companyResult.companyUuid)
-      .first();
-    if (!company) {
+    const companyId = await CoreClient.companyIdByUuid(
+      companyResult.companyUuid,
+    );
+    if (companyId === null) {
       res.status(400).json({ success: false, message: "Company not found" });
       return null;
     }
@@ -79,6 +78,7 @@ export class ColorController extends BaseCrudController<IColor> {
     if (payload.colorTypeUuid) {
       const resolved = await this.colorTypeDAO.getIdByUuid(
         payload.colorTypeUuid,
+        this.referenceScope(req),
       );
       if (!resolved) {
         res
@@ -96,14 +96,14 @@ export class ColorController extends BaseCrudController<IColor> {
       observations: payload.observations,
       tonality: payload.tonality,
       colorTypeId,
-      companyId: company.id,
+      companyId,
     };
   }
 
   protected async beforeUpdate(
     inputDTO: any,
     _existingId: number,
-    _req: Request,
+    req: Request,
     res: Response,
   ): Promise<any | null> {
     const updateData: any = { ...inputDTO };
@@ -112,6 +112,7 @@ export class ColorController extends BaseCrudController<IColor> {
     if (inputDTO.colorTypeUuid) {
       const colorTypeId = await this.colorTypeDAO.getIdByUuid(
         inputDTO.colorTypeUuid,
+        this.referenceScope(req),
       );
       if (!colorTypeId) {
         res

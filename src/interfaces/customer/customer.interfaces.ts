@@ -1,6 +1,14 @@
 import { ICompany } from "../company/company.interfaces";
 import { ICustomerCategory } from "../customer-category/customer-category.interfaces";
-import { IUser } from "../user/user.interfaces";
+
+/** The sales person as `GET /customer/:uuid/with-details` returns it — no numeric id. */
+export type ICustomerSalesPerson = {
+  uuid: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+};
 
 export interface IContactInfo {
   name: string;
@@ -59,5 +67,5 @@ export interface ICustomer {
   // Joined data
   company?: ICompany;
   category?: ICustomerCategory;
-  salesPerson?: IUser;
+  salesPerson?: ICustomerSalesPerson | null;
 }

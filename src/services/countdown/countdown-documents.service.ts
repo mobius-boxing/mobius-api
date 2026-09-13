@@ -130,7 +130,7 @@ export class CountdownDocumentsService {
     const ids = entries.map((entry) => entry.id);
 
     const [assignments, resolverIds] = await Promise.all([
-      this._assignmentDAO.forDocuments(ids),
+      this._assignmentDAO.forDocuments(ids, ctx.companyId),
       this._assignmentDAO.effectiveUserIds(ids, "resolver"),
     ]);
 
