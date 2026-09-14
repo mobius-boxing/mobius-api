@@ -83,7 +83,7 @@ describe("AC-42 — the env variable is SQL_DATABASE", () => {
    * why this scope is stated rather than left as "the repo".
    */
   const REPO = path.join(SRC, "..");
-  const CONFIG_FILES = ["knexfile.ts", "knexfile.js", ".env", ".env.example"];
+  const CONFIG_FILES = ["knexfile.ts", ".env", ".env.example"];
 
   it("has no occurrence of the superseded database env variable in src/", () => {
     expect(

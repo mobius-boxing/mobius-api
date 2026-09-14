@@ -18,19 +18,6 @@
     "skipLibCheck": true,
     "downlevelIteration": true
   },
-  // ts-node (knex loads migrations and seeds through it) does not honour
-  // "include", so src/types.d.ts — which augments Express.Request with `user` —
-  // never entered its program. Any migration importing application code that
-  // reaches src/database/audit-context.ts then failed to compile with
-  // TS2339 "Property 'user' does not exist on type Request". That made
-  // `migrate:latest` from a fresh database impossible, and it was invisible
-  // only because the one migration that imports that chain was already
-  // applied everywhere, so knex never re-required it.
-  //
-  // "files": true loads the tsconfig's own files/include into ts-node's
-  // program. It lives here rather than in package.json because production runs
-  // migrations as `docker exec ... npx knex migrate:latest`, which never sees
-  // an npm script.
   // knex loads migrations and seeds through ts-node. Two problems, one fix:
   //
   // 1. tsconfig "exclude"s migrations/ and ts-node ignores "include", so
@@ -45,16 +32,17 @@
   // `tsc --noEmit` before anything ships, and a migration process has no
   // business type-checking the whole application at runtime.
   //
-  // It lives here rather than in package.json because production runs
-  // migrations as `docker exec ... npx knex migrate:latest`, which never sees
-  // an npm script.
+  // It lives here rather than in package.json (db-per-company T5, N3):
+  // production runs migrations via `npm run migrate:deploy`
+  // (`src/scripts/migrate-all.ts`), never a bare `npx knex migrate:latest` —
+  // since T5, `knexfile.ts` only has `core`/`tenant` connection envs, so a
+  // bare `knex` CLI invocation naming neither has nothing to run against.
   "ts-node": { "transpileOnly": true },
   "include": ["src/**/*"],
   "exclude": [
     "node_modules",
     "dist",
     "knexfile.ts",
-    "knexfile.js",
     "migrations",
     "seeds"
   ]

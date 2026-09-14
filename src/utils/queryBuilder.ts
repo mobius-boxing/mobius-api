@@ -54,8 +54,9 @@ export function parseQueryParams(req: Request): ParsedQuery {
 
   // SECURITY: the company filter is derived from the caller's token, never
   // from their input. Every DAO's getAllWithFilters lifts `filters.companyId`
-  // out of this object and turns it into a join on companies.uuid, so setting
-  // it here scopes all ~50 of them at once.
+  // out of this object and turns it into a local predicate on the table's own
+  // company column (`applyCompanyScope` — no join to `companies`, db-per-company
+  // T1/AC-7), so setting it here scopes all ~50 of them at once.
   //
   // This used to be `enforceCompanyFilter(req)`, called from the controllers,
   // which assigned to `req.query.companyId`. Under Express 5 `req.query` is a
