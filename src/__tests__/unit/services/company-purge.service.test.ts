@@ -73,20 +73,16 @@ jest.mock("../../../database/registry", () => ({
   physicalKeyOf: (key) => (key === "tenant" ? tenantTarget : "core"),
 }));
 
-import {
-  NODE_FILES_PURGE_ORDER,
-  purgeCompany,
-  purgeTargets,
-} from "../../../services/company-purge.service";
-
-/** What the mocked catalogue reports for `crossPlaneRefs`. */
+/** What the mocked T12a generated file reports (replaces a live `crossPlaneRefs` query). */
 let crossPlaneRows;
 /** When set, replaces the manifests' declared user references. */
 let declaredOverride;
 
-jest.mock("../../../database/cross-plane-refs", () => ({
+jest.mock("../../../database/cross-plane-refs.generated", () => ({
   __esModule: true,
-  crossPlaneRefs: async () => crossPlaneRows,
+  get GENERATED_CROSS_PLANE_REFS() {
+    return crossPlaneRows;
+  },
 }));
 
 jest.mock("../../../modules/registry", () => {
@@ -101,7 +97,10 @@ jest.mock("../../../modules/registry", () => {
 
 import {
   EXPLICITLY_PURGED_TABLES,
+  NODE_FILES_PURGE_ORDER,
   UserPurgeRefusedError,
+  purgeCompany,
+  purgeTargets,
   purgeUser,
   userReferences,
 } from "../../../services/company-purge.service";
@@ -282,6 +281,9 @@ describe("purgeCompany — maintenance mode and statement order", () => {
       `raw ${SKIP_SQL}`,
       "delete audit_logs",
       ...NODE_FILES_DELETES,
+      // T12a/D-orch-1: non-live tenant_databases rows are cleared before the
+      // companies delete, every time, not just when decommissioning.
+      "delete tenant_databases",
       "delete companies",
       "commit",
     ]);
@@ -390,6 +392,19 @@ describe("purgeCompany — what it deletes", () => {
     }
   });
 
+  it("clears non-live (failed/provisioning) tenant_databases rows before the companies delete (T12a/D-orch-1)", async () => {
+    await purgeCompany(COMPANY_ID);
+
+    expect(mocks.core.fixture("tenant_databases").whereCalls).toStrictEqual([
+      [{ companyId: COMPANY_ID }],
+      ["status", ["failed", "provisioning"]],
+    ]);
+    const core = sequenceOf("core");
+    expect(core.indexOf("delete tenant_databases")).toBeLessThan(
+      core.indexOf("delete companies"),
+    );
+  });
+
   it("writes nothing to the ledger — the purge leaves no row of its own (P5)", async () => {
     givenOneDatabasePerKey();
 
@@ -488,6 +503,7 @@ describe("purgeCompany — failure", () => {
       `raw ${SKIP_SQL}`,
       "delete audit_logs",
       ...NODE_FILES_DELETES,
+      "delete tenant_databases",
       "delete companies",
       "rollback",
     ]);
@@ -556,24 +572,32 @@ const DECLARED_NODE_FILES_USER_COLUMNS = [
 const COUNT_SQL = "select count(*)::int as n from ?? where ?? = ?";
 const USER_DELETE_SQL = "delete from ?? where ?? = ?";
 const USER_NULL_SQL = "update ?? set ?? = null where ?? = ?";
+/** T12a: the `users` row itself, raw so it bypasses the tenant-guarded shared facade. */
+const USER_ROW_DELETE_SQL = "delete from users where id = ?";
 
 /**
  * Make `raw` answer like pg: counts from `blocking` (`table.column` → rows),
- * `rowCount` from `affected` for deletes and updates. Every call is still logged.
+ * `rowCount` from `affected` for deletes and updates, `rowCount` from
+ * `userDeleted` (default 1) for the final `users` row delete. Every call is
+ * still logged.
  */
-const answerRaw = (key, { blocking = {}, affected = {} } = {}) => {
+const answerRaw = (
+  key,
+  { blocking = {}, affected = {}, userDeleted = 1 } = {},
+) => {
   facades[key].raw = jest.fn((sql, bindings) => {
     log.push({ key, op: "raw", sql, bindings });
     const name = bindings ? `${bindings[0]}.${bindings[1]}` : "";
     if (sql === COUNT_SQL) return { rows: [{ n: blocking[name] ?? 0 }] };
     if (sql === USER_DELETE_SQL || sql === USER_NULL_SQL)
       return { rowCount: affected[name] ?? 0 };
+    if (sql === USER_ROW_DELETE_SQL) return { rowCount: userDeleted };
     return sql;
   });
 };
 
 describe("userReferences — each foreign key's own rule, plus the manifests", () => {
-  it("maps every delete rule, and ignores references to other central tables", async () => {
+  it("maps every delete rule, and ignores references to other central tables", () => {
     crossPlaneRows = [
       fk("countdown_group_members", "userId", "CASCADE"),
       fk("files", "uploadedBy", "SET NULL"),
@@ -584,7 +608,7 @@ describe("userReferences — each foreign key's own rule, plus the manifests", (
     ];
     declaredOverride = [];
 
-    expect(await userReferences(facades.core)).toStrictEqual([
+    expect(userReferences()).toStrictEqual([
       {
         table: "countdown_group_members",
         column: "userId",
@@ -618,10 +642,10 @@ describe("userReferences — each foreign key's own rule, plus the manifests", (
     ]);
   });
 
-  it("includes all four declared node-files user columns, each nulled", async () => {
+  it("includes all four declared node-files user columns, each nulled", () => {
     crossPlaneRows = [fk("files", "uploadedBy", "SET NULL")];
 
-    const fromManifests = (await userReferences(facades.core)).filter(
+    const fromManifests = userReferences().filter(
       (ref) => ref.source === "manifest",
     );
 
@@ -631,12 +655,12 @@ describe("userReferences — each foreign key's own rule, plus the manifests", (
     expect(fromManifests.every((ref) => ref.action === "set-null")).toBe(true);
   });
 
-  it("refuses on a declared NOT NULL column", async () => {
+  it("refuses on a declared NOT NULL column", () => {
     declaredOverride = [
       { table: "nf_runs", column: "reviewedByUserId", nullable: false },
     ];
 
-    expect(await userReferences(facades.core)).toStrictEqual([
+    expect(userReferences()).toStrictEqual([
       {
         table: "nf_runs",
         column: "reviewedByUserId",
@@ -646,13 +670,13 @@ describe("userReferences — each foreign key's own rule, plus the manifests", (
     ]);
   });
 
-  it("lets the foreign key's rule win when a column is both declared and constrained", async () => {
+  it("lets the foreign key's rule win when a column is both declared and constrained", () => {
     crossPlaneRows = [fk("files", "uploadedBy", "SET NULL")];
     declaredOverride = [
       { table: "files", column: "uploadedBy", nullable: false },
     ];
 
-    expect(await userReferences(facades.core)).toStrictEqual([
+    expect(userReferences()).toStrictEqual([
       {
         table: "files",
         column: "uploadedBy",
@@ -664,6 +688,32 @@ describe("userReferences — each foreign key's own rule, plus the manifests", (
 });
 
 describe("purgeUser — refuse, delete, null, then the user", () => {
+  /** Dedicated tenant targets this run's `deps.listDedicatedTenants` reports. */
+  let dedicated;
+
+  /** Adds a dedicated tenant, traced into `log` under its own key. */
+  const addDedicated = (name) => {
+    const mock = createTableAwareKnexMock();
+    const facade = traced(name, mock);
+    const target = { row: { databaseName: name }, server: {} };
+    mocks[name] = mock;
+    facades[name] = facade;
+    dedicated.push({ target, facade, name });
+    return { target, facade, mock };
+  };
+
+  /** `purgeUser`'s deps: the shared facade + whatever `addDedicated` has registered. */
+  const deps = () => ({
+    sharedTarget: () => facades.core,
+    listDedicatedTenants: async () => dedicated.map((d) => d.target),
+    openTenant: async (target) =>
+      dedicated.find((d) => d.target === target).facade,
+    closeTenant: async (facade) => {
+      const found = dedicated.find((d) => d.facade === facade);
+      log.push({ key: found?.name ?? "?", op: "close" });
+    },
+  });
+
   beforeEach(() => {
     crossPlaneRows = [
       fk("countdown_group_members", "userId", "CASCADE"),
@@ -673,7 +723,7 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
     declaredOverride = [
       { table: "nf_workflows", column: "createdByUserId", nullable: true },
     ];
-    mocks.core.fixture("users").deleteCount = 1;
+    dedicated = [];
   });
 
   it("counts blockers first, then deletes, nulls and removes the user in one transaction while the planes share a database", async () => {
@@ -685,7 +735,7 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
       },
     });
 
-    await expect(purgeUser(USER_ID)).resolves.toStrictEqual({
+    await expect(purgeUser(USER_ID, deps())).resolves.toStrictEqual({
       userDeleted: true,
       rowsDeleted: { "countdown_group_members.userId": 2 },
       valuesNulled: {
@@ -702,45 +752,78 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
       `raw ${USER_DELETE_SQL} [countdown_group_members,userId,${USER_ID}]`,
       `raw ${USER_NULL_SQL} [files,uploadedBy,uploadedBy,${USER_ID}]`,
       `raw ${USER_NULL_SQL} [nf_workflows,createdByUserId,createdByUserId,${USER_ID}]`,
-      "delete users",
+      `raw ${USER_ROW_DELETE_SQL} [${USER_ID}]`,
       "commit",
-    ]);
-    expect(mocks.core.fixture("users").whereCalls).toStrictEqual([
-      [{ id: USER_ID }],
     ]);
     expect(sequenceOf("tenant")).toStrictEqual([]);
   });
 
-  it("writes the tenant's references on the tenant's own database first, and the user last on core", async () => {
-    givenOneDatabasePerKey();
+  it("writes each dedicated tenant's references in its own database first, and the shared target plus the user last", async () => {
     answerRaw("core");
-    answerRaw("tenant");
+    const a = addDedicated("tenant_a");
+    const b = addDedicated("tenant_b");
+    answerRaw("tenant_a");
+    answerRaw("tenant_b");
 
-    await purgeUser(USER_ID);
+    await purgeUser(USER_ID, deps());
 
-    expect(
-      log.map((entry) =>
-        entry.key === "core" ? `core ${entry.op}` : `tenant ${entry.op}`,
-      ),
-    ).toStrictEqual([
-      "tenant raw",
-      "tenant begin",
-      // T4/D-124: recounted again inside the transaction before any write.
-      "tenant raw",
-      "tenant raw",
-      "tenant raw",
-      "tenant raw",
-      "tenant commit",
+    expect(log.map((entry) => `${entry.key} ${entry.op}`)).toStrictEqual([
+      // Preflight across every database, before any write anywhere.
+      "core raw",
+      "tenant_a raw",
+      "tenant_b raw",
+      // Dedicated tenants, each its own transaction.
+      "tenant_a begin",
+      "tenant_a raw",
+      "tenant_a raw",
+      "tenant_a raw",
+      "tenant_a raw",
+      "tenant_a commit",
+      "tenant_b begin",
+      "tenant_b raw",
+      "tenant_b raw",
+      "tenant_b raw",
+      "tenant_b raw",
+      "tenant_b commit",
+      // The shared target LAST, combined with the `users` delete.
       "core begin",
-      "core delete",
+      "core raw",
+      "core raw",
+      "core raw",
+      "core raw",
+      "core raw",
       "core commit",
+      // Every dedicated connection this run opened is closed once it is done.
+      "tenant_a close",
+      "tenant_b close",
     ]);
+    void a;
+    void b;
+  });
+
+  it("a refusal in one dedicated tenant's preflight leaves every database unchanged (mutation: skip one tenant)", async () => {
+    answerRaw("core");
+    addDedicated("tenant_a");
+    addDedicated("tenant_b");
+    answerRaw("tenant_a");
+    answerRaw("tenant_b", {
+      blocking: { "countdown_documents.uploadedBy": 1 },
+    });
+
+    const purge = purgeUser(USER_ID, deps());
+    await expect(purge).rejects.toBeInstanceOf(UserPurgeRefusedError);
+
+    // tenant_a's preflight ran (it comes first) but nothing wrote anywhere,
+    // in either dedicated database or the shared target.
+    expect(
+      log.filter((entry) => entry.op !== "raw" && entry.op !== "close"),
+    ).toStrictEqual([]);
   });
 
   it("refuses before any transaction while a RESTRICT reference remains, naming table, column and rows", async () => {
     answerRaw("core", { blocking: { "countdown_documents.uploadedBy": 2 } });
 
-    const purge = purgeUser(USER_ID);
+    const purge = purgeUser(USER_ID, deps());
     await expect(purge).rejects.toBeInstanceOf(UserPurgeRefusedError);
     await expect(purge).rejects.toMatchObject({
       code: "23503",
@@ -750,7 +833,7 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
     expect(
       log.filter((entry) => entry.op !== "raw" || entry.sql !== COUNT_SQL),
     ).toStrictEqual([]);
-    expect(mocks.core.writeCounts("users").delete).toBe(0);
+    expect(log.some((entry) => entry.sql === USER_ROW_DELETE_SQL)).toBe(false);
   });
 
   it("refuses on a declared NOT NULL column that still holds the user", async () => {
@@ -759,17 +842,16 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
     ];
     answerRaw("core", { blocking: { "nf_runs.reviewedByUserId": 1 } });
 
-    await expect(purgeUser(USER_ID)).rejects.toThrow(
+    await expect(purgeUser(USER_ID, deps())).rejects.toThrow(
       "still referenced by nf_runs.reviewedByUserId (1 row)",
     );
     expect(log.some((entry) => entry.op === "begin")).toBe(false);
   });
 
   it("reports userDeleted = false when no such user exists", async () => {
-    answerRaw("core");
-    mocks.core.fixture("users").deleteCount = 0;
+    answerRaw("core", { userDeleted: 0 });
 
-    await expect(purgeUser(USER_ID)).resolves.toMatchObject({
+    await expect(purgeUser(USER_ID, deps())).resolves.toMatchObject({
       userDeleted: false,
     });
   });

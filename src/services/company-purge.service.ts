@@ -1,10 +1,19 @@
 import type { Knex } from "knex";
-import { db, physicalKeyOf } from "../database/registry";
-import { DB_KEYS, DbKey, PhysicalKey } from "../database/keys";
 import {
-  crossPlaneRefs,
-  type ForeignKeyDeleteRule,
-} from "../database/cross-plane-refs";
+  db,
+  guardedForTenant,
+  physicalKeyOf,
+  rawCoreInstance,
+} from "../database/registry";
+import { DB_KEYS, DbKey, PhysicalKey } from "../database/keys";
+import { type ForeignKeyDeleteRule } from "../database/cross-plane-refs";
+import { GENERATED_CROSS_PLANE_REFS } from "../database/cross-plane-refs.generated";
+import {
+  closeDedicatedTenant,
+  listDedicatedTenants,
+  openDedicatedTenant,
+  type DedicatedTenantTarget,
+} from "../database/dedicated-tenants";
 import { PURGE_HOOKS, declaredUserReferences } from "../modules/registry";
 
 export { NODE_FILES_PURGE_ORDER } from "../modules/node-files/purge.hook";
@@ -155,6 +164,28 @@ const MAINTENANCE_ON =
 const SKIP_ON = "select set_config('mobius.audit_skip', 'on', true)";
 
 /**
+ * T12a/D-orch-1: a `tenant_databases` row that never reached live never had a
+ * database "handed to a tenant" — `failed` (the attempt errored out) or
+ * `provisioning` (still building, or abandoned mid-build). RESTRICT (I-14)
+ * exists to force an explicit decommission of a row a tenant actually used,
+ * not to block deleting a company that never got one, so these are removed
+ * here, before the `companies` delete, in the same transaction. A
+ * `decommissioning`/`suspended`/`active` row is untouched by this and still
+ * blocks the delete below via the FK (I-14 intent unchanged) — decommission
+ * remains required first for any row a tenant actually used.
+ */
+const NON_LIVE_TENANT_DATABASE_STATUSES = ["failed", "provisioning"] as const;
+
+const deleteNonLiveTenantDatabaseRows = (
+  trx: Knex.Transaction,
+  companyId: number,
+): Promise<number> =>
+  trx("tenant_databases")
+    .where({ companyId })
+    .whereIn("status", NON_LIVE_TENANT_DATABASE_STATUSES)
+    .delete();
+
+/**
  * Remove a company: its audit trail first (explicitly — `audit_logs."companyId"`
  * carries NO foreign key under ruling R-B, so nothing cascades it away), then
  * the rows of every module whose purge hook deletes explicitly (node-files, for
@@ -200,6 +231,7 @@ export async function purgeCompany(
       // `companies` lives in core, and `core` is always a target (see
       // `purgeTargets`), so this branch always runs exactly once.
       if (key === "core") {
+        await deleteNonLiveTenantDatabaseRows(trx, companyId);
         if (options.decommissioningTenantDatabaseId !== undefined) {
           await trx("tenant_databases")
             .where({
@@ -237,6 +269,7 @@ export async function purgeCompanyCentralOnly(
     await trx.raw(MAINTENANCE_ON);
     await trx.raw(SKIP_ON);
     ledgerRowsDeleted = await trx("audit_logs").where({ companyId }).delete();
+    await deleteNonLiveTenantDatabaseRows(trx, companyId);
     if (options.decommissioningTenantDatabaseId !== undefined) {
       await trx("tenant_databases")
         .where({
@@ -281,14 +314,16 @@ const referenceName = (ref: { table: string; column: string }): string =>
   `${ref.table}.${ref.column}`;
 
 /**
- * Every user reference in the tenant plane: the foreign keys the catalogue
- * reports (`crossPlaneRefs`) plus the columns module manifests declare because
- * they have none. Where both name a column the foreign key's rule wins, since
- * it is what the database enforces.
+ * Every user reference in the tenant plane: the generated cross-plane
+ * foreign keys (T12a — captured once while both planes shared a database;
+ * `crossPlaneRefs` can no longer discover them live once a tenant has its
+ * own database) plus the columns module manifests declare because they have
+ * none. Where both name a column the foreign key's rule wins, since it is
+ * what the database enforced when it was captured.
  */
-export async function userReferences(knex: Knex): Promise<UserReference[]> {
+export function userReferences(): UserReference[] {
   const fromForeignKeys = new Map<string, UserReference>();
-  for (const ref of await crossPlaneRefs(knex)) {
+  for (const ref of GENERATED_CROSS_PLANE_REFS) {
     if (ref.referencedTable !== "users") continue;
     fromForeignKeys.set(referenceName(ref), {
       table: ref.table,
@@ -352,14 +387,9 @@ const rowCountOf = (result: unknown): number =>
  * write — while a RESTRICT / NO ACTION or declared NOT NULL reference remains.
  *
  * The tenant plane goes first and the `users` row last, so a failure never
- * leaves tenant rows pointing at a user that is already gone. While both planes
- * share one database that is a single transaction, and it covers every
- * company's rows at once — which is how a superAdmin (no company) is purged
- * across every tenant today (brief D-62); iterating separate tenant databases
- * needs the tenant registry.
- *
- * Audit capture stays on: each deleted or nulled row writes its own trail, and
- * the ledger's rows by this user are kept.
+ * leaves tenant rows pointing at a user that is already gone. Audit capture
+ * stays on: each deleted or nulled row writes its own trail, and the
+ * ledger's rows by this user are kept.
  */
 const countBlockers = async (
   runner: Knex,
@@ -378,62 +408,175 @@ const countBlockers = async (
   return blockers;
 };
 
-export async function purgeUser(userId: number): Promise<UserPurgeResult> {
-  const references = await userReferences(db("core"));
-  const tenantKey = representatives().get(physicalKeyOf("tenant")) ?? "tenant";
+/** Deletes first (a row about to go needs no NULL written and audited), then nulls, `userId`'s references — inside whatever transaction `trx` already is. */
+const writeReferences = async (
+  trx: Knex,
+  references: readonly UserReference[],
+  userId: number,
+  outcome: UserPurgeResult,
+): Promise<void> => {
+  for (const ref of references.filter((r) => r.action === "delete")) {
+    const name = referenceName(ref);
+    outcome.rowsDeleted[name] =
+      (outcome.rowsDeleted[name] ?? 0) +
+      rowCountOf(
+        await trx.raw("delete from ?? where ?? = ?", [
+          ref.table,
+          ref.column,
+          userId,
+        ]),
+      );
+  }
+  for (const ref of references.filter((r) => r.action === "set-null")) {
+    const name = referenceName(ref);
+    outcome.valuesNulled[name] =
+      (outcome.valuesNulled[name] ?? 0) +
+      rowCountOf(
+        await trx.raw("update ?? set ?? = null where ?? = ?", [
+          ref.table,
+          ref.column,
+          ref.column,
+          userId,
+        ]),
+      );
+  }
+};
+
+/** Recounts (T4/D-124) then writes `userId`'s references in one dedicated tenant database's own transaction. */
+const purgeReferencesInOneTenant = async (
+  tenantKnex: Knex,
+  references: readonly UserReference[],
+  refuseRefs: readonly UserReference[],
+  userId: number,
+  outcome: UserPurgeResult,
+): Promise<void> => {
+  await tenantKnex.transaction(async (trx) => {
+    // T4/D-124: recount inside this transaction, immediately before any
+    // write, closes most of the window a pre-flight taken outside any
+    // transaction leaves open — a reference row written between the
+    // pre-flight below and here is caught before anything is mutated in
+    // THIS database.
+    const raced = await countBlockers(
+      trx as unknown as Knex,
+      refuseRefs,
+      userId,
+    );
+    if (raced.length > 0) throw new UserPurgeRefusedError(userId, raced);
+    await writeReferences(trx as unknown as Knex, references, userId, outcome);
+  });
+};
+
+export type PurgeUserDeps = {
+  /** The shared/legacy target — pre-cutover, where "tenant" IS core (C0/C1, D-31's dedupe). */
+  sharedTarget: () => Knex;
+  listDedicatedTenants: () => Promise<DedicatedTenantTarget[]>;
+  openTenant: (target: DedicatedTenantTarget) => Promise<Knex>;
+  closeTenant: (knex: Knex) => Promise<void>;
+};
+
+/**
+ * `guardedForTenant(rawCoreInstance())`, not `db("tenant")`: `purgeUser` runs
+ * with no ambient tenant scope (a superAdmin's own request resolves no
+ * tenant at all, D-62), and `db("tenant")` outside one throws (AC-49).
+ */
+const defaultPurgeUserDeps: PurgeUserDeps = {
+  sharedTarget: () => guardedForTenant(rawCoreInstance()),
+  listDedicatedTenants,
+  openTenant: openDedicatedTenant,
+  closeTenant: closeDedicatedTenant,
+};
+
+/**
+ * T9/D-8, T4/D-124 follow-up (T12a, required before the first company move,
+ * C2): loops the shared target plus every separate dedicated `tenant_*`
+ * database (brief D-62's "every live tenant"), deduped by physical database
+ * the same way `purgeCompany` is. Every target is recounted for refusals
+ * BEFORE any of them is written to, so a refusal anywhere leaves every
+ * database unchanged in the case that matters — a blocker already present
+ * when the purge starts. Each target's writes then run inside that target's
+ * OWN transaction (immediately preceded by its own race-closing recount), so
+ * a race or a core-side RESTRICT cannot corrupt a target's own data; as with
+ * `purgeCompany` (see its "Failure semantics" note), there is no cross-database
+ * two-phase commit, so a race caught only in a LATER target's transaction can
+ * still leave an earlier target's transaction already committed — an
+ * accepted, stated limitation, not silently different from `purgeCompany`'s.
+ * The `users` row is deleted last, in core, only once every tenant database
+ * has succeeded.
+ */
+export async function purgeUser(
+  userId: number,
+  deps: PurgeUserDeps = defaultPurgeUserDeps,
+): Promise<UserPurgeResult> {
+  const references = userReferences();
   const refuseRefs = references.filter((r) => r.action === "refuse");
 
-  const preflight = await countBlockers(db(tenantKey), refuseRefs, userId);
-  if (preflight.length > 0) throw new UserPurgeRefusedError(userId, preflight);
+  const shared = deps.sharedTarget();
+  const dedicated = await deps.listDedicatedTenants();
 
-  const outcome: UserPurgeResult = {
-    userDeleted: false,
-    rowsDeleted: {},
-    valuesNulled: {},
-  };
-  const coreLast = [...representatives()].sort(
-    ([, a], [, b]) => Number(a === "core") - Number(b === "core"),
-  );
-  for (const [physical, key] of coreLast) {
-    await db(key).transaction(async (trx) => {
-      if (physical === physicalKeyOf("tenant")) {
-        // T4/D-124: recount inside this transaction, immediately before any
-        // write, closes most of the window a pre-flight taken outside any
-        // transaction leaves open — a reference row written between the
-        // pre-flight above and here is caught before anything is mutated.
-        const raced = await countBlockers(
-          trx as unknown as Knex,
-          refuseRefs,
-          userId,
-        );
-        if (raced.length > 0) throw new UserPurgeRefusedError(userId, raced);
-
-        // Deletes first: a row about to go needs no NULL written (and audited).
-        for (const ref of references.filter((r) => r.action === "delete")) {
-          outcome.rowsDeleted[referenceName(ref)] = rowCountOf(
-            await trx.raw("delete from ?? where ?? = ?", [
-              ref.table,
-              ref.column,
-              userId,
-            ]),
-          );
-        }
-        for (const ref of references.filter((r) => r.action === "set-null")) {
-          outcome.valuesNulled[referenceName(ref)] = rowCountOf(
-            await trx.raw("update ?? set ?? = null where ?? = ?", [
-              ref.table,
-              ref.column,
-              ref.column,
-              userId,
-            ]),
-          );
-        }
-      }
-      if (key === "core") {
-        outcome.userDeleted =
-          (await trx("users").where({ id: userId }).delete()) > 0;
-      }
-    });
+  const sharedPreflight = await countBlockers(shared, refuseRefs, userId);
+  if (sharedPreflight.length > 0) {
+    throw new UserPurgeRefusedError(userId, sharedPreflight);
   }
-  return outcome;
+
+  const opened: { target: DedicatedTenantTarget; knex: Knex }[] = [];
+  try {
+    for (const target of dedicated) {
+      const knex = await deps.openTenant(target);
+      opened.push({ target, knex });
+      const blockers = await countBlockers(knex, refuseRefs, userId);
+      if (blockers.length > 0)
+        throw new UserPurgeRefusedError(userId, blockers);
+    }
+
+    const outcome: UserPurgeResult = {
+      userDeleted: false,
+      rowsDeleted: {},
+      valuesNulled: {},
+    };
+
+    // Dedicated tenants first, each in its own transaction.
+    for (const { knex } of opened) {
+      await purgeReferencesInOneTenant(
+        knex,
+        references,
+        refuseRefs,
+        userId,
+        outcome,
+      );
+    }
+
+    // The shared target LAST, and combined with the `users` delete in ONE
+    // transaction: it is physically core (D-31's dedupe) — the same target
+    // `db("core")` reaches — so this is D-108's "while tenants share one
+    // database, one transaction covers everything," and it only runs once
+    // every dedicated tenant above has already committed.
+    await shared.transaction(async (trx) => {
+      const raced = await countBlockers(
+        trx as unknown as Knex,
+        refuseRefs,
+        userId,
+      );
+      if (raced.length > 0) throw new UserPurgeRefusedError(userId, raced);
+      await writeReferences(
+        trx as unknown as Knex,
+        references,
+        userId,
+        outcome,
+      );
+      // Raw, not `trx("users")`: `shared` is guarded as "tenant" (T11/D-6's
+      // shape), and `users` belongs to core — the wrong-database guard would
+      // reject the callable form even though this transaction's connection
+      // IS core (D-31's dedupe).
+      outcome.userDeleted =
+        rowCountOf(
+          await (trx as unknown as Knex).raw("delete from users where id = ?", [
+            userId,
+          ]),
+        ) > 0;
+    });
+
+    return outcome;
+  } finally {
+    for (const { knex } of opened) await deps.closeTenant(knex);
+  }
 }
