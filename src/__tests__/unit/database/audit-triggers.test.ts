@@ -71,12 +71,17 @@ const triggerArgs = (sql: string): string[] => {
  * the map under test would follow it anywhere, including to zero columns. This
  * is the assertion that goes red when a secret drops off the list (L-018).
  * Re-verified 2026-09-01 against a full `%password%|%secret%|%token%|%cipher%|
- * %hash%|%credential%` sweep of `information_schema.columns`.
+ * %hash%|%credential%` sweep of `information_schema.columns`; extended
+ * 2026-09-13 (db-per-company T6, AC-35) for the tenant registry's two
+ * ciphertext columns — same treatment, packed bytea instead of three text
+ * columns.
  */
 const EXPECTED_REDACTIONS: Record<string, string[]> = {
   users: ["password"],
   invitations: ["token"],
   nf_credentials: ["secretCiphertext", "secretIv", "secretTag"],
+  db_servers: ["adminCredentialCiphertext"],
+  tenant_databases: ["credentialCiphertext"],
 };
 
 describe("audit-triggers — §0 rule 6: no bare `?` in raw SQL", () => {
@@ -158,9 +163,7 @@ describe("audit-triggers — the trigger function", () => {
 
   it("strips the redacted values only after the diff, keeping their names in changedKeys", () => {
     const changedKeys = AUDIT_FUNCTION_SQL.indexOf("array_agg(k ORDER BY k)");
-    const strip = AUDIT_FUNCTION_SQL.indexOf(
-      "'{}'::jsonb) - excluded;",
-    );
+    const strip = AUDIT_FUNCTION_SQL.indexOf("'{}'::jsonb) - excluded;");
     expect(strip).toBeGreaterThan(changedKeys);
     // `changed` is built from the unredacted sides and is never filtered by
     // `excluded` — only by `ignored`.

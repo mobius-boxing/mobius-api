@@ -24,6 +24,14 @@ import {
  * human can act on. It does not crash the worker, it does not fail the module
  * gate, and it does not stop the process from starting. The blast radius of a
  * missing key is "HTTP nodes with credentials fail", not "the API is down".
+ *
+ * **`keyEnv` (db-per-company T6/D-33)**: every function takes an optional key
+ * environment-variable name, defaulting to `NF_SECRET_KEY` — every existing
+ * call site keeps its exact behaviour, including its exact error text.
+ * `credential-resolver.ts` passes `TENANT_CREDENTIAL_KEY` instead, so tenant
+ * secrets are sealed under a key with its own blast radius rather than
+ * reusing node-files'. This is deliberately the only AES implementation in
+ * the repo (the duplication rule); a second one was rejected at the gate.
  */
 
 /** A key or ciphertext problem. The message is tenant-facing Spanish. */
@@ -47,6 +55,9 @@ export interface IEncryptedSecret {
   tag: string;
 }
 
+/** Every existing call site's default — never renamed, never repointed. */
+const DEFAULT_KEY_ENV = "NF_SECRET_KEY";
+
 /**
  * The key, read from the environment on every call.
  *
@@ -55,11 +66,11 @@ export interface IEncryptedSecret {
  * deploy. Read per call, not cached at import, so a process that gets the
  * variable added by a restart does not also need a code change to believe it.
  */
-function readKey(): Buffer {
-  const raw = (process.env.NF_SECRET_KEY ?? "").trim();
+function readKey(keyEnv: string): Buffer {
+  const raw = (process.env[keyEnv] ?? "").trim();
   if (raw === "") {
     throw new NodeFilesSecretError(
-      "No hay clave de cifrado configurada (NF_SECRET_KEY): no se pueden usar credenciales",
+      `No hay clave de cifrado configurada (${keyEnv}): no se pueden usar credenciales`,
     );
   }
 
@@ -68,23 +79,26 @@ function readKey(): Buffer {
     : Buffer.from(raw, "base64");
   if (key.length !== KEY_BYTES) {
     throw new NodeFilesSecretError(
-      "La clave de cifrado (NF_SECRET_KEY) debe tener 32 bytes en hex o base64",
+      `La clave de cifrado (${keyEnv}) debe tener 32 bytes en hex o base64`,
     );
   }
   return key;
 }
 
 /** Whether a usable key is present — for a health answer, never for a decision. */
-export function hasSecretKey(): boolean {
+export function hasSecretKey(keyEnv: string = DEFAULT_KEY_ENV): boolean {
   try {
-    readKey();
+    readKey(keyEnv);
     return true;
   } catch {
     return false;
   }
 }
 
-export function encryptSecret(plaintext: string): IEncryptedSecret {
+export function encryptSecret(
+  plaintext: string,
+  keyEnv: string = DEFAULT_KEY_ENV,
+): IEncryptedSecret {
   if (plaintext === "") {
     throw new NodeFilesSecretError("El secreto no puede estar vacío");
   }
@@ -94,7 +108,7 @@ export function encryptSecret(plaintext: string): IEncryptedSecret {
     );
   }
 
-  const key = readKey();
+  const key = readKey(keyEnv);
   // A fresh IV per secret. Reusing one under GCM leaks plaintext outright, so
   // it is generated here and never derived from anything about the row.
   const iv = randomBytes(IV_BYTES);
@@ -111,8 +125,11 @@ export function encryptSecret(plaintext: string): IEncryptedSecret {
   };
 }
 
-export function decryptSecret(parts: IEncryptedSecret): string {
-  const key = readKey();
+export function decryptSecret(
+  parts: IEncryptedSecret,
+  keyEnv: string = DEFAULT_KEY_ENV,
+): string {
+  const key = readKey(keyEnv);
   const iv = Buffer.from(parts.iv, "base64");
   const tag = Buffer.from(parts.tag, "base64");
   if (iv.length !== IV_BYTES || tag.length !== 16) {
@@ -132,7 +149,7 @@ export function decryptSecret(parts: IEncryptedSecret): string {
     // Wrong key or tampered row — indistinguishable on purpose, and neither is
     // worth describing to whoever is reading the run.
     throw new NodeFilesSecretError(
-      "No se pudo descifrar la credencial (¿cambió NF_SECRET_KEY?)",
+      `No se pudo descifrar la credencial (¿cambió ${keyEnv}?)`,
     );
   }
 }

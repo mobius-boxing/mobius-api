@@ -39,17 +39,20 @@ const isLocalDb =
   process.env.SQL_HOST === "localhost" || process.env.SQL_HOST === "127.0.0.1";
 const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 
-/** Verified against the live database 2026-09-01 (brief §0.4). */
+/**
+ * Verified against the live database 2026-09-01 (brief §0.4), plus T6's
+ * 3-table tenant registry (all `core`, all audited, model D-7).
+ */
 const AUDITED_COUNTS: Record<DbKey, number> = {
   tenant: 66,
-  core: 9,
+  core: 12,
 };
-/** `files` is attached under core + tenant: 75 calls, 74 tables. */
-const ATTACH_CALLS = 75;
-const AUDITED_TABLES = 74;
+/** `files` is attached under core + tenant: 78 calls, 77 tables. */
+const ATTACH_CALLS = 78;
+const AUDITED_TABLES = 77;
 
-/** R-1: 43 of the 74 audited tables are `requireAdmin()`-gated on their own routes. */
-const ADMIN_ONLY_ENTITIES = 43;
+/** R-1: 43 of the 74 pre-T6 tables, plus T6's 3 superAdmin-only ones (D-46). */
+const ADMIN_ONLY_ENTITIES = 46;
 
 /**
  * Column names the live schema points at two different tables (R-4). They must
@@ -87,7 +90,7 @@ describe("audit coverage manifest (AC-1)", () => {
     expect(counts).toEqual(AUDITED_COUNTS);
   });
 
-  it("makes 75 attach calls over 74 distinct tables", () => {
+  it("makes 78 attach calls over 77 distinct tables", () => {
     const entries = allAudited();
     expect(entries).toHaveLength(ATTACH_CALLS);
     expect(new Set(entries).size).toBe(AUDITED_TABLES);

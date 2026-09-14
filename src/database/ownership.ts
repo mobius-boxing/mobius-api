@@ -18,7 +18,8 @@ import { DbKey } from "./keys";
  * prefix (the module split's D-4 renames are moot, model D-1).
  */
 export const DOMAIN_OWNER: Record<string, DbKey> = {
-  // ── core (11) — identity, tenancy, the module catalogue and RBAC ──────────
+  // ── core (14) — identity, tenancy, the module catalogue, RBAC and the ─────
+  //    tenant registry (db-per-company T6, model D-7) ────────────────────────
   users: "core",
   companies: "core",
   invitations: "core",
@@ -32,6 +33,11 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   // copies are in EXTRA_COPIES below; the rows are partitioned at cutover.
   files: "core",
   audit_logs: "core",
+  // Where a tenant's database lives and what happened to it (T6): never a
+  // tenant table, so no `EXTRA_COPIES`/`TABLE_MODULE` entry either.
+  db_servers: "core",
+  tenant_databases: "core",
+  tenant_migration_runs: "core",
 
   // ── tenant: countdown (9) — the 8 tables of 20260812000001 + digests ──────
   countdown_categories: "tenant",

@@ -31,17 +31,19 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 /**
  * D-5, frozen by measurement on the live host 2026-08-13, less the 5 store
  * tables deleted with the store module on 2026-08-24 (amendment-2026-08-24),
- * plus the 6 `nf_*` tables of node-files Phases 1 and 2.
+ * plus the 6 `nf_*` tables of node-files Phases 1 and 2, plus T6's 3-table
+ * tenant registry (`db_servers`, `tenant_databases`, `tenant_migration_runs`
+ * — all `core`, model D-7).
  */
-const DOMAIN_TABLE_COUNT = 81;
+const DOMAIN_TABLE_COUNT = 84;
 /** db-per-company model D-3: the pre-fan-out names, per plane. */
 const DOMAIN_COUNTS: Record<DbKey, number> = {
-  core: 11,
+  core: 14,
   tenant: 70,
 };
 /** The names each plane holds, fan-out copies included (model placement table). */
 const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
-  core: 11,
+  core: 14,
   tenant: 72,
 };
 /**
@@ -101,7 +103,7 @@ describe("TABLE_OWNER manifest (AC-1 a/b/d, AC-2)", () => {
     }
   });
 
-  it("holds 11 central and 72 tenant names, copies included (AC-15)", () => {
+  it("holds 14 central and 72 tenant names, copies included (AC-15)", () => {
     const counts = Object.fromEntries(
       DB_KEYS.map((key) => [key, tablesOf(key).length]),
     );
@@ -138,6 +140,12 @@ describe("TABLE_OWNER manifest (AC-1 a/b/d, AC-2)", () => {
     expect(ownerOf("files")).toBeUndefined();
     expect(ownerOf("audit_logs")).toBeUndefined();
     expect(ownerOf("knex_migrations")).toBeUndefined();
+  });
+
+  it("owns the T6 tenant registry tables centrally, with no fan-out (AC-30)", () => {
+    expect(ownerOf("db_servers")).toBe("core");
+    expect(ownerOf("tenant_databases")).toBe("core");
+    expect(ownerOf("tenant_migration_runs")).toBe("core");
   });
 });
 
@@ -244,7 +252,8 @@ describeIfLocalDb("crossPlaneRefs vs the live catalogue (AC-15)", () => {
       );
       return result.rows
         .filter(
-          (row) => tenant.has(row.table) && centralOnly.has(row.referencedTable),
+          (row) =>
+            tenant.has(row.table) && centralOnly.has(row.referencedTable),
         )
         .map((row) => render({ ...row, nullable: row.nullableText === "YES" }))
         .sort();
