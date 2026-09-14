@@ -52,9 +52,6 @@ export async function up(knex: Knex): Promise<void> {
       .notNullable()
       .defaultTo(knex.fn.now());
 
-    table.unique(["serverId", "databaseName"], {
-      indexName: "tenant_databases_server_database_name_unique",
-    });
     table.index(["companyId"]);
     table.index(["serverId"]);
 
@@ -116,10 +113,24 @@ export async function up(knex: Knex): Promise<void> {
     `CREATE UNIQUE INDEX tenant_databases_company_build_uidx ON tenant_databases ("companyId")
        WHERE status IN ('provisioning','failed')`,
   );
+  // Orchestrator T7/D-orch-1: the uniqueness applies only to DEDICATED tenant
+  // databases (D-70 names them `tenant_<id>_<slug>`); C1's shared-target rows
+  // (`databaseName` = the core database's own name) intentionally share one
+  // `(serverId, databaseName)` pair across every company (D-21/D-31) — a
+  // bare unique constraint on the pair is incompatible with that by
+  // construction. Partial, same name, so nothing downstream needs to know it
+  // changed shape.
+  await knex.raw(
+    `CREATE UNIQUE INDEX tenant_databases_server_database_name_unique ON tenant_databases ("serverId", "databaseName")
+       WHERE "databaseName" LIKE 'tenant\\_%'`,
+  );
 }
 
 export async function down(knex: Knex): Promise<void> {
   await knex.raw(`DROP INDEX IF EXISTS tenant_databases_company_live_uidx`);
   await knex.raw(`DROP INDEX IF EXISTS tenant_databases_company_build_uidx`);
+  await knex.raw(
+    `DROP INDEX IF EXISTS tenant_databases_server_database_name_unique`,
+  );
   await knex.schema.dropTableIfExists("tenant_databases");
 }

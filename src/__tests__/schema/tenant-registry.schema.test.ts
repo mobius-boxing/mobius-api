@@ -342,4 +342,25 @@ describeIfLocalDb("tenant registry schema (AC-30)", () => {
       "WHERE (status = ANY (ARRAY['provisioning'::text, 'failed'::text]))",
     );
   });
+
+  /**
+   * Orchestrator T7/D-orch-1: `(serverId, databaseName)` uniqueness applies
+   * only to DEDICATED tenant databases (D-70 names them `tenant_<id>_<slug>`)
+   * — a bare table-wide unique constraint is incompatible with C1's
+   * shared-target rows, which intentionally share one `(serverId,
+   * databaseName)` pair across every company (D-21/D-31). Same index name,
+   * now partial. No prior test pinned this constraint's shape; this is that
+   * pin, not a loosened re-run of one.
+   */
+  it("declares tenant_databases_server_database_name_unique as a DEDICATED-only partial index (T7/D-orch-1)", async () => {
+    const result = await client.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes
+        WHERE tablename = 'tenant_databases'
+          AND indexname = 'tenant_databases_server_database_name_unique'`,
+    );
+    expect(result.rows).toHaveLength(1);
+    const indexdef = result.rows[0].indexdef;
+    expect(indexdef).toContain('("serverId", "databaseName")');
+    expect(indexdef).toContain(`WHERE ("databaseName" ~~ 'tenant\\_%'::text)`);
+  });
 });

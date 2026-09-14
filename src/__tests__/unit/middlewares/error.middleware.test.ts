@@ -185,3 +185,84 @@ describe("errorMiddleware — ValidationError field detail", () => {
     expect(out.body.errors).toEqual({ column: "code" });
   });
 });
+
+describe("errorMiddleware — TENANT_*/COMPANY_REQUIRED mapping (db-per-company T7, D-45)", () => {
+  /** `run()` above has no `.set()`; these cases need it for `Retry-After`. */
+  const runWithHeaders = (err: any) => {
+    const captured: {
+      status?: number;
+      body?: any;
+      headers: Record<string, string>;
+    } = {
+      headers: {},
+    };
+    const res = {
+      status(code: number) {
+        captured.status = code;
+        return this;
+      },
+      json(body: any) {
+        captured.body = body;
+        return this;
+      },
+      set(name: string, value: string) {
+        captured.headers[name] = value;
+        return this;
+      },
+    } as unknown as Response;
+
+    errorMiddleware(err, {} as Request, res, (() => {}) as NextFunction);
+    return captured;
+  };
+
+  it('maps TenantNotResolvedError to 400 COMPANY_REQUIRED (a mixed route\'s unresolved db("tenant"))', async () => {
+    const { TenantNotResolvedError } =
+      await import("../../../database/tenant-pools");
+
+    const out = runWithHeaders(new TenantNotResolvedError());
+
+    expect(out.status).toBe(400);
+    expect(out.body).toEqual({
+      success: false,
+      code: "COMPANY_REQUIRED",
+      message:
+        "This resource is company-scoped; superAdmins must specify companyId.",
+    });
+  });
+
+  it.each([
+    ["provisioning", 503, "TENANT_DB_PROVISIONING", "15"],
+    ["unavailable", 503, "TENANT_DB_UNAVAILABLE", undefined],
+    ["suspended", 403, "TENANT_SUSPENDED", undefined],
+    ["behind", 503, "TENANT_DB_BEHIND", undefined],
+    ["busy", 503, "TENANT_DB_BUSY", "2"],
+  ] as const)(
+    "maps TenantUnavailableError(%s) to %i %s, Retry-After %s",
+    async (kind, status, code, retryAfter) => {
+      const { TenantUnavailableError } =
+        await import("../../../database/tenant-pools");
+
+      const out = runWithHeaders(
+        new TenantUnavailableError({ kind, row: null } as never),
+      );
+
+      expect(out.status).toBe(status);
+      expect(out.body).toMatchObject({ success: false, code });
+      if (retryAfter) {
+        expect(out.headers["Retry-After"]).toBe(retryAfter);
+      } else {
+        expect(out.headers["Retry-After"]).toBeUndefined();
+      }
+    },
+  );
+
+  it("mutation check: a plain Error with the same message is NOT mapped (instanceof, not name/message sniffing)", () => {
+    const impostor = new Error("Tenant database unavailable: busy");
+    impostor.name = "TenantUnavailableError";
+
+    const out = runWithHeaders(impostor);
+
+    expect(out.status).not.toBe(503);
+    expect(out.body?.code).not.toBe("TENANT_DB_BUSY");
+  });
+});

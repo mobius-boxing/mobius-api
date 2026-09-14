@@ -10,6 +10,15 @@ import {
   isAmbientAuditActive,
   type AuditRequestState,
 } from "./audit-context";
+import { getRequestContext } from "../utils/requestContext";
+import {
+  acquireTenant,
+  CORE_POOL_MAX,
+  disconnectAllTenants,
+  POOL_BUDGET,
+  TenantNotResolvedError,
+  TenantUnavailableError,
+} from "./tenant-pools";
 
 /**
  * Keep PG `DATE` (oid 1082) as the 'YYYY-MM-DD' string it already is.
@@ -27,19 +36,12 @@ pg.types.setTypeParser(1082, (value: string) => value);
  * is 100 on a `traffic-postgres` shared with rolpel-api, rookito-api, the
  * legacy countdown-api and ad-hoc psql, on a t3.micro with 916 MB RAM.
  *
- * Until tenant pools exist, `tenant` is served by this same instance, so this
- * is also the whole process's pool. That is enough because both planes share
- * one ambient transaction per request instead of the split's up to three.
- * The node-files extraction worker lives inside it — which is exactly why it
- * never holds a connection across an LLM call (see node-files-worker.ts).
+ * A C1 company (a `tenant_databases` row whose target is still the core
+ * database, D-31) is deduped onto this same instance, so it never opens a
+ * second pool. Re-exported: `CORE_POOL_MAX`/`POOL_BUDGET` moved to
+ * `tenant-pools.ts` in T7 (T3/D-116 kept them here only "until T7").
  */
-export const CORE_POOL_MAX = 10;
-
-/**
- * The ceiling the core pool plus every tenant pool on the shared server may
- * not exceed. Asserted by unit test.
- */
-export const POOL_BUDGET = 40;
+export { CORE_POOL_MAX, POOL_BUDGET };
 
 /** Idle connections are not free on a t3.micro: the core pool keeps one. */
 const CORE_POOL_MIN = 1;
@@ -62,6 +64,18 @@ export class WrongDatabaseError extends Error {
       `Table "${table}" is owned by the "${owner}" database but was queried on the "${requested}" connection.`,
     );
     this.name = "WrongDatabaseError";
+  }
+}
+
+/** I-3: a request or `withTenant` scope touches at most one tenant database. */
+export class NestedTenantScopeError extends Error {
+  constructor() {
+    super(
+      "withTenantTarget/withTenant was called while a tenant scope is " +
+        "already active (db-per-company I-3): a request or job touches at " +
+        "most one tenant database. Finish the outer scope first.",
+    );
+    this.name = "NestedTenantScopeError";
   }
 }
 
@@ -225,25 +239,63 @@ const tenantInstancesWithLogger = new WeakSet<Knex>();
 
 /**
  * Serve `db("tenant")` from `target` for everything `fn` runs. The caller owns
- * the instance's lifecycle. This is the seam per-company resolution plugs into;
- * until it exists the only callers are real-database tests that need a second
- * physical target (AC-16).
+ * the instance's lifecycle. The low-level seam per-company resolution plugs
+ * into (`withTenant`, below, wraps it); real-database tests use it directly
+ * for a second physical target (AC-16).
  */
-export const withTenantTarget = <T>(target: PhysicalTarget, fn: () => T): T =>
-  tenantScope.run(target, fn);
+export const withTenantTarget = <T>(target: PhysicalTarget, fn: () => T): T => {
+  if (tenantScope.getStore()) throw new NestedTenantScopeError();
+  return tenantScope.run(target, fn);
+};
 
 /**
- * Which physical database `key` reaches right now. `tenant` outside a
- * `withTenantTarget` scope is the core database (db-per-company D-29), so the
- * two planes share one instance and one ambient transaction (D-13).
+ * The per-request handle, once `tenant-context.middleware` has acquired one
+ * (T7, model D-12). A plain field on the ALREADY-ACTIVE `RequestContext` —
+ * `tenantContext` (T1) wraps the whole request in it before `authenticate`
+ * even runs — so no second `AsyncLocalStorage.run()` is needed here: setting
+ * this field is visible to every later `db("tenant")` call in the same
+ * request with no extra scope to re-enter.
  */
-export const physicalKeyOf = (key: DbKey): PhysicalKey =>
-  key === "tenant" ? (tenantScope.getStore()?.physicalKey ?? "core") : "core";
+const requestTenantTarget = (): PhysicalTarget | undefined => {
+  const handle = getRequestContext()?.tenant;
+  return (
+    handle && { physicalKey: handle.physicalKey, instance: handle.instance }
+  );
+};
+
+/**
+ * Which physical database `key` reaches right now (db-per-company D-29, T7
+ * stage 2). Priority: an explicit `withTenantTarget`/`withTenant` scope (tests,
+ * jobs), then the current request's acquired tenant, then — only outside any
+ * request context at all (a script, a job with no `withTenant` wrapper, a
+ * plain unit test) — the static core fallback, logged once per call so a
+ * silent cross-tenant read never happens unnoticed. Inside a request that
+ * never resolved a tenant (a bug in the route's plane classification, since
+ * `central` routes never call `db("tenant")` and `tenant`/`mixed` routes
+ * either resolve one or already answered) this throws instead of falling
+ * back — stage 3 (T8, AC-49) removes the fallback branch entirely.
+ */
+export const physicalKeyOf = (key: DbKey): PhysicalKey => {
+  if (key !== "tenant") return "core";
+  const scoped = tenantScope.getStore();
+  if (scoped) return scoped.physicalKey;
+  const requestTarget = requestTenantTarget();
+  if (requestTarget) return requestTarget.physicalKey;
+  if (getRequestContext()) throw new TenantNotResolvedError();
+  console.warn("[db] tenant fallback");
+  return "core";
+};
 
 const resolveTarget = (key: DbKey): PhysicalTarget => {
   if (!coreInstance) throw new DatabaseNotConnectedError(key);
-  const scoped = key === "tenant" ? tenantScope.getStore() : undefined;
-  if (!scoped) return { physicalKey: "core", instance: coreInstance };
+  if (key !== "tenant") return { physicalKey: "core", instance: coreInstance };
+
+  const scoped = tenantScope.getStore() ?? requestTenantTarget();
+  if (!scoped) {
+    if (getRequestContext()) throw new TenantNotResolvedError();
+    console.warn("[db] tenant fallback");
+    return { physicalKey: "core", instance: coreInstance };
+  }
   if (!tenantInstancesWithLogger.has(scoped.instance)) {
     tenantInstancesWithLogger.add(scoped.instance);
     attachRawBoundaryLogger(scoped.instance);
@@ -264,6 +316,37 @@ const guardedFor = (instance: Knex, key: DbKey): Knex => {
   }
   return facade;
 };
+
+/** The raw core instance — `tenant-pools.ts`'s C1 dedupe (D-13, D-31) only. */
+export function rawCoreInstance(): Knex {
+  if (!coreInstance) throw new DatabaseNotConnectedError("core");
+  return coreInstance;
+}
+
+/** The wrong-database-guarded facade for a tenant instance (model `TenantHandle.guarded`). */
+export const guardedForTenant = (instance: Knex): Knex =>
+  guardedFor(instance, "tenant");
+
+/**
+ * For jobs and scripts (model, `database/registry.ts`): resolve `companyId`
+ * through the tenant pools and run `fn` with `db("tenant")` scoped to it.
+ * Wraps the low-level `withTenantTarget` (T3/D-102's "T7 wraps it") rather
+ * than duplicating its ALS mechanism.
+ */
+export async function withTenant<T>(
+  companyId: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const resolution = await acquireTenant(companyId);
+  if (resolution.kind !== "ok") throw new TenantUnavailableError(resolution);
+  return withTenantTarget(
+    {
+      physicalKey: resolution.handle.physicalKey,
+      instance: resolution.handle.instance,
+    },
+    fn,
+  );
+}
 
 /**
  * The ambient (per-request) transaction facade — audit P1, handbook §P1.3.
@@ -497,6 +580,7 @@ export async function connectAll(): Promise<void> {
 }
 
 export async function disconnectAll(): Promise<void> {
+  await disconnectAllTenants();
   const open = coreInstance;
   coreInstance = undefined;
   if (!open) return;
