@@ -23,7 +23,10 @@ import type {
 import type { IModuleEmail } from "../../../services/module-email.service";
 
 const mockReminderDAO = {
-  findDue: jest.fn<(today: string) => Promise<ICountdownDueDocumentRow[]>>(),
+  findDue:
+    jest.fn<
+      (companyId: number, today: string) => Promise<ICountdownDueDocumentRow[]>
+    >(),
   findDigestedUserIds: jest.fn<(sendDate: string) => Promise<Set<number>>>(),
   findRecipients:
     jest.fn<(userIds: number[]) => Promise<ICountdownReminderRecipient[]>>(),
@@ -42,13 +45,39 @@ const mockAssignmentDAO = {
 const mockSendModuleEmail =
   jest.fn<(email: IModuleEmail) => Promise<boolean>>();
 
+/**
+ * db-per-company (T8): `run()`/`runDailyOnce()` now iterate
+ * `CoreClient.companyIdsWithModuleEnabled` and run each company inside
+ * `withTenant`. Defaulting to one company (100, every fixture's own
+ * companyId) keeps the whole file's pre-existing single-tenant assertions
+ * unchanged — the T8-specific tests below override both.
+ */
+const mockCompanyIdsWithModuleEnabled =
+  jest.fn<(slug: string) => Promise<readonly number[]>>();
+const mockWithTenant =
+  jest.fn<
+    (companyId: number, fn: () => Promise<unknown>) => Promise<unknown>
+  >();
+
+jest.mock("../../../services/core-client.service", () => ({
+  CoreClient: {
+    companyIdsWithModuleEnabled: (slug: string) =>
+      mockCompanyIdsWithModuleEnabled(slug),
+  },
+}));
+
+jest.mock("../../../database/registry", () => ({
+  withTenant: (companyId: number, fn: () => Promise<unknown>) =>
+    mockWithTenant(companyId, fn),
+}));
+
 // Methods, never property initialisers: the service module constructs one
 // instance of itself at import time, and a property initialiser would touch
 // these bindings before they exist.
 jest.mock("../../../dao/countdown/countdown-reminder.dao", () => ({
   CountdownReminderDAO: class {
-    findDue(today: string) {
-      return mockReminderDAO.findDue(today);
+    findDue(companyId: number, today: string) {
+      return mockReminderDAO.findDue(companyId, today);
     }
     findDigestedUserIds(sendDate: string) {
       return mockReminderDAO.findDigestedUserIds(sendDate);
@@ -335,6 +364,11 @@ describe("countdown reminder batch — run", () => {
     );
     mockReminderDAO.recordDigest.mockResolvedValue(undefined);
     mockSendModuleEmail.mockResolvedValue(true);
+    // One company (100, every fixture's own), and `withTenant` running its
+    // callback in place: every pre-existing test below is single-tenant and
+    // stays exactly as it read before T8.
+    mockCompanyIdsWithModuleEnabled.mockResolvedValue([100]);
+    mockWithTenant.mockImplementation((_companyId, fn) => fn());
   });
 
   it("sends one digest for four in-scope documents, and records them all", async () => {
@@ -771,5 +805,141 @@ describe("countdown reminder batch — run", () => {
     expect(mockReminderDAO.findCompanyRecipientIds).not.toHaveBeenCalled();
     expect(mockSendModuleEmail).toHaveBeenCalledTimes(1);
     expect(outcome).toEqual({ sent: 1, failed: 0, skipped: 0 });
+  });
+});
+
+/**
+ * AC-47 / model D-22 (db-per-company T8): the tick iterates every
+ * module-enabled company, sequentially, each inside its own `withTenant`
+ * scope. `mockWithTenant` is asserted directly here (elsewhere in this file it
+ * only runs its callback in place), and `findDue` is given a company-specific
+ * implementation because two different tenants are in scope.
+ */
+describe("countdown reminder batch — run — cross-tenant iteration (AC-47)", () => {
+  const NOW = new Date("2026-08-13T15:00:00Z");
+
+  const dueRowFor = (
+    companyId: number,
+    overrides: Partial<ICountdownDueDocumentRow> = {},
+  ): ICountdownDueDocumentRow => ({
+    id: companyId,
+    title: `Doc ${companyId}`,
+    dueDate: "2026-08-13",
+    reminderDays: 7,
+    offsetDays: 0,
+    uploadedBy: companyId,
+    companyId,
+    ...overrides,
+  });
+
+  const recipientFor = (
+    companyId: number,
+    overrides: Partial<ICountdownReminderRecipient> = {},
+  ): ICountdownReminderRecipient => ({
+    id: companyId,
+    email: `user-${companyId}@example.com`,
+    name: `User ${companyId}`,
+    isActive: true,
+    companyId,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    mockAssignmentDAO.effectiveUserIds.mockResolvedValue(
+      new Map<number, Set<number>>(),
+    );
+    mockReminderDAO.findDigestedUserIds.mockResolvedValue(new Set<number>());
+    mockReminderDAO.recordDigest.mockResolvedValue(undefined);
+    mockSendModuleEmail.mockResolvedValue(true);
+    mockWithTenant.mockImplementation((_companyId, fn) => fn());
+  });
+
+  it("iterates every module-enabled company in order, each inside its own withTenant scope", async () => {
+    mockCompanyIdsWithModuleEnabled.mockResolvedValue([100, 200]);
+    mockReminderDAO.findDue.mockImplementation((companyId: number) =>
+      Promise.resolve(
+        companyId === 100 || companyId === 200 ? [dueRowFor(companyId)] : [],
+      ),
+    );
+    mockReminderDAO.findCompanyRecipientIds.mockImplementation(
+      (companyIds: number[]) =>
+        Promise.resolve(new Map(companyIds.map((id) => [id, [id]]))),
+    );
+    mockReminderDAO.findRecipients.mockImplementation((userIds: number[]) =>
+      Promise.resolve(userIds.map((id) => recipientFor(id))),
+    );
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    // Sequential, in the order the module list came back — not two racing
+    // withTenant calls, and not company 200 visited before company 100.
+    expect(mockWithTenant.mock.calls.map((call) => call[0])).toEqual([
+      100, 200,
+    ]);
+    expect(mockReminderDAO.findDue.mock.calls.map((call) => call[0])).toEqual([
+      100, 200,
+    ]);
+    // One digest per company, summed across tenants — never leaked into the
+    // wrong company's count.
+    expect(outcome).toEqual({ sent: 2, failed: 0, skipped: 0 });
+    expect(
+      mockSendModuleEmail.mock.calls.map((call) => call[0].to).sort(),
+    ).toEqual(["user-100@example.com", "user-200@example.com"]);
+  });
+
+  it("logs and skips a tenant whose scope throws (e.g. suspended), and still runs the rest", async () => {
+    mockCompanyIdsWithModuleEnabled.mockResolvedValue([100, 200]);
+    mockReminderDAO.findDue.mockImplementation((companyId: number) =>
+      Promise.resolve([dueRowFor(companyId)]),
+    );
+    mockReminderDAO.findCompanyRecipientIds.mockImplementation(
+      (companyIds: number[]) =>
+        Promise.resolve(new Map(companyIds.map((id) => [id, [id]]))),
+    );
+    mockReminderDAO.findRecipients.mockImplementation((userIds: number[]) =>
+      Promise.resolve(userIds.map((id) => recipientFor(id))),
+    );
+    // Company 100 is suspended: withTenant itself rejects, before findDue for
+    // that company ever runs.
+    mockWithTenant.mockImplementation((companyId: number, fn) =>
+      companyId === 100 ? Promise.reject(new Error("tenant suspended")) : fn(),
+    );
+    const errorSpy = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    // Company 100 contributed nothing — not even a `failed` count, since no
+    // digest for it was ever attempted.
+    expect(outcome).toEqual({ sent: 1, failed: 0, skipped: 0 });
+    expect(mockSendModuleEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendModuleEmail.mock.calls[0]?.[0].to).toBe(
+      "user-200@example.com",
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("tenant 100"),
+      "tenant suspended",
+    );
+  });
+
+  it("asks nothing of any tenant when no company has the module enabled", async () => {
+    mockCompanyIdsWithModuleEnabled.mockResolvedValue([]);
+
+    const outcome = await new CountdownRemindersService().run(NOW);
+
+    expect(mockWithTenant).not.toHaveBeenCalled();
+    expect(mockReminderDAO.findDue).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ sent: 0, failed: 0, skipped: 0 });
+  });
+
+  it("looks the companyId up once, before any tenant scope opens", async () => {
+    mockCompanyIdsWithModuleEnabled.mockResolvedValue([100]);
+    mockReminderDAO.findDue.mockResolvedValue([]);
+
+    await new CountdownRemindersService().run(NOW);
+
+    expect(mockCompanyIdsWithModuleEnabled).toHaveBeenCalledTimes(1);
+    expect(mockCompanyIdsWithModuleEnabled).toHaveBeenCalledWith("countdown");
   });
 });

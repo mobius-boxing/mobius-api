@@ -4,7 +4,9 @@ import {
   CountdownReminderDAO,
   ICountdownDueDocumentRow,
 } from "../../dao/countdown/countdown-reminder.dao";
+import { withTenant } from "../../database/registry";
 import { ICountdownReminderOutcome } from "../../interfaces/countdown/countdown.interfaces";
+import { CoreClient } from "../core-client.service";
 import {
   baLocalHour,
   baLocalWeekday,
@@ -154,6 +156,54 @@ export class CountdownRemindersService {
    * per recipient, listing every document of theirs currently inside its own
    * reminder window.
    *
+   * db-per-company (T8/D-1, model D-22): each company's work runs inside its
+   * own `withTenant` scope, sequentially — `db("tenant")` now resolves to a
+   * physical database that is one company's own, and I-3 forbids a second
+   * scope opening inside the first, so the fleet cannot be visited any other
+   * way. A company whose scope throws (suspended, provisioning, unavailable —
+   * `TenantUnavailableError`, or any other error `withTenant`'s callback
+   * raises) is logged and skipped; nothing it would have contributed is
+   * counted, and every other company still runs. A suspended tenant is
+   * therefore never visited: `acquireTenant` answers `"suspended"` before the
+   * callback — the one that calls `findDue` — ever runs.
+   */
+  async run(now: Date = new Date()): Promise<ICountdownReminderOutcome> {
+    const result: ICountdownReminderOutcome = {
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+    };
+
+    const today = todayInBuenosAires(now);
+    const companyIds =
+      await CoreClient.companyIdsWithModuleEnabled("countdown");
+
+    for (const companyId of companyIds) {
+      try {
+        const companyOutcome = await withTenant(companyId, () =>
+          this.runForCompany(companyId, today),
+        );
+        result.sent += companyOutcome.sent;
+        result.failed += companyOutcome.failed;
+        result.skipped += companyOutcome.skipped;
+      } catch (err) {
+        // One tenant's database being unreachable (suspended, provisioning,
+        // behind, busy) or throwing mid-batch must not cost every other
+        // company its reminders — logged and skipped, never counted as a
+        // "failed" digest since no digest for this company was attempted.
+        console.error(
+          `[countdown-reminders] tenant ${companyId} failed:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * One company's batch, run inside its own `withTenant` scope by `run()`.
+   *
    * Who a document's recipients are, stated once: the effective watchers if it
    * has any, and otherwise **every active non-`superAdmin` user of the
    * document's own company**. An expiration nobody was assigned to used to warn
@@ -187,15 +237,17 @@ export class CountdownRemindersService {
    * did not), `skipped` = recipients dropped (inactive, cross-tenant, or already
    * digested today), counted once per recipient however many documents they lost.
    */
-  async run(now: Date = new Date()): Promise<ICountdownReminderOutcome> {
+  private async runForCompany(
+    companyId: number,
+    today: string,
+  ): Promise<ICountdownReminderOutcome> {
     const result: ICountdownReminderOutcome = {
       sent: 0,
       failed: 0,
       skipped: 0,
     };
 
-    const today = todayInBuenosAires(now);
-    const due = await this._reminderDAO.findDue(today);
+    const due = await this._reminderDAO.findDue(companyId, today);
     if (due.length === 0) return result;
 
     const documentIds = due.map((row) => row.id);
@@ -338,35 +390,76 @@ export class CountdownRemindersService {
   }
 
   /**
-   * The scheduler's entry point: run the batch unless today's already gone out.
-   * Returns null when the day was already claimed, which is the normal answer
-   * for fifteen of the sixteen ticks after 08:00.
+   * The scheduler's entry point: run each company's batch unless that
+   * company's day has already gone out. Returns null when NOTHING was newly
+   * claimed — every enabled company already ran today, or none has the module
+   * — which is the normal answer for fifteen of the sixteen ticks after 08:00.
    *
-   * Claiming the day in the database rather than in a variable is what makes the
-   * once-a-day guarantee survive a deploy: a container that restarts at 14:00
-   * finds the morning already claimed and does nothing, and a container that was
-   * down at 08:00 still catches up on its next tick that same day.
+   * `countdown_reminder_runs` is a tenant table (db-per-company): the claim is
+   * per company, inside that company's own `withTenant` scope, exactly like
+   * `run()`'s batch — a company whose scope throws is logged and skipped, and
+   * the rest still get their claim attempt. Claiming the day in the database
+   * rather than in a variable is what makes the once-a-day guarantee survive a
+   * deploy: a container that restarts at 14:00 finds the morning already
+   * claimed and does nothing, and a container that was down at 08:00 still
+   * catches up on its next tick that same day.
    *
    * Kept separate from run() so tests and the superAdmin manual trigger can
    * force a batch without fighting the daily lock.
    *
    * **Why two audit contexts and not one** (audit P2, ruling R-C).
    * `withAuditContext` arms the ambient state, so everything inside it runs in
-   * ONE Postgres transaction on a `countdown` pool of five connections. `run()`
-   * sends mail — a provider round trip per recipient — so wrapping the whole
-   * method would hold a connection open across every SES call of the batch,
-   * which is the exact failure this module is built to avoid. The two database
-   * steps are wrapped separately instead: the claim, and the outcome. The send
-   * happens between them, outside both.
+   * ONE Postgres transaction on a `countdown` pool of five connections.
+   * `runForCompany()` sends mail — a provider round trip per recipient — so
+   * wrapping the whole method would hold a connection open across every SES
+   * call of the batch, which is the exact failure this module is built to
+   * avoid. The two database steps are wrapped separately instead: the claim,
+   * and the outcome. The send happens between them, outside both.
    */
   async runDailyOnce(): Promise<ICountdownReminderOutcome | null> {
+    const today = todayInBuenosAires();
+    const companyIds =
+      await CoreClient.companyIdsWithModuleEnabled("countdown");
+    const result: ICountdownReminderOutcome = {
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+    };
+    let claimedAny = false;
+
+    for (const companyId of companyIds) {
+      try {
+        const outcome = await withTenant(companyId, () =>
+          this.runDailyOnceForCompany(companyId, today),
+        );
+        if (outcome === null) continue;
+        claimedAny = true;
+        result.sent += outcome.sent;
+        result.failed += outcome.failed;
+        result.skipped += outcome.skipped;
+      } catch (err) {
+        console.error(
+          `[countdown-reminders] tenant ${companyId} failed:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    return claimedAny ? result : null;
+  }
+
+  /** One company's claim → send → record cycle, inside its own `withTenant` scope. */
+  private async runDailyOnceForCompany(
+    companyId: number,
+    today: string,
+  ): Promise<ICountdownReminderOutcome | null> {
     const runId = await withAuditContext(REMINDERS_JOB, () =>
-      this._reminderDAO.claimToday(todayInBuenosAires()),
+      this._reminderDAO.claimToday(today),
     );
     if (!runId) return null;
 
     // Deliberately OUTSIDE any audit context: this is the mail-sending half.
-    const outcome = await this.run();
+    const outcome = await this.runForCompany(companyId, today);
 
     await withAuditContext(REMINDERS_JOB, () =>
       this._reminderDAO.recordOutcome(runId, outcome),

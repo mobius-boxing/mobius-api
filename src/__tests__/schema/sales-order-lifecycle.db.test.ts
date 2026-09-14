@@ -18,7 +18,12 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { Client } from "pg";
-import { connectAll, disconnectAll } from "../../database/registry";
+import {
+  connectAll,
+  disconnectAll,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../../database/registry";
 import { SalesOrderDAO } from "../../dao/sales-order/sales-order.dao";
 
 const isLocalDb =
@@ -120,107 +125,121 @@ describeIfLocalDb("SalesOrderDAO lifecycle (AC-5, AC-6, AC-14)", () => {
     return order;
   };
 
-  it("assigns an 8-digit number from the sales-order counter (AC-5)", async () => {
-    const order = await createOrder();
+  /**
+   * db-per-company (T8, AC-49): `db("tenant")` outside a request now requires
+   * an explicit scope. `SalesOrderDAO` is called here directly (never through
+   * real middleware), so every test needs this.
+   */
+  const runAsCoreTenant = <T>(fn: () => Promise<T>): Promise<T> =>
+    withTenantTarget({ physicalKey: "core", instance: rawCoreInstance() }, fn);
 
-    expect(order.number).toMatch(/^\d{8}$/);
-  });
+  it("assigns an 8-digit number from the sales-order counter (AC-5)", () =>
+    runAsCoreTenant(async () => {
+      const order = await createOrder();
 
-  it("gives the next order exactly previous + 1, zero-padded (AC-5)", async () => {
-    const first = await createOrder();
-    const second = await createOrder();
+      expect(order.number).toMatch(/^\d{8}$/);
+    }));
 
-    expect(Number(second.number)).toBe(Number(first.number) + 1);
-    expect(second.number).toMatch(/^\d{8}$/);
-    expect(second.number).toHaveLength(8);
-  });
+  it("gives the next order exactly previous + 1, zero-padded (AC-5)", () =>
+    runAsCoreTenant(async () => {
+      const first = await createOrder();
+      const second = await createOrder();
 
-  it("keeps exactly one code_sequences row for scope 'sales-order' (AC-5)", async () => {
-    await createOrder();
+      expect(Number(second.number)).toBe(Number(first.number) + 1);
+      expect(second.number).toMatch(/^\d{8}$/);
+      expect(second.number).toHaveLength(8);
+    }));
 
-    const rows = await client.query<{ count: string }>(
-      `SELECT count(*) FROM code_sequences
+  it("keeps exactly one code_sequences row for scope 'sales-order' (AC-5)", () =>
+    runAsCoreTenant(async () => {
+      await createOrder();
+
+      const rows = await client.query<{ count: string }>(
+        `SELECT count(*) FROM code_sequences
         WHERE "companyId" = $1 AND scope = 'sales-order'`,
-      [companyId],
-    );
-    expect(rows.rows[0].count).toBe("1");
-  });
+        [companyId],
+      );
+      expect(rows.rows[0].count).toBe("1");
+    }));
 
-  it("writes one linked order_data row mirroring the order (AC-6)", async () => {
-    const order = await createOrder({
-      quantity: 250,
-      orderDataInput: {
-        notes: "obs",
-        dispatchNotes: "desp",
-        conversionNotes: "conv",
-        deliveryLocationId,
-      },
-    });
+  it("writes one linked order_data row mirroring the order (AC-6)", () =>
+    runAsCoreTenant(async () => {
+      const order = await createOrder({
+        quantity: 250,
+        orderDataInput: {
+          notes: "obs",
+          dispatchNotes: "desp",
+          conversionNotes: "conv",
+          deliveryLocationId,
+        },
+      });
 
-    const row = await client.query<{
-      number: string;
-      quantity: number;
-      customerId: number;
-      deliveryLocationId: number;
-      notes: string;
-      dispatchNotes: string;
-      conversionNotes: string;
-    }>(
-      `SELECT od.number, od.quantity, od."customerId", od."deliveryLocationId",
+      const row = await client.query<{
+        number: string;
+        quantity: number;
+        customerId: number;
+        deliveryLocationId: number;
+        notes: string;
+        dispatchNotes: string;
+        conversionNotes: string;
+      }>(
+        `SELECT od.number, od.quantity, od."customerId", od."deliveryLocationId",
               od.notes, od."dispatchNotes", od."conversionNotes"
          FROM sales_orders so
          JOIN order_data od ON od.id = so."orderDataId"
         WHERE so.uuid = $1`,
-      [order.uuid],
-    );
+        [order.uuid],
+      );
 
-    expect(row.rows).toHaveLength(1);
-    expect(row.rows[0]).toEqual({
-      number: order.number,
-      quantity: 250,
-      customerId,
-      deliveryLocationId,
-      notes: "obs",
-      dispatchNotes: "desp",
-      conversionNotes: "conv",
-    });
-  });
+      expect(row.rows).toHaveLength(1);
+      expect(row.rows[0]).toEqual({
+        number: order.number,
+        quantity: 250,
+        customerId,
+        deliveryLocationId,
+        notes: "obs",
+        dispatchNotes: "desp",
+        conversionNotes: "conv",
+      });
+    }));
 
-  it("mirrors an updated quantity into order_data in the same request (AC-13)", async () => {
-    const order = await createOrder({ quantity: 10 });
-    const id = (await dao.getIdByUuid(order.uuid!))!;
+  it("mirrors an updated quantity into order_data in the same request (AC-13)", () =>
+    runAsCoreTenant(async () => {
+      const order = await createOrder({ quantity: 10 });
+      const id = (await dao.getIdByUuid(order.uuid!))!;
 
-    await dao.update(id, { quantity: 77 });
+      await dao.update(id, { quantity: 77 });
 
-    const row = await client.query<{ quantity: number }>(
-      `SELECT od.quantity FROM sales_orders so
+      const row = await client.query<{ quantity: number }>(
+        `SELECT od.quantity FROM sales_orders so
          JOIN order_data od ON od.id = so."orderDataId"
         WHERE so.uuid = $1`,
-      [order.uuid],
-    );
-    expect(row.rows[0].quantity).toBe(77);
-  });
+        [order.uuid],
+      );
+      expect(row.rows[0].quantity).toBe(77);
+    }));
 
-  it("deletes both rows and leaves zero orphans (AC-14, L-006)", async () => {
-    const order = await createOrder();
-    const before = await client.query<{ orderDataId: number }>(
-      `SELECT "orderDataId" FROM sales_orders WHERE uuid = $1`,
-      [order.uuid],
-    );
-    const orderDataId = before.rows[0].orderDataId;
-    const id = (await dao.getIdByUuid(order.uuid!))!;
+  it("deletes both rows and leaves zero orphans (AC-14, L-006)", () =>
+    runAsCoreTenant(async () => {
+      const order = await createOrder();
+      const before = await client.query<{ orderDataId: number }>(
+        `SELECT "orderDataId" FROM sales_orders WHERE uuid = $1`,
+        [order.uuid],
+      );
+      const orderDataId = before.rows[0].orderDataId;
+      const id = (await dao.getIdByUuid(order.uuid!))!;
 
-    expect(await dao.delete(id)).toBe(true);
+      expect(await dao.delete(id)).toBe(true);
 
-    const orders = await client.query<{ count: string }>(
-      `SELECT count(*) FROM sales_orders WHERE uuid = $1`,
-      [order.uuid],
-    );
-    const orderData = await client.query<{ count: string }>(
-      `SELECT count(*) FROM order_data WHERE id = $1`,
-      [orderDataId],
-    );
-    expect(orders.rows[0].count).toBe("0");
-    expect(orderData.rows[0].count).toBe("0");
-  });
+      const orders = await client.query<{ count: string }>(
+        `SELECT count(*) FROM sales_orders WHERE uuid = $1`,
+        [order.uuid],
+      );
+      const orderData = await client.query<{ count: string }>(
+        `SELECT count(*) FROM order_data WHERE id = $1`,
+        [orderDataId],
+      );
+      expect(orders.rows[0].count).toBe("0");
+      expect(orderData.rows[0].count).toBe("0");
+    }));
 });

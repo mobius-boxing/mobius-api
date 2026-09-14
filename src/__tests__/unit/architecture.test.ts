@@ -199,6 +199,13 @@ describe("AC-56 — the registry is the only door", () => {
     // the app.
     "services/tenant-provisioning.service.ts",
     "scripts/tenant-register-shared.ts",
+    // db-per-company T8: the two cross-tenant jobs import `withTenant` to
+    // iterate the fleet, sequentially, each inside its own tenant scope — the
+    // one call `db-per-company D-22` sanctions outside a request. Neither is
+    // a DAO: they orchestrate several DAOs (and, for node-files, the
+    // extraction provider / executor) per tenant, per tick.
+    "services/countdown/countdown-reminders.service.ts",
+    "services/node-files/node-files-worker.ts",
   ];
 
   const NON_DAO_CONNECTION_HOLDERS = [
@@ -233,7 +240,7 @@ describe("AC-56 — the registry is the only door", () => {
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
     expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(3);
-    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(18);
+    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(20);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(
       NON_DAO_CONNECTION_HOLDERS.length,
