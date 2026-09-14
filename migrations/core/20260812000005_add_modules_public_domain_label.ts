@@ -1,5 +1,5 @@
 import type { Knex } from "knex";
-import { MAX_DNS_LABEL_LENGTH } from "../src/utils/slugify";
+import { MAX_DNS_LABEL_LENGTH } from "../../src/utils/slugify";
 
 /**
  * `modules.publicDomainLabel` — the hostname label a module's customer-facing

@@ -3,7 +3,7 @@ import {
   MAX_DNS_LABEL_LENGTH,
   RESERVED_DNS_SLUGS,
   toDnsSlug,
-} from "../src/utils/slugify";
+} from "../../src/utils/slugify";
 
 /**
  * `companies.slug` — the global, DNS-safe client identifier behind whitelabeled

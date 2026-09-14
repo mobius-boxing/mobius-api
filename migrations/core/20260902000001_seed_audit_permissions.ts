@@ -2,9 +2,9 @@
 // `Express.Request.user` augmentation is not in the program and the transitive
 // import of `src/database/audit-context.ts` (rbac.service -> registry) fails to
 // type-check. Referencing the declaration file explicitly puts it back.
-/// <reference path="../src/types.d.ts" />
+/// <reference path="../../src/types.d.ts" />
 import type { Knex } from "knex";
-import { RbacService } from "../src/services/rbac.service";
+import { RbacService } from "../../src/services/rbac.service";
 
 /**
  * Backfill the `audit.read` / `audit.export` gates added to

@@ -1,5 +1,5 @@
 import type { Knex } from "knex";
-import { RbacService } from "../src/services/rbac.service";
+import { RbacService } from "../../src/services/rbac.service";
 
 /**
  * Backfill the `countdown.manage` gate added to MOBIUS_ADDED_PERMISSIONS.

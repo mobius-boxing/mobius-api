@@ -2,8 +2,8 @@ import type { Knex } from "knex";
 import {
   isEmptyBranding,
   readLegacyModuleBranding,
-} from "../src/utils/whitelabel-branding";
-import { ICompanyBranding } from "../src/interfaces/company/company.interfaces";
+} from "../../src/utils/whitelabel-branding";
+import { ICompanyBranding } from "../../src/interfaces/company/company.interfaces";
 
 /**
  * `companies.branding` — the single home of a client's whitelabel identity
