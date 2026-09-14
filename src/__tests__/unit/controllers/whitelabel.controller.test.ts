@@ -29,6 +29,10 @@ const mockCompanyModuleDAO = {
 };
 const mockFileDAO = {
   getByUuid: jest.fn() as AsyncStub,
+  getLogoFile: jest.fn() as AsyncStub,
+};
+const mockStorage = {
+  getDownloadUrl: jest.fn() as AsyncStub,
 };
 
 jest.mock("../../../dao/company/company.dao", () => ({
@@ -52,6 +56,7 @@ jest.mock("../../../dao/file/file.dao", () => ({
   FileDAO: function FileDAO() {
     return {
       getByUuid: (...args: unknown[]) => mockFileDAO.getByUuid(...args),
+      getLogoFile: (...args: unknown[]) => mockFileDAO.getLogoFile(...args),
     };
   },
 }));
@@ -59,7 +64,8 @@ jest.mock("../../../dao/file/file.dao", () => ({
 jest.mock("../../../services/file-storage.service", () => ({
   FileStorageService: function FileStorageService() {
     return {
-      getDownloadUrl: async () => null,
+      getDownloadUrl: (...args: unknown[]) =>
+        mockStorage.getDownloadUrl(...args),
       localObjectExists: async () => false,
       getLocalReadStream: () => ({ pipe: () => undefined }),
     };
@@ -271,7 +277,12 @@ describe("WhitelabelController.getLogo", () => {
     mockCompanyDAO.getBySlug.mockReset();
     mockCompanyModuleDAO.getEnabledConfig.mockReset();
     mockFileDAO.getByUuid.mockReset();
+    mockFileDAO.getLogoFile.mockReset();
+    mockStorage.getDownloadUrl.mockReset();
+    mockStorage.getDownloadUrl.mockResolvedValue(null);
     res = createMockResponse();
+    res.redirect = jest.fn() as unknown as Response["redirect"];
+    res.setHeader = jest.fn() as unknown as Response["setHeader"];
     next = createMockNext();
     controller = new WhitelabelController();
   });
@@ -281,11 +292,11 @@ describe("WhitelabelController.getLogo", () => {
       company({ logoFileUuid: LOGO_UUID }),
     );
     mockCompanyModuleDAO.getEnabledConfig.mockResolvedValue({});
-    mockFileDAO.getByUuid.mockResolvedValue(null);
+    mockFileDAO.getLogoFile.mockResolvedValue(null);
 
     await controller.getLogo(brandingRequest(), res as Response, next);
 
-    expect(mockFileDAO.getByUuid).toHaveBeenCalledWith(LOGO_UUID, 7);
+    expect(mockFileDAO.getLogoFile).toHaveBeenCalledWith(LOGO_UUID, 7);
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
@@ -295,7 +306,30 @@ describe("WhitelabelController.getLogo", () => {
 
     await controller.getLogo(brandingRequest(), res as Response, next);
 
-    expect(mockFileDAO.getByUuid).not.toHaveBeenCalled();
+    expect(mockFileDAO.getLogoFile).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("serves the logo the DAO finds through a signed URL", async () => {
+    mockCompanyDAO.getBySlug.mockResolvedValue(
+      company({ logoFileUuid: LOGO_UUID }),
+    );
+    mockCompanyModuleDAO.getEnabledConfig.mockResolvedValue({});
+    mockFileDAO.getLogoFile.mockResolvedValue({
+      uuid: LOGO_UUID,
+      storageKey: "companies/7/logo.png",
+    });
+    mockStorage.getDownloadUrl.mockResolvedValue("https://signed.example/logo");
+
+    await controller.getLogo(brandingRequest(), res as Response, next);
+
+    expect(mockStorage.getDownloadUrl).toHaveBeenCalledWith(
+      "companies/7/logo.png",
+    );
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      "https://signed.example/logo",
+    );
+    expect(res.status).not.toHaveBeenCalledWith(404);
   });
 });

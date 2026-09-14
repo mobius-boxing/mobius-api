@@ -1,6 +1,7 @@
 import { Request } from "express";
 import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import { db } from "../../database/registry";
+import { db, withTenant } from "../../database/registry";
+import { TenantUnavailableError } from "../../database/tenant-pools";
 import { IDataPaginator } from "../../database/d.types";
 import { IFile } from "../../interfaces/file/file.interfaces";
 import {
@@ -72,6 +73,31 @@ export class FileDAO {
     applyCompanyScope(query, this.tableName, companyId, "companyId");
     const row = await query.select(`${this.tableName}.*`).first();
     return (row as IFile) ?? null;
+  }
+
+  /** Company logos, which tenant:move leaves in the central database. */
+  async getCentralByUuid(uuid: string, companyId: number): Promise<IFile | null> {
+    const knex = db("core");
+    const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
+    applyCompanyScope(query, this.tableName, companyId, "companyId");
+    const row = await query.select(`${this.tableName}.*`).first();
+    return (row as IFile) ?? null;
+  }
+
+  /**
+   * A company logo: the central row first (tenant:move leaves logos there),
+   * then the company's own database, where a logo uploaded after its move
+   * lands. A company whose database is unavailable has no logo to serve.
+   */
+  async getLogoFile(uuid: string, companyId: number): Promise<IFile | null> {
+    const central = await this.getCentralByUuid(uuid, companyId);
+    if (central) return central;
+    try {
+      return await withTenant(companyId, () => this.getByUuid(uuid, companyId));
+    } catch (error) {
+      if (error instanceof TenantUnavailableError) return null;
+      throw error;
+    }
   }
 
   async update(id: number, item: Partial<IFile>): Promise<IFile | null> {

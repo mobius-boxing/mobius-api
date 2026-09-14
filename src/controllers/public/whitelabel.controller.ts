@@ -168,7 +168,7 @@ export class WhitelabelController {
         return;
       }
 
-      const file = await this.fileDAO.getByUuid(
+      const file = await this.fileDAO.getLogoFile(
         resolved.branding.logoFileUuid,
         resolved.company.id,
       );
