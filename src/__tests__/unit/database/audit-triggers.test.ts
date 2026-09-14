@@ -74,7 +74,7 @@ const triggerArgs = (sql: string): string[] => {
  * %hash%|%credential%` sweep of `information_schema.columns`; extended
  * 2026-09-13 (db-per-company T6, AC-35) for the tenant registry's two
  * ciphertext columns — same treatment, packed bytea instead of three text
- * columns.
+ * columns; `user_devices` added with the table on 2026-09-12.
  */
 const EXPECTED_REDACTIONS: Record<string, string[]> = {
   users: ["password"],
@@ -82,6 +82,7 @@ const EXPECTED_REDACTIONS: Record<string, string[]> = {
   nf_credentials: ["secretCiphertext", "secretIv", "secretTag"],
   db_servers: ["adminCredentialCiphertext"],
   tenant_databases: ["credentialCiphertext"],
+  user_devices: ["tokenHash"],
 };
 
 describe("audit-triggers — §0 rule 6: no bare `?` in raw SQL", () => {

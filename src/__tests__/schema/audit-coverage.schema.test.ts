@@ -41,15 +41,16 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 
 /**
  * Verified against the live database 2026-09-01 (brief §0.4), plus T6's
- * 3-table tenant registry (all `core`, all audited, model D-7).
+ * 3-table tenant registry (all `core`, all audited, model D-7), plus
+ * `user_devices` (device approval, 2026-09-12; also `core`, audited).
  */
 const AUDITED_COUNTS: Record<DbKey, number> = {
   tenant: 66,
-  core: 12,
+  core: 13,
 };
-/** `files` is attached under core + tenant: 78 calls, 77 tables. */
-const ATTACH_CALLS = 78;
-const AUDITED_TABLES = 77;
+/** `files` is attached under core + tenant: 79 calls, 78 tables. */
+const ATTACH_CALLS = 79;
+const AUDITED_TABLES = 78;
 
 /** R-1: 43 of the 74 pre-T6 tables, plus T6's 3 superAdmin-only ones (D-46). */
 const ADMIN_ONLY_ENTITIES = 46;
@@ -90,7 +91,7 @@ describe("audit coverage manifest (AC-1)", () => {
     expect(counts).toEqual(AUDITED_COUNTS);
   });
 
-  it("makes 78 attach calls over 77 distinct tables", () => {
+  it("makes 79 attach calls over 78 distinct tables", () => {
     const entries = allAudited();
     expect(entries).toHaveLength(ATTACH_CALLS);
     expect(new Set(entries).size).toBe(AUDITED_TABLES);

@@ -36,9 +36,10 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 /**
  * §0.4: 74 distinct physical tables carry `audit_row_change`, plus T6's 3
  * central registry tables (`db_servers`, `tenant_databases`,
- * `tenant_migration_runs` — model D-7).
+ * `tenant_migration_runs` — model D-7), plus `user_devices` (device approval,
+ * 2026-09-12).
  */
-const AUDITED_TABLES = 77;
+const AUDITED_TABLES = 78;
 
 /**
  * The migration creates the current month plus 13 ahead, so the inventory can

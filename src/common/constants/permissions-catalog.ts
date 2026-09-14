@@ -1017,6 +1017,14 @@ export const MOBIUS_ADDED_PERMISSIONS: IPermissionConcept[] = [
     description: "Exportación del registro de auditoría a CSV",
     area: "queries",
   },
+  {
+    // RW-only, like `parts.approve.*`: a read-only variant of an action gate is
+    // meaningless, and listing devices is part of approving them.
+    code: "devices.approve",
+    name: "Dispositivos - Aprobación",
+    description: "Aprobar y revocar dispositivos de los usuarios de la empresa",
+    area: "actions",
+  },
 ];
 
 /**

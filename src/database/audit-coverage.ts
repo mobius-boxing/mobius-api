@@ -23,8 +23,10 @@ import { ownerOf, tablesOf } from "./ownership";
  *
  * db-per-company T6 adds `db_servers`, `tenant_databases` and
  * `tenant_migration_runs` — all `core`, all audited, none excluded, none
- * fanned out: **84 application tables, 77 distinct audited tables, 78
- * `attachAudit` calls.**
+ * fanned out: 84 application tables, 77 distinct audited tables, 78
+ * `attachAudit` calls. `user_devices` (device approval, 2026-09-12) adds one
+ * more `core` table, audited, none excluded, none fanned out: **85
+ * application tables, 78 distinct audited tables, 79 `attachAudit` calls.**
  */
 
 /**
@@ -59,6 +61,9 @@ export const AUDIT_EXCLUDED: ReadonlySet<string> = new Set([
 export const AUDIT_REDACT: Record<string, string[]> = {
   users: ["password"],
   invitations: ["token"],
+  // The hash is not the device secret, but it is still an offline
+  // credential-matching value and costs nothing to strip (D-9).
+  user_devices: ["tokenHash"],
   // 20260824000006; `headerName` is not a secret.
   nf_credentials: ["secretCiphertext", "secretIv", "secretTag"],
   // db-per-company T6, AC-35: same treatment, one packed bytea column each
@@ -119,6 +124,8 @@ export const AUDIT_PARENT: Record<string, AuditParent> = {
   },
   nf_workflow_credentials: { parent: "nf_workflows", fk: "workflowId" },
   role_permissions: { parent: "roles", fk: "roleId" },
+  // A device approval is part of that user's history (I-11).
+  user_devices: { parent: "users", fk: "userId" },
   // ── R-D (2026-09-01): six real parent/child pairs the handbook missed ─────
   // `warehouse_locations` is snake_case throughout, `warehouse_id` included.
   warehouse_locations: { parent: "warehouses", fk: "warehouse_id" },
@@ -135,8 +142,8 @@ export const AUDIT_PARENT: Record<string, AuditParent> = {
  * Keyed from the start (Amendment 2026-09-01, constraint 2) even though both
  * planes resolve to one physical database today: the split later changes which
  * connection runs the attach, not this code. Counts today are
- * tenant 66 · core 9 = 75 calls over 74 distinct tables (`files` appears in
- * both planes).
+ * tenant 66 · core 13 (includes `user_devices`, device approval) = 79 calls
+ * over 78 distinct tables (`files` appears in both planes).
  */
 export const auditedTablesOf = (key: DbKey): string[] =>
   tablesOf(key).filter((table) => !AUDIT_EXCLUDED.has(table));
@@ -162,7 +169,7 @@ export const auditedTablesOf = (key: DbKey): string[] =>
  *
  * Every key is an audited table and every non-null value is a real code in
  * `PERMISSION_CONCEPTS`/`MOBIUS_ADDED_PERMISSIONS`; both are asserted by
- * `audit-coverage.schema.test.ts`. 43 of the 74 entries are `null`.
+ * `audit-coverage.schema.test.ts`. 43 of the 75 entries are `null`.
  */
 export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   // ── Admin-only entities: their routers use `requireAdmin()` throughout ────
@@ -247,6 +254,9 @@ export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   roles: "roles.edit",
   sales_order_approval_events: "orders.edit", // child of `sales_orders`
   sales_orders: "orders.edit",
+  // The parent's code, not the `devices.approve` its own router enforces (D-62):
+  // a device row's history is read as part of the user's history.
+  user_devices: "users.edit",
   users: "users.edit", // `PUT /roles/assign` is the one coded users write
   // ── db-per-company T6: platform-ops tables, superAdmin-only (D-46) ────────
   db_servers: null,
@@ -289,7 +299,8 @@ export const AUDIT_NO_UUID: ReadonlySet<string> = new Set([
  * (`information_schema.table_constraints` ⨝ `key_column_usage` ⨝
  * `constraint_column_usage`, `constraint_type='FOREIGN KEY'`, grouped by
  * column and target): **72 distinct (column, table) pairs over 70 distinct
- * column names**. The 68 unambiguous names are here.
+ * column names**. The 68 unambiguous names are here, plus `user_devices`'
+ * `approvedBy`/`revokedBy` (2026-09-12).
  *
  * Deliberately absent — one name, two targets, and a wrong label is worse than
  * no label (the presenter emits `resolved:false` for anything missing):
@@ -307,6 +318,7 @@ export const AUDIT_NO_UUID: ReadonlySet<string> = new Set([
  * included because they are real, unambiguous FKs and cost nothing.
  */
 export const AUDIT_FK_TABLE: Record<string, string> = {
+  approvedBy: "users",
   blueprintFileUuid: "files",
   boxTypeId: "box_types",
   colorId: "colors",
@@ -352,6 +364,7 @@ export const AUDIT_FK_TABLE: Record<string, string> = {
   productTypeId: "product_types",
   productionRouteId: "production_routes",
   resolvedBy: "users",
+  revokedBy: "users",
   roleId: "roles",
   routeId: "production_routes",
   runId: "nf_runs",

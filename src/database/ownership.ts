@@ -5,11 +5,11 @@ import { DbKey } from "./keys";
  *
  * Two layers, because two different questions are being asked (plan R-1):
  *
- * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 81 application tables,
- *   each mapped to the plane that owns its original row set — 11 central, 70
+ * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 85 application tables,
+ *   each mapped to the plane that owns its original row set — 15 central, 70
  *   tenant (db-per-company D-3). The two names that exist in both planes
  *   (`files`, `audit_logs`) are listed under `core` here and under `tenant` in
- *   `EXTRA_COPIES`, so each plane holds 11 and 72 names respectively.
+ *   `EXTRA_COPIES`, so each plane holds 15 and 72 names respectively.
  * - `TABLE_OWNER` is keyed `(plane, table)` and additionally carries those
  *   per-plane *copies*. That fan-out is what AC-2 asserts, and it is why the
  *   manifest cannot be keyed by table name alone.
@@ -18,9 +18,13 @@ import { DbKey } from "./keys";
  * prefix (the module split's D-4 renames are moot, model D-1).
  */
 export const DOMAIN_OWNER: Record<string, DbKey> = {
-  // ── core (14) — identity, tenancy, the module catalogue, RBAC and the ─────
-  //    tenant registry (db-per-company T6, model D-7) ────────────────────────
+  // ── core (15) — identity, tenancy, the module catalogue, RBAC, the ────────
+  //    tenant registry (db-per-company T6, model D-7) and device approval ────
+  //    (`user_devices`) ───────────────────────────────────────────────────────
   users: "core",
+  // One row per (user, browser) for the device-approval gate; cascades with its
+  // user (D-6).
+  user_devices: "core",
   companies: "core",
   invitations: "core",
   emailTokens: "core",

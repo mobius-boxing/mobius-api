@@ -33,17 +33,18 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * tables deleted with the store module on 2026-08-24 (amendment-2026-08-24),
  * plus the 6 `nf_*` tables of node-files Phases 1 and 2, plus T6's 3-table
  * tenant registry (`db_servers`, `tenant_databases`, `tenant_migration_runs`
- * — all `core`, model D-7).
+ * — all `core`, model D-7), plus `user_devices` (device approval, 2026-09-12
+ * — also `core`).
  */
-const DOMAIN_TABLE_COUNT = 84;
+const DOMAIN_TABLE_COUNT = 85;
 /** db-per-company model D-3: the pre-fan-out names, per plane. */
 const DOMAIN_COUNTS: Record<DbKey, number> = {
-  core: 14,
+  core: 15,
   tenant: 70,
 };
 /** The names each plane holds, fan-out copies included (model placement table). */
 const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
-  core: 14,
+  core: 15,
   tenant: 72,
 };
 /**
@@ -67,7 +68,7 @@ const countBy = (owners: DbKey[]): Record<string, number> =>
 describe("TABLE_OWNER manifest (AC-1 a/b/d, AC-2)", () => {
   it("assigns every domain table to a known key, with no key collapsed by a duplicate", () => {
     // A duplicated literal key would silently collapse, so the count is the
-    // duplicate check: 81 names in, 81 names out.
+    // duplicate check: 82 names in, 82 names out.
     expect(Object.keys(DOMAIN_OWNER)).toHaveLength(DOMAIN_TABLE_COUNT);
     for (const [table, owner] of Object.entries(DOMAIN_OWNER)) {
       expect(DB_KEYS).toContain(owner);
