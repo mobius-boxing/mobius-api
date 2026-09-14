@@ -3,7 +3,12 @@ import fs from "fs";
 import { knex as createKnex, type Knex } from "knex";
 import { Client } from "pg";
 import { v4 as uuidv4 } from "uuid";
-import { db, guardedForTenant, rawCoreInstance } from "../database/registry";
+import {
+  db,
+  guardedForTenant,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../database/registry";
 import { connectionFor, connectionForTenant } from "../database/env";
 import { evictTenant, invalidateTenantCache } from "../database/tenant-pools";
 import {
@@ -747,9 +752,20 @@ export async function decommissionTenantDatabase(
   if (isSharedTarget) {
     // I-14: the row is RESTRICT-referenced by companies until it is gone —
     // purgeCompany deletes it inside the same transaction as `companies`.
-    const purgeResult = await purgeCompany(companyId, {
-      decommissioningTenantDatabaseId: row.id,
-    });
+    //
+    // T8/AC-49 (found while verifying T10): `purgeCompany`'s target list
+    // resolves `physicalKeyOf("tenant")`, which now throws outside any
+    // tenant scope, and this function is called from `companies.controller`'s
+    // `central`-plane DELETE handler. A shared-target row's whole point
+    // (D-31) is that its physical database IS core, so asserting that here
+    // is the textbook-correct use of `withTenantTarget`, not a workaround.
+    const purgeResult = await withTenantTarget(
+      { physicalKey: "core", instance: db("core") },
+      () =>
+        purgeCompany(companyId, {
+          decommissioningTenantDatabaseId: row.id,
+        }),
+    );
     return { ok: true, companyDeleted: purgeResult.companyDeleted };
   }
 

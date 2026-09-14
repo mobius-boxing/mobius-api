@@ -13,7 +13,7 @@ import {
   CompanyUpdateInputDTO,
 } from "../../dto/input/company";
 import { setAuditAction } from "../../database/audit-context";
-import { db } from "../../database/registry";
+import { db, withTenantTarget } from "../../database/registry";
 import { purgeCompany } from "../../services/company-purge.service";
 import { TenantDatabaseDAO } from "../../dao/tenant-database/tenant-database.dao";
 import {
@@ -303,6 +303,7 @@ export class CompaniesController implements IBaseController {
         });
         return;
       }
+      const companyId = existing.id;
 
       // NOT `CompanyDAO.delete`: the ledger is append-only in the database, so
       // removing a company is only possible through the purge path, which turns
@@ -313,14 +314,13 @@ export class CompaniesController implements IBaseController {
       // delete, all inside its own transaction. A company with no live row
       // (never registered, or only a `provisioning`/`failed` build attempt)
       // keeps the pre-T10 plain purge, unchanged.
-      const liveTenantRow = await this._tenantDatabaseDAO.getLiveByCompanyId(
-        existing.id,
-      );
+      const liveTenantRow =
+        await this._tenantDatabaseDAO.getLiveByCompanyId(companyId);
 
       let result: { companyDeleted: boolean };
       if (liveTenantRow) {
         try {
-          const decommission = await decommissionTenantDatabase(existing.id);
+          const decommission = await decommissionTenantDatabase(companyId);
           if (!decommission.ok) {
             res.status(500).json({
               success: false,
@@ -332,7 +332,7 @@ export class CompaniesController implements IBaseController {
           result = decommission;
         } catch (decommissionErr) {
           console.error(
-            `Tenant decommission failed for company #${existing.id}:`,
+            `Tenant decommission failed for company #${companyId}:`,
             decommissionErr,
           );
           res.status(500).json({
@@ -343,7 +343,18 @@ export class CompaniesController implements IBaseController {
           return;
         }
       } else {
-        result = await purgeCompany(existing.id);
+        // T8/AC-49 (found while verifying T10): `purgeCompany`'s target list
+        // resolves `physicalKeyOf("tenant")`, which now throws outside any
+        // tenant scope — and `/companies` is a `central`-plane route (model),
+        // so it never acquires one. A company with no live tenant row has
+        // nothing on a separate tenant plane to purge anyway (pre-T9
+        // semantics: "tenant" was always "core" here), so asserting that
+        // known fact for the duration of this one call is correct, not a
+        // workaround — mirrors T8's own `runAsCoreTenant` precedent.
+        result = await withTenantTarget(
+          { physicalKey: "core", instance: db("core") },
+          () => purgeCompany(companyId),
+        );
       }
 
       if (result.companyDeleted) {

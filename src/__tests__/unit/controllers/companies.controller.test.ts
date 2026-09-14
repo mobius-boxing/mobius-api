@@ -45,6 +45,24 @@ const mockCompanyDAO = {
  */
 export const mockPurgeCompany = jest.fn();
 
+/**
+ * T10 (found while verifying): the no-live-row delete fallback wraps
+ * `purgeCompany` in `withTenantTarget` (T8/AC-49 — `db("tenant")` throws
+ * outside a scope, and `/companies` never acquires one). `db("core")`/
+ * `withTenantTarget` both require `connectAll()` in the real module, which
+ * this DAO-mocked unit test never calls — everything else here is real.
+ */
+jest.mock("../../../database/registry", () => {
+  const actual: any = jest.requireActual("../../../database/registry");
+  return {
+    ...actual,
+    // `db("core")` is evaluated to BUILD the `withTenantTarget` argument even
+    // though the mock below never uses it — so this needs its own stub too.
+    db: jest.fn(() => ({})),
+    withTenantTarget: (_target: unknown, fn: () => unknown) => fn(),
+  };
+});
+
 jest.mock("../../../services/company-purge.service", () => ({
   __esModule: true,
   purgeCompany: (...args) =>
