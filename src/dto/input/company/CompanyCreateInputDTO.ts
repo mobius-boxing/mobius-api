@@ -87,6 +87,14 @@ export class CompanyCreateInputDTO {
       });
     });
 
+    // `inputValidator` rejects ANY own key holding `undefined`, so an absent
+    // optional field used to 400 a request the nullable column would accept.
+    Object.keys(this).forEach((key) => {
+      if (this[key as keyof this] === undefined) {
+        delete this[key as keyof this];
+      }
+    });
+
     return this;
   }
 }

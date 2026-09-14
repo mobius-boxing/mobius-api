@@ -532,9 +532,17 @@ describeIfReady(
         [naming.databaseName],
       );
       expect(originalStillThere.rowCount).toBe(0);
+      // T12c: `like '%<id>%'` matched ANY database whose name contained this
+      // company's id as a numeric substring (e.g. id 26 inside another
+      // test's "…_260_…" or "…_1263_…"), so a low/colliding serial id could
+      // record and later try to drop the WRONG parked database — leaving
+      // this one, and the role it still owns, as residue. Anchored on the
+      // full original database name instead (no LIKE `_`-wildcard ambiguity
+      // via `~`, and `naming.databaseName` is alnum/underscore-only per
+      // `assertSafeIdentifier`, so it needs no regex escaping).
       const parked = await admin.query(
-        "select datname from pg_database where datname like $1",
-        [`zz_decommissioned_%${company.id}%`],
+        "select datname from pg_database where datname ~ $1",
+        [`^zz_decommissioned_tenant_${company.id}_`],
       );
       expect(parked.rowCount).toBeGreaterThanOrEqual(1);
       const parkedName = parked.rows[0].datname as string;
@@ -581,9 +589,17 @@ describeIfReady(
       const result = await decommissionTenantDatabase(company.id);
       expect(result).toStrictEqual({ ok: true, companyDeleted: true });
 
+      // T12c: `like '%<id>%'` matched ANY database whose name contained this
+      // company's id as a numeric substring (e.g. id 26 inside another
+      // test's "…_260_…" or "…_1263_…"), so a low/colliding serial id could
+      // record and later try to drop the WRONG parked database — leaving
+      // this one, and the role it still owns, as residue. Anchored on the
+      // full original database name instead (no LIKE `_`-wildcard ambiguity
+      // via `~`, and `naming.databaseName` is alnum/underscore-only per
+      // `assertSafeIdentifier`, so it needs no regex escaping).
       const parked = await admin.query(
-        "select datname from pg_database where datname like $1",
-        [`zz_decommissioned_%${company.id}%`],
+        "select datname from pg_database where datname ~ $1",
+        [`^zz_decommissioned_tenant_${company.id}_`],
       );
       expect(parked.rowCount).toBeGreaterThanOrEqual(1);
       plantedDatabases.push(parked.rows[0].datname as string);
