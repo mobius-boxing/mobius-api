@@ -162,10 +162,19 @@ const SKIP_ON = "select set_config('mobius.audit_skip', 'on', true)";
  * row itself, whose existing `ON DELETE CASCADE`s take the other modules'
  * business data with it.
  *
+ * `decommissioningTenantDatabaseId` (T9, model I-14): `tenant_databases.companyId`
+ * is `ON DELETE RESTRICT`, so a still-live row — even one already
+ * `decommissioning` — blocks the `companies` delete below. Decommission
+ * passes its own row's id here so it is removed, guarded to that exact
+ * status, in the SAME transaction as the `companies` delete, immediately
+ * before it: a failure earlier in this function leaves both rows exactly as
+ * they were (I-14's "a rerun completes").
+ *
  * @param companyId internal numeric id (`CompanyDAO.getIdByUuid` / `.getByUuid`)
  */
 export async function purgeCompany(
   companyId: number,
+  options: { decommissioningTenantDatabaseId?: number } = {},
 ): Promise<CompanyPurgeResult> {
   let ledgerRowsDeleted = 0;
   let companyDeleted = false;
@@ -191,6 +200,14 @@ export async function purgeCompany(
       // `companies` lives in core, and `core` is always a target (see
       // `purgeTargets`), so this branch always runs exactly once.
       if (key === "core") {
+        if (options.decommissioningTenantDatabaseId !== undefined) {
+          await trx("tenant_databases")
+            .where({
+              id: options.decommissioningTenantDatabaseId,
+              status: "decommissioning",
+            })
+            .delete();
+        }
         const deleted = await trx("companies")
           .where({ id: companyId })
           .delete();
@@ -199,6 +216,38 @@ export async function purgeCompany(
     });
   }
 
+  return { companyDeleted, ledgerRowsDeleted };
+}
+
+/**
+ * The core-plane half of a purge, with none of `purgeCompany`'s tenant-plane
+ * hook deletes (model D-20, D-38; brief T9 AC-55). Used by decommission for a
+ * DEDICATED tenant: its business rows leave with the whole parked database
+ * (I-14 — never dropped here, but never read again either), so explicitly
+ * deleting them row by row would mean writing into a database this same
+ * operation just renamed out from under its own connection pool.
+ */
+export async function purgeCompanyCentralOnly(
+  companyId: number,
+  options: { decommissioningTenantDatabaseId?: number } = {},
+): Promise<CompanyPurgeResult> {
+  let ledgerRowsDeleted = 0;
+  let companyDeleted = false;
+  await db("core").transaction(async (trx) => {
+    await trx.raw(MAINTENANCE_ON);
+    await trx.raw(SKIP_ON);
+    ledgerRowsDeleted = await trx("audit_logs").where({ companyId }).delete();
+    if (options.decommissioningTenantDatabaseId !== undefined) {
+      await trx("tenant_databases")
+        .where({
+          id: options.decommissioningTenantDatabaseId,
+          status: "decommissioning",
+        })
+        .delete();
+    }
+    companyDeleted =
+      (await trx("companies").where({ id: companyId }).delete()) > 0;
+  });
   return { companyDeleted, ledgerRowsDeleted };
 }
 
@@ -277,7 +326,9 @@ export class UserPurgeRefusedError extends Error {
   ) {
     super(
       `user ${userId} cannot be purged: still referenced by ${blockers
-        .map((b) => `${b.reference} (${b.rows} ${b.rows === 1 ? "row" : "rows"})`)
+        .map(
+          (b) => `${b.reference} (${b.rows} ${b.rows === 1 ? "row" : "rows"})`,
+        )
         .join(", ")}`,
     );
     this.name = "UserPurgeRefusedError";
@@ -310,20 +361,30 @@ const rowCountOf = (result: unknown): number =>
  * Audit capture stays on: each deleted or nulled row writes its own trail, and
  * the ledger's rows by this user are kept.
  */
-export async function purgeUser(userId: number): Promise<UserPurgeResult> {
-  const references = await userReferences(db("core"));
-  const tenantKey = representatives().get(physicalKeyOf("tenant")) ?? "tenant";
-
+const countBlockers = async (
+  runner: Knex,
+  refuseRefs: readonly UserReference[],
+  userId: number,
+): Promise<UserReferenceBlocker[]> => {
   const blockers: UserReferenceBlocker[] = [];
-  for (const ref of references.filter((r) => r.action === "refuse")) {
-    const result = (await db(tenantKey).raw(
+  for (const ref of refuseRefs) {
+    const result = (await runner.raw(
       "select count(*)::int as n from ?? where ?? = ?",
       [ref.table, ref.column, userId],
     )) as { rows: { n: number }[] };
     const rows = result.rows[0]?.n ?? 0;
     if (rows > 0) blockers.push({ reference: referenceName(ref), rows });
   }
-  if (blockers.length > 0) throw new UserPurgeRefusedError(userId, blockers);
+  return blockers;
+};
+
+export async function purgeUser(userId: number): Promise<UserPurgeResult> {
+  const references = await userReferences(db("core"));
+  const tenantKey = representatives().get(physicalKeyOf("tenant")) ?? "tenant";
+  const refuseRefs = references.filter((r) => r.action === "refuse");
+
+  const preflight = await countBlockers(db(tenantKey), refuseRefs, userId);
+  if (preflight.length > 0) throw new UserPurgeRefusedError(userId, preflight);
 
   const outcome: UserPurgeResult = {
     userDeleted: false,
@@ -336,6 +397,17 @@ export async function purgeUser(userId: number): Promise<UserPurgeResult> {
   for (const [physical, key] of coreLast) {
     await db(key).transaction(async (trx) => {
       if (physical === physicalKeyOf("tenant")) {
+        // T4/D-124: recount inside this transaction, immediately before any
+        // write, closes most of the window a pre-flight taken outside any
+        // transaction leaves open — a reference row written between the
+        // pre-flight above and here is caught before anything is mutated.
+        const raced = await countBlockers(
+          trx as unknown as Knex,
+          refuseRefs,
+          userId,
+        );
+        if (raced.length > 0) throw new UserPurgeRefusedError(userId, raced);
+
         // Deletes first: a row about to go needs no NULL written (and audited).
         for (const ref of references.filter((r) => r.action === "delete")) {
           outcome.rowsDeleted[referenceName(ref)] = rowCountOf(

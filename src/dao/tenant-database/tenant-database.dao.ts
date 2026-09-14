@@ -1,5 +1,9 @@
 import { db } from "../../database/registry";
 import {
+  evictTenant,
+  invalidateTenantCache,
+} from "../../database/tenant-pools";
+import {
   ITenantDatabase,
   ITenantMigrationRun,
   MigrationRunStatus,
@@ -174,7 +178,17 @@ export class TenantDatabaseDAO {
     const updated = await knex(TABLE)
       .where({ id, status: from })
       .update(update)
-      .returning("id");
+      .returning(["id", "companyId"]);
+    if (updated.length > 0) {
+      // T9: the single choke point every status change goes through — wiring
+      // it here (rather than at each caller) also covers T10's future
+      // suspend/resume, which will call this same method.
+      const companyId = updated[0]?.companyId as number;
+      invalidateTenantCache(companyId);
+      if (to === "suspended" || to === "decommissioning") {
+        await evictTenant(id);
+      }
+    }
     return updated.length;
   }
 
