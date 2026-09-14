@@ -252,6 +252,7 @@ import {
   withAuditContext,
   type AuditRequestState,
 } from "../../../database/audit-context";
+import { TenantNotResolvedError } from "../../../database/tenant-pools";
 
 const DB_ENV_VARS = [
   "SQL_DATABASE",
@@ -278,6 +279,27 @@ const ownTenantTarget = (): {
 
 const asTarget = (target: { physicalKey: "tenant:1"; instance: FakeKnex }) =>
   target as unknown as Parameters<typeof withTenantTarget>[0];
+
+/**
+ * db-per-company (T8, AC-49): `db("tenant")` outside a request now requires
+ * an explicit scope — the fallback these tests once relied on (call with no
+ * scope, land on the one shared instance) is gone. Most of this file predates
+ * tenant pools and asserts "core" and "tenant" sharing ONE physical instance
+ * (`mockInstances[0]`), so scoping onto that same instance changes nothing
+ * these tests already claim; it only makes the scope explicit. The scope only
+ * needs to be active at the moment `db()` is CALLED (`resolveTarget` captures
+ * the target then; a later `await` reads it back off the closure, never off
+ * the ALS store — see registry.ts's own `bindLazily`), so wrapping a whole
+ * `async () => { …multiple db() calls, no target switch… }` body is safe.
+ */
+const withSharedTenant = <T>(fn: () => T): T =>
+  withTenantTarget(
+    {
+      physicalKey: "core",
+      instance: mockInstances[0],
+    } as unknown as Parameters<typeof withTenantTarget>[0],
+    fn,
+  );
 
 const configOf = (index: number): { connection: Record<string, unknown> } =>
   mockInstances[index]?.config as { connection: Record<string, unknown> };
@@ -320,19 +342,36 @@ describe("connection registry", () => {
       );
     });
 
-    it("builds ONE pool for both planes and proves it answers (D-13, D-29)", async () => {
+    /**
+     * Rewritten for T8 (old → new, D-95): "both planes reach that one
+     * instance" used to be automatic — `db("tenant")` fell back to the core
+     * instance with no scope at all. db-per-company AC-49 removes that
+     * fallback: `db(core)` is defined unconditionally, `db("tenant")` with no
+     * scope now throws, and reaching the SAME shared instance for a C1
+     * company (D-31's dedupe) is an explicit `withTenantTarget` scope, not a
+     * default — the stronger claim this keeps is that D-13's dedupe still
+     * costs no second pool once the scope names it.
+     */
+    it("builds ONE pool for the core plane, and dedupes an explicitly-scoped tenant target onto it (D-13, D-29)", async () => {
       await connectAll();
 
       expect(mockInstances).toHaveLength(1);
       expect(mockInstances[0]?.raw).toHaveBeenCalledWith("SELECT 1");
-      for (const key of DB_KEYS) expect(db(key)).toBeDefined();
-      // Both planes reach that one instance.
-      db("core").from("users");
-      db("tenant").from("products");
-      expect(mockInstances[0]?.from).toHaveBeenCalledWith("users");
-      expect(mockInstances[0]?.from).toHaveBeenCalledWith("products");
-      expect(physicalKeyOf("core")).toBe("core");
-      expect(physicalKeyOf("tenant")).toBe("core");
+      expect(db("core")).toBeDefined();
+      expect(() => db("tenant")).toThrow(TenantNotResolvedError);
+
+      withSharedTenant(() => {
+        expect(db("tenant")).toBeDefined();
+        db("core").from("users");
+        db("tenant").from("products");
+        expect(mockInstances[0]?.from).toHaveBeenCalledWith("users");
+        expect(mockInstances[0]?.from).toHaveBeenCalledWith("products");
+        expect(physicalKeyOf("core")).toBe("core");
+        expect(physicalKeyOf("tenant")).toBe("core");
+      });
+      // Still ONE pool: the scope named an existing instance, it never opened
+      // a second one.
+      expect(mockInstances).toHaveLength(1);
     });
 
     it("destroys every pool it opened and rethrows when one cannot connect", async () => {
@@ -434,89 +473,98 @@ describe("connection registry", () => {
       await connectAll();
     });
 
-    it("throws when a table is queried on a connection that does not own it (AC-18)", () => {
-      expect(() => db("tenant")("users")).toThrow(WrongDatabaseError);
-      expect(() => db("tenant")("users")).toThrow(
-        /"users" is owned by the "core" database/,
-      );
-      expect(() => db("tenant")("companies")).toThrow(WrongDatabaseError);
-      // Both directions, although both planes share one instance today.
-      expect(() => db("core")("products")).toThrow(WrongDatabaseError);
-      expect(() => db("core")("products")).toThrow(
-        /"products" is owned by the "tenant" database/,
-      );
-      expect(() => db("core")("countdown_documents")).toThrow(
-        WrongDatabaseError,
-      );
-    });
+    it("throws when a table is queried on a connection that does not own it (AC-18)", () =>
+      withSharedTenant(() => {
+        expect(() => db("tenant")("users")).toThrow(WrongDatabaseError);
+        expect(() => db("tenant")("users")).toThrow(
+          /"users" is owned by the "core" database/,
+        );
+        expect(() => db("tenant")("companies")).toThrow(WrongDatabaseError);
+        // Both directions, although both planes share one instance today.
+        expect(() => db("core")("products")).toThrow(WrongDatabaseError);
+        expect(() => db("core")("products")).toThrow(
+          /"products" is owned by the "tenant" database/,
+        );
+        expect(() => db("core")("countdown_documents")).toThrow(
+          WrongDatabaseError,
+        );
+      }));
 
-    it("sees through an alias and a schema qualifier", () => {
-      expect(() => db("tenant")("users as u")).toThrow(WrongDatabaseError);
-      expect(() => db("tenant")("users AS u")).toThrow(WrongDatabaseError);
-      // The same alias with the keyword left out.
-      expect(() => db("tenant")("users u")).toThrow(WrongDatabaseError);
-      expect(() => db("tenant")("public.users")).toThrow(WrongDatabaseError);
-      expect(() => db("tenant")('"users"')).toThrow(WrongDatabaseError);
-    });
+    it("sees through an alias and a schema qualifier", () =>
+      withSharedTenant(() => {
+        expect(() => db("tenant")("users as u")).toThrow(WrongDatabaseError);
+        expect(() => db("tenant")("users AS u")).toThrow(WrongDatabaseError);
+        // The same alias with the keyword left out.
+        expect(() => db("tenant")("users u")).toThrow(WrongDatabaseError);
+        expect(() => db("tenant")("public.users")).toThrow(WrongDatabaseError);
+        expect(() => db("tenant")('"users"')).toThrow(WrongDatabaseError);
+      }));
 
-    it("sees a generic call, which a naive grep does not", () => {
-      // `db(k)<IRow>("users")` compiles to the same call; this is the shape
-      // that hid the countdown findRecipients regression.
-      expect(() => db("tenant")<{ id: number }>("users")).toThrow(
-        WrongDatabaseError,
-      );
-    });
+    it("sees a generic call, which a naive grep does not", () =>
+      withSharedTenant(() => {
+        // `db(k)<IRow>("users")` compiles to the same call; this is the shape
+        // that hid the countdown findRecipients regression.
+        expect(() => db("tenant")<{ id: number }>("users")).toThrow(
+          WrongDatabaseError,
+        );
+      }));
 
-    it("guards the instance-level table shortcuts too", () => {
-      expect(() => db("tenant").from("users")).toThrow(WrongDatabaseError);
-      expect(() => db("tenant").table("users")).toThrow(WrongDatabaseError);
-      expect(() => db("core").from("users")).not.toThrow();
-      // Still delegates when it lets the call through.
-      expect(mockInstances[0]?.from).toHaveBeenCalledWith("users");
-    });
+    it("guards the instance-level table shortcuts too", () =>
+      withSharedTenant(() => {
+        expect(() => db("tenant").from("users")).toThrow(WrongDatabaseError);
+        expect(() => db("tenant").table("users")).toThrow(WrongDatabaseError);
+        expect(() => db("core").from("users")).not.toThrow();
+        // Still delegates when it lets the call through.
+        expect(mockInstances[0]?.from).toHaveBeenCalledWith("users");
+      }));
 
-    it("does not pretend to cover what it cannot see", () => {
-      // Documented holes (see registry.ts): object aliases and casing. If any
-      // of these ever starts throwing, the comment must be updated with it.
-      expect(() => db("tenant")({ c: "companies" })).not.toThrow();
-      expect(() => db("tenant")("COMPANIES")).not.toThrow();
-    });
+    it("does not pretend to cover what it cannot see", () =>
+      withSharedTenant(() => {
+        // Documented holes (see registry.ts): object aliases and casing. If
+        // any of these ever starts throwing, the comment must be updated with it.
+        expect(() => db("tenant")({ c: "companies" })).not.toThrow();
+        expect(() => db("tenant")("COMPANIES")).not.toThrow();
+      }));
 
-    it("lets a table through on its own key", () => {
-      expect(() => db("core")("users")).not.toThrow();
-      expect(() => db("tenant")("products as p")).not.toThrow();
-      expect(() => db("tenant")("countdown_documents")).not.toThrow();
-      expect(() => db("tenant")("nf_runs")).not.toThrow();
-    });
+    it("lets a table through on its own key", () =>
+      withSharedTenant(() => {
+        expect(() => db("core")("users")).not.toThrow();
+        expect(() => db("tenant")("products as p")).not.toThrow();
+        expect(() => db("tenant")("countdown_documents")).not.toThrow();
+        expect(() => db("tenant")("nf_runs")).not.toThrow();
+      }));
 
-    it("never objects to a fanned-out or unknown table", () => {
-      // `files` and `audit_logs` live in several databases (AC-2); knex's own
-      // bookkeeping tables live in all of them.
-      for (const key of DB_KEYS) {
-        expect(() => db(key)("files")).not.toThrow();
-        expect(() => db(key)("audit_logs")).not.toThrow();
-        expect(() => db(key)("knex_migrations")).not.toThrow();
-      }
-    });
+    it("never objects to a fanned-out or unknown table", () =>
+      withSharedTenant(() => {
+        // `files` and `audit_logs` live in several databases (AC-2); knex's
+        // own bookkeeping tables live in all of them.
+        for (const key of DB_KEYS) {
+          expect(() => db(key)("files")).not.toThrow();
+          expect(() => db(key)("audit_logs")).not.toThrow();
+          expect(() => db(key)("knex_migrations")).not.toThrow();
+        }
+      }));
 
-    it("carries the key into a transaction, so a cross-key trx throws", async () => {
-      await expect(
-        db("tenant").transaction(async (trx) => trx("users")),
-      ).rejects.toThrow(WrongDatabaseError);
+    it("carries the key into a transaction, so a cross-key trx throws", () =>
+      withSharedTenant(async () => {
+        await expect(
+          db("tenant").transaction(async (trx) => trx("users")),
+        ).rejects.toThrow(WrongDatabaseError);
 
-      await expect(
-        db("tenant").transaction(async (trx) => trx("products")),
-      ).resolves.toBeDefined();
-    });
+        await expect(
+          db("tenant").transaction(async (trx) => trx("products")),
+        ).resolves.toBeDefined();
+      }));
 
-    it("carries the key into the callback-less transaction form too", async () => {
-      // `const trx = await db(k).transaction()` resolves to a bare handle that
-      // would otherwise escape the Proxy entirely.
-      const trx = await db("tenant").transaction();
+    it("carries the key into the callback-less transaction form too", () =>
+      withSharedTenant(async () => {
+        // `const trx = await db(k).transaction()` resolves to a bare handle that
+        // would otherwise escape the Proxy entirely.
+        const trx = await db("tenant").transaction();
 
-      expect(() => trx("users")).toThrow(WrongDatabaseError);
-      expect(() => trx("products")).not.toThrow();
-    });
+        expect(() => trx("users")).toThrow(WrongDatabaseError);
+        expect(() => trx("products")).not.toThrow();
+      }));
 
     it("logs, never throws, when raw SQL on a tenant target names a central table", () => {
       // The shared instance serves both planes, so no table is foreign to it
@@ -573,31 +621,36 @@ describe("connection registry", () => {
       expect(target.instance.from).toHaveBeenCalledWith("products");
       expect(target.instance.from).not.toHaveBeenCalledWith("users");
       expect(mockInstances[0]?.from).toHaveBeenCalledWith("users");
-      expect(physicalKeyOf("tenant")).toBe("core");
+      // Rewritten for T8 (old → new, D-95): once the scope closes, resolving
+      // "tenant" used to fall back to "core"; AC-49 removes that fallback, so
+      // the scoped target's effect ends with the scope and the NEXT call
+      // throws instead of silently reading a stale/foreign target.
+      expect(() => physicalKeyOf("tenant")).toThrow(TenantNotResolvedError);
     });
 
-    it("logs instead of throwing in production", () => {
-      const previous = process.env.NODE_ENV;
-      const consoleError = jest
-        .spyOn(console, "error")
-        .mockImplementation(() => undefined);
-      process.env.NODE_ENV = "production";
-      try {
-        expect(() => db("tenant")("users")).not.toThrow();
-        expect(consoleError).toHaveBeenCalledWith(
-          expect.stringContaining('"users" is owned by the "core" database'),
-        );
-        expect(() => db("core")("products")).not.toThrow();
-        expect(consoleError).toHaveBeenCalledWith(
-          expect.stringContaining(
-            '"products" is owned by the "tenant" database',
-          ),
-        );
-      } finally {
-        process.env.NODE_ENV = previous;
-        consoleError.mockRestore();
-      }
-    });
+    it("logs instead of throwing in production", () =>
+      withSharedTenant(() => {
+        const previous = process.env.NODE_ENV;
+        const consoleError = jest
+          .spyOn(console, "error")
+          .mockImplementation(() => undefined);
+        process.env.NODE_ENV = "production";
+        try {
+          expect(() => db("tenant")("users")).not.toThrow();
+          expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining('"users" is owned by the "core" database'),
+          );
+          expect(() => db("core")("products")).not.toThrow();
+          expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining(
+              '"products" is owned by the "tenant" database',
+            ),
+          );
+        } finally {
+          process.env.NODE_ENV = previous;
+          consoleError.mockRestore();
+        }
+      }));
   });
 
   describe("pool budget (AC-44, AC-17)", () => {
@@ -662,8 +715,26 @@ describe("connection registry", () => {
       return state;
     };
 
-    /** An armed, mutating state — what `authenticate` produces in T3. */
+    /**
+     * An armed, mutating state — what `authenticate` produces in T3.
+     *
+     * db-per-company (T8, AC-49): scoped onto the shared core-as-tenant
+     * target (see `withSharedTenant`) by default, since none of the tests
+     * below switch physical targets mid-body — except the one that does
+     * (D-114), which uses `withArmedNoTenantScope` and manages its own
+     * short-lived scopes instead (a scope active for the whole body cannot
+     * nest a second, distinct `withTenantTarget` call — I-3).
+     */
     const withArmed = <T>(
+      fn: (state: AuditRequestState) => Promise<T>,
+    ): Promise<T> =>
+      withSharedTenant(() =>
+        withAuditContext({ source: "script", username: "audit-test" }, () =>
+          fn(armedState()),
+        ),
+      );
+
+    const withArmedNoTenantScope = <T>(
       fn: (state: AuditRequestState) => Promise<T>,
     ): Promise<T> =>
       withAuditContext({ source: "script", username: "audit-test" }, () =>
@@ -681,8 +752,12 @@ describe("connection registry", () => {
       it("hands out the plain facade and opens nothing outside a request", async () => {
         const tenant = instanceOf("tenant");
 
-        expect(db("tenant")).toBe(db("tenant"));
-        const builder = db("tenant")("products") as unknown as FakeBuilder;
+        withSharedTenant(() => {
+          expect(db("tenant")).toBe(db("tenant"));
+        });
+        const builder = withSharedTenant(
+          () => db("tenant")("products") as unknown as FakeBuilder,
+        );
         // No own `then` ⇒ nothing was deferred: this is the plain builder knex
         // would have returned before P1 existed.
         expect(hasOwnThen(builder)).toBe(false);
@@ -827,7 +902,7 @@ describe("connection registry", () => {
         const target = ownTenantTarget();
 
         await withTenantTarget(asTarget(target), () =>
-          withArmed(async (state) => {
+          withArmedNoTenantScope(async (state) => {
             const products = db("tenant")("products") as unknown as FakeBuilder;
             const users = db("core")("users") as unknown as FakeBuilder;
             await Promise.all([products, users]);
@@ -848,10 +923,18 @@ describe("connection registry", () => {
         const core = instanceOf("core");
         const target = ownTenantTarget();
 
-        await withArmed(async (state) => {
+        // Not `withArmed`: this test switches physical targets mid-body, and
+        // I-3 forbids a second `withTenantTarget` nesting inside an already-
+        // active one. `db()` reads its target at CALL time (`resolveTarget`,
+        // captured into the closure `bindLazily` reads back at await time), so
+        // each short `withSharedTenant`/`withTenantTarget` only needs to be
+        // active for the synchronous call itself — awaiting outside it is safe.
+        await withArmedNoTenantScope(async (state) => {
           // Same key, same request state, two physical targets: a facade cached
           // by key alone would hand the second call the first call's target.
-          const before = db("tenant")("products") as unknown as FakeBuilder;
+          const before = withSharedTenant(
+            () => db("tenant")("products") as unknown as FakeBuilder,
+          );
           await before;
           // Captured, not returned: an async function that returns a thenable
           // resolves it, and the test needs the builder itself.
@@ -860,7 +943,9 @@ describe("connection registry", () => {
             inside = db("tenant")("products") as unknown as FakeBuilder;
             await inside;
           });
-          const after = db("tenant")("products") as unknown as FakeBuilder;
+          const after = withSharedTenant(
+            () => db("tenant")("products") as unknown as FakeBuilder,
+          );
           await after;
 
           expect(core.opened).toHaveLength(1);

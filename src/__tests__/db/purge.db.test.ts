@@ -28,7 +28,13 @@ import os from "os";
 import path from "path";
 import { Client } from "pg";
 import type { Knex } from "knex";
-import { connectAll, disconnectAll, db } from "../../database/registry";
+import {
+  connectAll,
+  disconnectAll,
+  db,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../../database/registry";
 import { connectionFor } from "../../database/env";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import {
@@ -234,6 +240,19 @@ describeIfLocalDb(
       await admin.query("commit");
     };
 
+    /**
+     * db-per-company (T8, AC-49): `db("tenant")` outside a request now
+     * requires an explicit scope. `purgeUser`/`purgeCompany`/
+     * `db-check-integrity` (T9) still assume the pre-T7 shared instance, so
+     * every test reaching one of them needs this; none opens a competing
+     * scope of its own.
+     */
+    const runAsCoreTenant = <T>(fn: () => Promise<T>): Promise<T> =>
+      withTenantTarget(
+        { physicalKey: "core", instance: rawCoreInstance() },
+        fn,
+      );
+
     const integrity = async (argv: string[] = []) => {
       const out: string[] = [];
       const err: string[] = [];
@@ -376,69 +395,74 @@ describeIfLocalDb(
         f.superWorkflowB = await workflow(b.id, superAdmin.id);
       });
 
-      it("refuses while countdown_documents.uploadedBy (RESTRICT) holds the user, before any write", async () => {
-        const before = await countAllTables();
+      it("refuses while countdown_documents.uploadedBy (RESTRICT) holds the user, before any write", () =>
+        runAsCoreTenant(async () => {
+          const before = await countAllTables();
 
-        const purge = purgeUser(uploaderA.id);
-        await expect(purge).rejects.toBeInstanceOf(UserPurgeRefusedError);
-        await expect(purge).rejects.toThrow(
-          "countdown_documents.uploadedBy (1 row)",
-        );
+          const purge = purgeUser(uploaderA.id);
+          await expect(purge).rejects.toBeInstanceOf(UserPurgeRefusedError);
+          await expect(purge).rejects.toThrow(
+            "countdown_documents.uploadedBy (1 row)",
+          );
 
-        expect(await exists("users", uploaderA)).toBe(true);
-        expect(await valueOf("files", "uploadedBy", f.uploaderFile)).toBe(
-          uploaderA.id,
-        );
-        expect(await countAllTables()).toEqual(before);
-      });
+          expect(await exists("users", uploaderA)).toBe(true);
+          expect(await valueOf("files", "uploadedBy", f.uploaderFile)).toBe(
+            uploaderA.id,
+          );
+          expect(await countAllTables()).toEqual(before);
+        }));
 
-      it("deletes CASCADE rows, nulls SET NULL and declared nf_* values, and touches no other user's rows", async () => {
-        const result = await purgeUser(memberA.id);
+      it("deletes CASCADE rows, nulls SET NULL and declared nf_* values, and touches no other user's rows", () =>
+        runAsCoreTenant(async () => {
+          const result = await purgeUser(memberA.id);
 
-        expect(result.userDeleted).toBe(true);
-        expect(result.rowsDeleted).toMatchObject({
-          "countdown_document_assignments.userId": 1,
-          "countdown_group_members.userId": 1,
-        });
-        expect(result.valuesNulled).toMatchObject({
-          "files.uploadedBy": 1,
-          "nf_workflows.createdByUserId": 1,
-        });
-        expect(await exists("users", memberA)).toBe(false);
-        expect(
-          await exists("countdown_document_assignments", f.assignment),
-        ).toBe(false);
-        expect(await exists("countdown_group_members", f.membership)).toBe(
-          false,
-        );
-        expect(await valueOf("files", "uploadedBy", f.fileA)).toBeNull();
-        expect(
-          await valueOf("nf_workflows", "createdByUserId", f.workflowA),
-        ).toBeNull();
-        expect(await valueOf("files", "uploadedBy", f.fileB)).toBe(memberB.id);
-        expect(await valueOf("files", "uploadedBy", f.uploaderFile)).toBe(
-          uploaderA.id,
-        );
+          expect(result.userDeleted).toBe(true);
+          expect(result.rowsDeleted).toMatchObject({
+            "countdown_document_assignments.userId": 1,
+            "countdown_group_members.userId": 1,
+          });
+          expect(result.valuesNulled).toMatchObject({
+            "files.uploadedBy": 1,
+            "nf_workflows.createdByUserId": 1,
+          });
+          expect(await exists("users", memberA)).toBe(false);
+          expect(
+            await exists("countdown_document_assignments", f.assignment),
+          ).toBe(false);
+          expect(await exists("countdown_group_members", f.membership)).toBe(
+            false,
+          );
+          expect(await valueOf("files", "uploadedBy", f.fileA)).toBeNull();
+          expect(
+            await valueOf("nf_workflows", "createdByUserId", f.workflowA),
+          ).toBeNull();
+          expect(await valueOf("files", "uploadedBy", f.fileB)).toBe(
+            memberB.id,
+          );
+          expect(await valueOf("files", "uploadedBy", f.uploaderFile)).toBe(
+            uploaderA.id,
+          );
 
-        const check = await integrity();
-        expect(check.err).toEqual([]);
-        expect(check.code).toBe(0);
-      });
+          const check = await integrity();
+          expect(check.err).toEqual([]);
+          expect(check.code).toBe(0);
+        }));
 
-      it("purges a superAdmin's references in every company", async () => {
-        const result = await purgeUser(superAdmin.id);
+      it("purges a superAdmin's references in every company", () =>
+        runAsCoreTenant(async () => {
+          const result = await purgeUser(superAdmin.id);
 
-        expect(result.userDeleted).toBe(true);
-        expect(await valueOf("files", "uploadedBy", f.superFileA)).toBeNull();
-        expect(await valueOf("files", "uploadedBy", f.superFileB)).toBeNull();
-        expect(await exists("countdown_group_members", f.superMembership)).toBe(
-          false,
-        );
-        expect(
-          await valueOf("nf_workflows", "createdByUserId", f.superWorkflowB),
-        ).toBeNull();
-        expect((await integrity()).code).toBe(0);
-      });
+          expect(result.userDeleted).toBe(true);
+          expect(await valueOf("files", "uploadedBy", f.superFileA)).toBeNull();
+          expect(await valueOf("files", "uploadedBy", f.superFileB)).toBeNull();
+          expect(
+            await exists("countdown_group_members", f.superMembership),
+          ).toBe(false);
+          expect(
+            await valueOf("nf_workflows", "createdByUserId", f.superWorkflowB),
+          ).toBeNull();
+          expect((await integrity()).code).toBe(0);
+        }));
     });
 
     describe("db-check-integrity finds orphans in batches (AC-20)", () => {
@@ -449,145 +473,150 @@ describeIfLocalDb(
         user = await createUser("orphans", c.id);
       });
 
-      it("exits 0 on the clean copy", async () => {
-        const check = await integrity();
-        expect(check.err).toEqual([]);
-        expect(check.out[0]).toMatch(
-          /^db-check-integrity: CLEAN; \d+ cross-plane references checked$/,
-        );
-        expect(check.code).toBe(0);
-      });
+      it("exits 0 on the clean copy", () =>
+        runAsCoreTenant(async () => {
+          const check = await integrity();
+          expect(check.err).toEqual([]);
+          expect(check.out[0]).toMatch(
+            /^db-check-integrity: CLEAN; \d+ cross-plane references checked$/,
+          );
+          expect(check.code).toBe(0);
+        }));
 
-      it("names a manifest-declared nf_* column holding a user that does not exist, looking values up with whereIn batches", async () => {
-        await workflow(c.id, user.id);
-        const orphan = await workflow(c.id, MISSING_USER_ID);
-        const lookups: string[] = [];
-        const core = ((table: string) =>
-          db("core")(table).on("query", (q: { sql: string }) =>
-            lookups.push(q.sql),
-          )) as unknown as Knex;
+      it("names a manifest-declared nf_* column holding a user that does not exist, looking values up with whereIn batches", () =>
+        runAsCoreTenant(async () => {
+          await workflow(c.id, user.id);
+          const orphan = await workflow(c.id, MISSING_USER_ID);
+          const lookups: string[] = [];
+          const core = ((table: string) =>
+            db("core")(table).on("query", (q: { sql: string }) =>
+              lookups.push(q.sql),
+            )) as unknown as Knex;
 
-        const found = await findOrphans(
-          db("tenant"),
-          core,
-          {
-            table: "nf_workflows",
-            column: "createdByUserId",
-            referencedTable: "users",
-            referencedColumn: "id",
-          },
-          1,
-        );
-        expect(found?.sample).toContain(String(MISSING_USER_ID));
-        expect(lookups.length).toBeGreaterThanOrEqual(2);
-        expect(lookups.every((sql) => / in \(\?\)/.test(sql))).toBe(true);
+          const found = await findOrphans(
+            db("tenant"),
+            core,
+            {
+              table: "nf_workflows",
+              column: "createdByUserId",
+              referencedTable: "users",
+              referencedColumn: "id",
+            },
+            1,
+          );
+          expect(found?.sample).toContain(String(MISSING_USER_ID));
+          expect(lookups.length).toBeGreaterThanOrEqual(2);
+          expect(lookups.every((sql) => / in \(\?\)/.test(sql))).toBe(true);
 
-        const check = await integrity();
-        expect(check.code).toBe(1);
-        expect(check.err.join("\n")).toContain(
-          `orphans: nf_workflows.createdByUserId has 1 value(s) missing from users.id (e.g. ${MISSING_USER_ID})`,
-        );
+          const check = await integrity();
+          expect(check.code).toBe(1);
+          expect(check.err.join("\n")).toContain(
+            `orphans: nf_workflows.createdByUserId has 1 value(s) missing from users.id (e.g. ${MISSING_USER_ID})`,
+          );
 
-        await inMaintenance(`delete from nf_workflows where uuid = ?`, [
-          orphan.uuid,
-        ]);
-        expect((await integrity()).code).toBe(0);
-      });
+          await inMaintenance(`delete from nf_workflows where uuid = ?`, [
+            orphan.uuid,
+          ]);
+          expect((await integrity()).code).toBe(0);
+        }));
 
-      it("names a foreign-key column holding a user that does not exist", async () => {
-        const planted = await file(c.id, null);
-        await withoutForeignKeys(
-          `update files set "uploadedBy" = $1 where uuid = $2`,
-          [MISSING_USER_ID, planted.uuid],
-        );
+      it("names a foreign-key column holding a user that does not exist", () =>
+        runAsCoreTenant(async () => {
+          const planted = await file(c.id, null);
+          await withoutForeignKeys(
+            `update files set "uploadedBy" = $1 where uuid = $2`,
+            [MISSING_USER_ID, planted.uuid],
+          );
 
-        const check = await integrity();
-        expect(check.code).toBe(1);
-        expect(check.err.join("\n")).toContain(
-          "orphans: files.uploadedBy has 1 value(s) missing from users.id",
-        );
+          const check = await integrity();
+          expect(check.code).toBe(1);
+          expect(check.err.join("\n")).toContain(
+            "orphans: files.uploadedBy has 1 value(s) missing from users.id",
+          );
 
-        await withoutForeignKeys(
-          `update files set "uploadedBy" = null where uuid = $1`,
-          [planted.uuid],
-        );
-        expect((await integrity()).code).toBe(0);
-      });
+          await withoutForeignKeys(
+            `update files set "uploadedBy" = null where uuid = $1`,
+            [planted.uuid],
+          );
+          expect((await integrity()).code).toBe(0);
+        }));
     });
 
     describe("db-check-integrity finds company references outside companies", () => {
-      it("names a tenant company column holding a company that does not exist", async () => {
-        const c = await createCompany("company-orphan");
-        const planted = await file(c.id, null);
-        await withoutForeignKeys(
-          `update files set "companyId" = $1 where uuid = $2`,
-          [MISSING_COMPANY_ID, planted.uuid],
-        );
+      it("names a tenant company column holding a company that does not exist", () =>
+        runAsCoreTenant(async () => {
+          const c = await createCompany("company-orphan");
+          const planted = await file(c.id, null);
+          await withoutForeignKeys(
+            `update files set "companyId" = $1 where uuid = $2`,
+            [MISSING_COMPANY_ID, planted.uuid],
+          );
 
-        const check = await integrity();
-        expect(check.code).toBe(1);
-        expect(check.err.join("\n")).toContain(
-          `orphans: files.companyId has 1 value(s) missing from companies.id (e.g. ${MISSING_COMPANY_ID})`,
-        );
+          const check = await integrity();
+          expect(check.code).toBe(1);
+          expect(check.err.join("\n")).toContain(
+            `orphans: files.companyId has 1 value(s) missing from companies.id (e.g. ${MISSING_COMPANY_ID})`,
+          );
 
-        await withoutForeignKeys(`delete from files where uuid = $1`, [
-          planted.uuid,
-        ]);
-        expect((await integrity()).code).toBe(0);
-      });
+          await withoutForeignKeys(`delete from files where uuid = $1`, [
+            planted.uuid,
+          ]);
+          expect((await integrity()).code).toBe(0);
+        }));
     });
 
     describe("purgeCompany through the module hooks at shared placement (AC-22)", () => {
-      it("leaves 0 rows of the company in every scoped table, and a rerun is a no-op", async () => {
-        const c = await createCompany("purged");
-        const user = await createUser("purged", c.id);
-        const warehouse = await insert(
-          `insert into warehouses (company_id, name) values (?, ?)`,
-          [c.id, `zz-jest-t4-wh-${RUN}`],
-        );
-        const location = await insert(
-          `insert into warehouse_locations (warehouse_id, "row", col) values (?, 1, 1)`,
-          [warehouse.id],
-        );
-        const doc = await document(c.id, user.id);
-        const assigned = await assignment(doc.id, user.id);
-        const flow = await workflow(c.id, user.id);
-        const attachment = await file(c.id, user.id);
+      it("leaves 0 rows of the company in every scoped table, and a rerun is a no-op", () =>
+        runAsCoreTenant(async () => {
+          const c = await createCompany("purged");
+          const user = await createUser("purged", c.id);
+          const warehouse = await insert(
+            `insert into warehouses (company_id, name) values (?, ?)`,
+            [c.id, `zz-jest-t4-wh-${RUN}`],
+          );
+          const location = await insert(
+            `insert into warehouse_locations (warehouse_id, "row", col) values (?, 1, 1)`,
+            [warehouse.id],
+          );
+          const doc = await document(c.id, user.id);
+          const assigned = await assignment(doc.id, user.id);
+          const flow = await workflow(c.id, user.id);
+          const attachment = await file(c.id, user.id);
 
-        const first = await purgeCompany(c.id);
-        expect(first.companyDeleted).toBe(true);
+          const first = await purgeCompany(c.id);
+          expect(first.companyDeleted).toBe(true);
 
-        const survivors: string[] = [];
-        for (const t of await discoverScopedTables(db("core"))) {
-          const { n } =
-            t.via === "company"
-              ? await one<{ n: number }>(
-                  `select count(*)::int as n from ?? where ?? = ?`,
-                  [t.table, t.column, c.id],
-                )
-              : await one<{ n: number }>(
-                  `select count(*)::int as n from ?? where ?? = ?`,
-                  [t.table, t.column, warehouse.id],
-                );
-          if (n > 0) survivors.push(`${t.table}: ${n}`);
-        }
-        expect(survivors).toEqual([]);
-        for (const [table, ref] of [
-          ["companies", c],
-          ["users", user],
-          ["warehouse_locations", location],
-          ["countdown_document_assignments", assigned],
-          ["nf_workflows", flow],
-          ["files", attachment],
-        ] as const) {
-          expect([table, await exists(table, ref)]).toEqual([table, false]);
-        }
+          const survivors: string[] = [];
+          for (const t of await discoverScopedTables(db("core"))) {
+            const { n } =
+              t.via === "company"
+                ? await one<{ n: number }>(
+                    `select count(*)::int as n from ?? where ?? = ?`,
+                    [t.table, t.column, c.id],
+                  )
+                : await one<{ n: number }>(
+                    `select count(*)::int as n from ?? where ?? = ?`,
+                    [t.table, t.column, warehouse.id],
+                  );
+            if (n > 0) survivors.push(`${t.table}: ${n}`);
+          }
+          expect(survivors).toEqual([]);
+          for (const [table, ref] of [
+            ["companies", c],
+            ["users", user],
+            ["warehouse_locations", location],
+            ["countdown_document_assignments", assigned],
+            ["nf_workflows", flow],
+            ["files", attachment],
+          ] as const) {
+            expect([table, await exists(table, ref)]).toEqual([table, false]);
+          }
 
-        await expect(purgeCompany(c.id)).resolves.toEqual({
-          companyDeleted: false,
-          ledgerRowsDeleted: 0,
-        });
-      });
+          await expect(purgeCompany(c.id)).resolves.toEqual({
+            companyDeleted: false,
+            ledgerRowsDeleted: 0,
+          });
+        }));
     });
 
     describe("db-check-integrity --pre-c1 (AC-84)", () => {
@@ -646,111 +675,119 @@ describeIfLocalDb(
         );
       });
 
-      it("exits 0 when every clause holds", async () => {
-        const check = await preC1();
-        expect(check.err).toEqual([]);
-        expect(check.code).toBe(0);
-      });
+      it("exits 0 when every clause holds", () =>
+        runAsCoreTenant(async () => {
+          const check = await preC1();
+          expect(check.err).toEqual([]);
+          expect(check.code).toBe(0);
+        }));
 
-      it("clause 1: a company outside the keepers is red", async () => {
-        const extra = await createCompany("pre-extra");
-        const check = await preC1();
-        expect(check.code).toBe(1);
-        expect(linesOf(check.err, "pre-c1 companies:")).toHaveLength(1);
+      it("clause 1: a company outside the keepers is red", () =>
+        runAsCoreTenant(async () => {
+          const extra = await createCompany("pre-extra");
+          const check = await preC1();
+          expect(check.code).toBe(1);
+          expect(linesOf(check.err, "pre-c1 companies:")).toHaveLength(1);
 
-        await inMaintenance(`delete from companies where id = ?`, [extra.id]);
-        await inMaintenance(`delete from audit_logs where "companyId" = ?`, [
-          extra.id,
-        ]);
-        expect((await preC1()).code).toBe(0);
-      });
+          await inMaintenance(`delete from companies where id = ?`, [extra.id]);
+          await inMaintenance(`delete from audit_logs where "companyId" = ?`, [
+            extra.id,
+          ]);
+          expect((await preC1()).code).toBe(0);
+        }));
 
-      it("clause 2: a row scoped to a company outside the keepers is red", async () => {
-        const stray = await workflow(MISSING_COMPANY_ID, null);
-        const check = await preC1();
-        expect(check.code).toBe(1);
-        expect(
-          linesOf(check.err, "pre-c1 non-keeper rows: nf_workflows (direct) 1"),
-        ).toHaveLength(1);
+      it("clause 2: a row scoped to a company outside the keepers is red", () =>
+        runAsCoreTenant(async () => {
+          const stray = await workflow(MISSING_COMPANY_ID, null);
+          const check = await preC1();
+          expect(check.code).toBe(1);
+          expect(
+            linesOf(
+              check.err,
+              "pre-c1 non-keeper rows: nf_workflows (direct) 1",
+            ),
+          ).toHaveLength(1);
 
-        await inMaintenance(`delete from nf_workflows where uuid = ?`, [
-          stray.uuid,
-        ]);
-        await inMaintenance(`delete from audit_logs where "companyId" = ?`, [
-          MISSING_COMPANY_ID,
-        ]);
-        expect((await preC1()).code).toBe(0);
-      });
+          await inMaintenance(`delete from nf_workflows where uuid = ?`, [
+            stray.uuid,
+          ]);
+          await inMaintenance(`delete from audit_logs where "companyId" = ?`, [
+            MISSING_COMPANY_ID,
+          ]);
+          expect((await preC1()).code).toBe(0);
+        }));
 
-      it("clause 3: an attribution tuple pointing at another company's user is red, at a same-company user green", async () => {
-        await rows(`update files set "uploadedBy" = ? where uuid = ?`, [
-          memberB.id,
-          tuple.uuid,
-        ]);
-        const red = await preC1();
-        expect(red.code).toBe(1);
-        expect(
-          linesOf(
-            red.err,
-            `pre-c1 attribution: files.uploadedBy row ${tuple.uuid}`,
-          ),
-        ).toHaveLength(1);
+      it("clause 3: an attribution tuple pointing at another company's user is red, at a same-company user green", () =>
+        runAsCoreTenant(async () => {
+          await rows(`update files set "uploadedBy" = ? where uuid = ?`, [
+            memberB.id,
+            tuple.uuid,
+          ]);
+          const red = await preC1();
+          expect(red.code).toBe(1);
+          expect(
+            linesOf(
+              red.err,
+              `pre-c1 attribution: files.uploadedBy row ${tuple.uuid}`,
+            ),
+          ).toHaveLength(1);
 
-        await rows(`update files set "uploadedBy" = ? where uuid = ?`, [
-          otherA.id,
-          tuple.uuid,
-        ]);
-        const reattributed = await preC1();
-        expect(reattributed.err).toEqual([]);
-        expect(reattributed.code).toBe(0);
+          await rows(`update files set "uploadedBy" = ? where uuid = ?`, [
+            otherA.id,
+            tuple.uuid,
+          ]);
+          const reattributed = await preC1();
+          expect(reattributed.err).toEqual([]);
+          expect(reattributed.code).toBe(0);
 
-        await rows(`update files set "uploadedBy" = null where uuid = ?`, [
-          tuple.uuid,
-        ]);
-      });
+          await rows(`update files set "uploadedBy" = null where uuid = ?`, [
+            tuple.uuid,
+          ]);
+        }));
 
-      it("clause 4: a SET NULL→users value of another company or a missing user is red; a superAdmin is not another company", async () => {
-        await rows(`update files set "uploadedBy" = ? where uuid = ?`, [
-          memberB.id,
-          plain.uuid,
-        ]);
-        const foreign = await preC1();
-        expect(foreign.code).toBe(1);
-        expect(
-          linesOf(
-            foreign.err,
-            "pre-c1 user references: files.uploadedBy has 0 row(s) pointing at a missing user and 1 at a user of another company",
-          ),
-        ).toHaveLength(1);
+      it("clause 4: a SET NULL→users value of another company or a missing user is red; a superAdmin is not another company", () =>
+        runAsCoreTenant(async () => {
+          await rows(`update files set "uploadedBy" = ? where uuid = ?`, [
+            memberB.id,
+            plain.uuid,
+          ]);
+          const foreign = await preC1();
+          expect(foreign.code).toBe(1);
+          expect(
+            linesOf(
+              foreign.err,
+              "pre-c1 user references: files.uploadedBy has 0 row(s) pointing at a missing user and 1 at a user of another company",
+            ),
+          ).toHaveLength(1);
 
-        await rows(`update files set "uploadedBy" = ? where uuid = ?`, [
-          superAdmin.id,
-          plain.uuid,
-        ]);
-        const operatingAs = await preC1();
-        expect(operatingAs.err).toEqual([]);
-        expect(operatingAs.code).toBe(0);
+          await rows(`update files set "uploadedBy" = ? where uuid = ?`, [
+            superAdmin.id,
+            plain.uuid,
+          ]);
+          const operatingAs = await preC1();
+          expect(operatingAs.err).toEqual([]);
+          expect(operatingAs.code).toBe(0);
 
-        await withoutForeignKeys(
-          `update files set "uploadedBy" = $1 where uuid = $2`,
-          [MISSING_USER_ID, plain.uuid],
-        );
-        const missing = await preC1();
-        expect(missing.code).toBe(1);
-        expect(
-          linesOf(
-            missing.err,
-            "pre-c1 user references: files.uploadedBy has 1 row(s) pointing at a missing user",
-          ),
-        ).toHaveLength(1);
+          await withoutForeignKeys(
+            `update files set "uploadedBy" = $1 where uuid = $2`,
+            [MISSING_USER_ID, plain.uuid],
+          );
+          const missing = await preC1();
+          expect(missing.code).toBe(1);
+          expect(
+            linesOf(
+              missing.err,
+              "pre-c1 user references: files.uploadedBy has 1 row(s) pointing at a missing user",
+            ),
+          ).toHaveLength(1);
 
-        await withoutForeignKeys(
-          `update files set "uploadedBy" = null where uuid = $1`,
-          [plain.uuid],
-        );
-        expect((await preC1()).code).toBe(0);
-        void memberA;
-      });
+          await withoutForeignKeys(
+            `update files set "uploadedBy" = null where uuid = $1`,
+            [plain.uuid],
+          );
+          expect((await preC1()).code).toBe(0);
+          void memberA;
+        }));
     });
   },
 );

@@ -264,16 +264,15 @@ const requestTenantTarget = (): PhysicalTarget | undefined => {
 };
 
 /**
- * Which physical database `key` reaches right now (db-per-company D-29, T7
- * stage 2). Priority: an explicit `withTenantTarget`/`withTenant` scope (tests,
- * jobs), then the current request's acquired tenant, then — only outside any
- * request context at all (a script, a job with no `withTenant` wrapper, a
- * plain unit test) — the static core fallback, logged once per call so a
- * silent cross-tenant read never happens unnoticed. Inside a request that
- * never resolved a tenant (a bug in the route's plane classification, since
- * `central` routes never call `db("tenant")` and `tenant`/`mixed` routes
- * either resolve one or already answered) this throws instead of falling
- * back — stage 3 (T8, AC-49) removes the fallback branch entirely.
+ * Which physical database `key` reaches right now (db-per-company D-29, T8
+ * stage 3, final). Priority: an explicit `withTenantTarget`/`withTenant` scope
+ * (tests, jobs), then the current request's acquired tenant — and nothing
+ * else. `db("tenant")` with neither throws `TenantNotResolvedError`, whether
+ * or not a request is active: a script or job that reaches here with no
+ * `withTenant` wrapper is exactly the bug I-9 exists to catch, and the static
+ * core fallback that used to paper over it outside a request (stage 2, T7) is
+ * gone (AC-49) — every cross-tenant job now iterates tenants explicitly
+ * (model D-22) instead of relying on one shared connection.
  */
 export const physicalKeyOf = (key: DbKey): PhysicalKey => {
   if (key !== "tenant") return "core";
@@ -281,9 +280,7 @@ export const physicalKeyOf = (key: DbKey): PhysicalKey => {
   if (scoped) return scoped.physicalKey;
   const requestTarget = requestTenantTarget();
   if (requestTarget) return requestTarget.physicalKey;
-  if (getRequestContext()) throw new TenantNotResolvedError();
-  console.warn("[db] tenant fallback");
-  return "core";
+  throw new TenantNotResolvedError();
 };
 
 const resolveTarget = (key: DbKey): PhysicalTarget => {
@@ -291,11 +288,7 @@ const resolveTarget = (key: DbKey): PhysicalTarget => {
   if (key !== "tenant") return { physicalKey: "core", instance: coreInstance };
 
   const scoped = tenantScope.getStore() ?? requestTenantTarget();
-  if (!scoped) {
-    if (getRequestContext()) throw new TenantNotResolvedError();
-    console.warn("[db] tenant fallback");
-    return { physicalKey: "core", instance: coreInstance };
-  }
+  if (!scoped) throw new TenantNotResolvedError();
   if (!tenantInstancesWithLogger.has(scoped.instance)) {
     tenantInstancesWithLogger.add(scoped.instance);
     attachRawBoundaryLogger(scoped.instance);

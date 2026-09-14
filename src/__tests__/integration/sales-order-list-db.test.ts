@@ -20,7 +20,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { Request } from "express";
 import { Client } from "pg";
-import { connectAll, disconnectAll } from "../../database/registry";
+import {
+  connectAll,
+  disconnectAll,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../../database/registry";
 import { SalesOrderDAO } from "../../dao/sales-order/sales-order.dao";
 import { UNRESOLVED_COMPANY } from "../../utils/daoScope";
 
@@ -248,6 +253,17 @@ describeIfLocalDb(
       }
     }, 60000);
 
+    /**
+     * db-per-company (T8, AC-49): `db("tenant")` outside a request now
+     * requires an explicit scope. `SalesOrderDAO` is called here directly
+     * (never through real middleware), so every test needs this.
+     */
+    const runAsCoreTenant = <T>(fn: () => Promise<T>): Promise<T> =>
+      withTenantTarget(
+        { physicalKey: "core", instance: rawCoreInstance() },
+        fn,
+      );
+
     /** Every pedido of the fixture company that matches `query`, by number. */
     const numbersFor = async (query: Record<string, string>) => {
       const result = await dao.getAllWithFilters(
@@ -259,174 +275,193 @@ describeIfLocalDb(
       return result.data.map((order) => order.number);
     };
 
-    it("returns only the part-typed pedido for partUuid (AC-8)", async () => {
-      expect(await numbersFor({ partUuid })).toEqual([`${RUN}-PART`]);
-    });
+    it("returns only the part-typed pedido for partUuid (AC-8)", () =>
+      runAsCoreTenant(async () => {
+        expect(await numbersFor({ partUuid })).toEqual([`${RUN}-PART`]);
+      }));
 
-    it("returns only the plancha pedido for sheetSupplyUuid (AC-9, F-1)", async () => {
-      expect(await numbersFor({ sheetSupplyUuid: sheetUuid })).toEqual([
-        `${RUN}-SHEET`,
-      ]);
-    });
+    it("returns only the plancha pedido for sheetSupplyUuid (AC-9, F-1)", () =>
+      runAsCoreTenant(async () => {
+        expect(await numbersFor({ sheetSupplyUuid: sheetUuid })).toEqual([
+          `${RUN}-SHEET`,
+        ]);
+      }));
 
-    it("returns only the product pedido for productUuid (AC-7)", async () => {
-      expect(await numbersFor({ productUuid })).toEqual([`${RUN}-PROD`]);
-    });
+    it("returns only the product pedido for productUuid (AC-7)", () =>
+      runAsCoreTenant(async () => {
+        expect(await numbersFor({ productUuid })).toEqual([`${RUN}-PROD`]);
+      }));
 
-    it("treats orderDataId = NULL as 'sin órdenes' (AC-14)", async () => {
-      expect(await numbersFor({ withoutProductionOrders: "true" })).toEqual([
-        `${RUN}-SHEET`,
-      ]);
-    });
+    it("treats orderDataId = NULL as 'sin órdenes' (AC-14)", () =>
+      runAsCoreTenant(async () => {
+        expect(await numbersFor({ withoutProductionOrders: "true" })).toEqual([
+          `${RUN}-SHEET`,
+        ]);
+      }));
 
-    it("excludes a pedido whose only OP is voided-and-uncompleted (AC-15c)", async () => {
-      const numbers = await numbersFor({
-        allProductionOrdersFulfilled: "true",
-      });
+    it("excludes a pedido whose only OP is voided-and-uncompleted (AC-15c)", () =>
+      runAsCoreTenant(async () => {
+        const numbers = await numbersFor({
+          allProductionOrdersFulfilled: "true",
+        });
 
-      expect(numbers).toEqual([`${RUN}-PROD`]);
-      expect(numbers).not.toContain(`${RUN}-PART`);
-    });
+        expect(numbers).toEqual([`${RUN}-PROD`]);
+        expect(numbers).not.toContain(`${RUN}-PART`);
+      }));
 
-    it("returns the UNION of both order filters when both are true (AC-16)", async () => {
-      const numbers = await numbersFor({
-        withoutProductionOrders: "true",
-        allProductionOrdersFulfilled: "true",
-      });
+    it("returns the UNION of both order filters when both are true (AC-16)", () =>
+      runAsCoreTenant(async () => {
+        const numbers = await numbersFor({
+          withoutProductionOrders: "true",
+          allProductionOrdersFulfilled: "true",
+        });
 
-      expect([...numbers].sort()).toEqual([`${RUN}-PROD`, `${RUN}-SHEET`]);
-    });
+        expect([...numbers].sort()).toEqual([`${RUN}-PROD`, `${RUN}-SHEET`]);
+      }));
 
-    it("includes a mid-day pedido in an INCLUSIVE date-only upper bound (AC-13)", async () => {
-      // `deliveryDateTo=2026-03-31` parses as midnight, so a bare `<=` drops a
-      // pedido delivered at 15:00 that same day — a range the user reads as
-      // "up to and including the 31st" silently losing rows.
-      expect(
-        await numbersFor({
-          productUuid: middayProductUuid,
-          deliveryDateFrom: "2026-03-01",
-          deliveryDateTo: "2026-03-31",
-        }),
-      ).toEqual([`${RUN}-MIDDAY`]);
-    });
+    it("includes a mid-day pedido in an INCLUSIVE date-only upper bound (AC-13)", () =>
+      runAsCoreTenant(async () => {
+        // `deliveryDateTo=2026-03-31` parses as midnight, so a bare `<=` drops a
+        // pedido delivered at 15:00 that same day — a range the user reads as
+        // "up to and including the 31st" silently losing rows.
+        expect(
+          await numbersFor({
+            productUuid: middayProductUuid,
+            deliveryDateFrom: "2026-03-01",
+            deliveryDateTo: "2026-03-31",
+          }),
+        ).toEqual([`${RUN}-MIDDAY`]);
+      }));
 
-    it("still excludes a pedido past the upper bound (AC-13)", async () => {
-      expect(
-        await numbersFor({
-          productUuid: middayProductUuid,
-          deliveryDateTo: "2026-03-30",
-        }),
-      ).toEqual([]);
-      expect(
-        await numbersFor({
-          productUuid: middayProductUuid,
-          deliveryDateFrom: "2026-04-01",
-        }),
-      ).toEqual([]);
-    });
+    it("still excludes a pedido past the upper bound (AC-13)", () =>
+      runAsCoreTenant(async () => {
+        expect(
+          await numbersFor({
+            productUuid: middayProductUuid,
+            deliveryDateTo: "2026-03-30",
+          }),
+        ).toEqual([]);
+        expect(
+          await numbersFor({
+            productUuid: middayProductUuid,
+            deliveryDateFrom: "2026-04-01",
+          }),
+        ).toEqual([]);
+      }));
 
-    it("honours a time-bearing upper bound to the second (AC-13)", async () => {
-      expect(
-        await numbersFor({
-          productUuid: middayProductUuid,
-          deliveryDateTo: "2026-03-31T15:00:00.000Z",
-        }),
-      ).toEqual([`${RUN}-MIDDAY`]);
-      expect(
-        await numbersFor({
-          productUuid: middayProductUuid,
-          deliveryDateTo: "2026-03-31T14:59:59.000Z",
-        }),
-      ).toEqual([]);
-    });
+    it("honours a time-bearing upper bound to the second (AC-13)", () =>
+      runAsCoreTenant(async () => {
+        expect(
+          await numbersFor({
+            productUuid: middayProductUuid,
+            deliveryDateTo: "2026-03-31T15:00:00.000Z",
+          }),
+        ).toEqual([`${RUN}-MIDDAY`]);
+        expect(
+          await numbersFor({
+            productUuid: middayProductUuid,
+            deliveryDateTo: "2026-03-31T14:59:59.000Z",
+          }),
+        ).toEqual([]);
+      }));
 
-    it("ignores the internal numeric id filters on both queries", async () => {
-      // They are not query params any more: `?customerId=…` is an unknown key
-      // the shared builder drops, so the list is unfiltered — data AND count
-      // alike (numbersFor asserts the two agree).
-      const all = await numbersFor({});
+    it("ignores the internal numeric id filters on both queries", () =>
+      runAsCoreTenant(async () => {
+        // They are not query params any more: `?customerId=…` is an unknown key
+        // the shared builder drops, so the list is unfiltered — data AND count
+        // alike (numbersFor asserts the two agree).
+        const all = await numbersFor({});
 
-      for (const param of [
-        "customerId",
-        "productId",
-        "partId",
-        "sheetSupplyId",
-        "salesUserId",
-      ]) {
-        expect(await numbersFor({ [param]: "999999" })).toEqual(all);
-      }
-    });
+        for (const param of [
+          "customerId",
+          "productId",
+          "partId",
+          "sheetSupplyId",
+          "salesUserId",
+        ]) {
+          expect(await numbersFor({ [param]: "999999" })).toEqual(all);
+        }
+      }));
 
-    it("builds the three item descriptions from the real joined rows (AC-34)", async () => {
-      const result = await dao.getAllWithFilters(
-        req({ limit: "100" }),
-        companyId,
-      );
-      const byNumber = new Map(
-        result.data.map((order) => [order.number, order.itemDescription]),
-      );
+    it("builds the three item descriptions from the real joined rows (AC-34)", () =>
+      runAsCoreTenant(async () => {
+        const result = await dao.getAllWithFilters(
+          req({ limit: "100" }),
+          companyId,
+        );
+        const byNumber = new Map(
+          result.data.map((order) => [order.number, order.itemDescription]),
+        );
 
-      expect(byNumber.get(`${RUN}-PROD`)).toBe(
-        `Producto: SOLP-${RUN} - Caja exportación - Revisión: 3`,
-      );
-      expect(byNumber.get(`${RUN}-PART`)).toBe(
-        `Parte: SOLPT-${RUN} - Tapa reforzada - Revisión: 2`,
-      );
-      expect(byNumber.get(`${RUN}-SHEET`)).toBe(
-        `Plancha: SOLPL-${RUN} - Plancha doble B`,
-      );
-    });
+        expect(byNumber.get(`${RUN}-PROD`)).toBe(
+          `Producto: SOLP-${RUN} - Caja exportación - Revisión: 3`,
+        );
+        expect(byNumber.get(`${RUN}-PART`)).toBe(
+          `Parte: SOLPT-${RUN} - Tapa reforzada - Revisión: 2`,
+        );
+        expect(byNumber.get(`${RUN}-SHEET`)).toBe(
+          `Plancha: SOLPL-${RUN} - Plancha doble B`,
+        );
+      }));
 
-    it("answers an empty page for a pedido with orderDataId = NULL (AC-26)", async () => {
-      const result = await dao.getAssociatedProductionOrders(
-        orders.sheet,
-        companyId,
-        1,
-        20,
-      );
-
-      expect(result).toMatchObject({ success: true, data: [], totalCount: 0 });
-    });
-
-    it("returns the pedido's own OPs, uuid-only (AC-25)", async () => {
-      const result = await dao.getAssociatedProductionOrders(
-        orders.product,
-        companyId,
-        1,
-        20,
-      );
-
-      expect(result?.totalCount).toBe(1);
-      expect(result?.data[0]).toMatchObject({
-        number: `${RUN}-OP-DONE`,
-        quantity: 100,
-        part: { code: `SOLPT-${RUN}`, description: "Tapa reforzada" },
-        customer: { name: `Cliente ${RUN}` },
-        voidedAt: null,
-      });
-      expect(JSON.stringify(result?.data)).not.toMatch(/"id":|"partId":/);
-    });
-
-    it("refuses another tenant's pedido with a null, not a payload (AC-23)", async () => {
-      expect(
-        await dao.getAssociatedProductionOrders(
-          orders.product,
-          companyId + 100000,
+    it("answers an empty page for a pedido with orderDataId = NULL (AC-26)", () =>
+      runAsCoreTenant(async () => {
+        const result = await dao.getAssociatedProductionOrders(
+          orders.sheet,
+          companyId,
           1,
           20,
-        ),
-      ).toBeNull();
-    });
+        );
 
-    it("refuses when the caller's company does not resolve (T1/D-98)", async () => {
-      expect(
-        await dao.getAssociatedProductionOrders(
+        expect(result).toMatchObject({
+          success: true,
+          data: [],
+          totalCount: 0,
+        });
+      }));
+
+    it("returns the pedido's own OPs, uuid-only (AC-25)", () =>
+      runAsCoreTenant(async () => {
+        const result = await dao.getAssociatedProductionOrders(
           orders.product,
-          UNRESOLVED_COMPANY,
+          companyId,
           1,
           20,
-        ),
-      ).toBeNull();
-    });
+        );
+
+        expect(result?.totalCount).toBe(1);
+        expect(result?.data[0]).toMatchObject({
+          number: `${RUN}-OP-DONE`,
+          quantity: 100,
+          part: { code: `SOLPT-${RUN}`, description: "Tapa reforzada" },
+          customer: { name: `Cliente ${RUN}` },
+          voidedAt: null,
+        });
+        expect(JSON.stringify(result?.data)).not.toMatch(/"id":|"partId":/);
+      }));
+
+    it("refuses another tenant's pedido with a null, not a payload (AC-23)", () =>
+      runAsCoreTenant(async () => {
+        expect(
+          await dao.getAssociatedProductionOrders(
+            orders.product,
+            companyId + 100000,
+            1,
+            20,
+          ),
+        ).toBeNull();
+      }));
+
+    it("refuses when the caller's company does not resolve (T1/D-98)", () =>
+      runAsCoreTenant(async () => {
+        expect(
+          await dao.getAssociatedProductionOrders(
+            orders.product,
+            UNRESOLVED_COMPANY,
+            1,
+            20,
+          ),
+        ).toBeNull();
+      }));
   },
 );

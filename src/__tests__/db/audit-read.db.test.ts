@@ -60,14 +60,27 @@ import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { Request } from "express";
 import { Client, QueryResult } from "pg";
 import { v4 as uuidv4 } from "uuid";
-import { connectAll, disconnectAll, db, withTenant } from "../../database/registry";
-import { evictTenant, invalidateTenantCache } from "../../database/tenant-pools";
+import {
+  connectAll,
+  disconnectAll,
+  db,
+  rawCoreInstance,
+  withTenant,
+  withTenantTarget,
+} from "../../database/registry";
+import {
+  evictTenant,
+  invalidateTenantCache,
+} from "../../database/tenant-pools";
 import { withAuditContext } from "../../database/audit-context";
 import { AuditLogDAO } from "../../dao/audit-log/audit-log.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { DbServerDAO } from "../../dao/db-server/db-server.dao";
 import { TenantDatabaseDAO } from "../../dao/tenant-database/tenant-database.dao";
-import { dbBootstrapDeps, scratchTenantDatabase } from "../../scripts/db-bootstrap";
+import {
+  dbBootstrapDeps,
+  scratchTenantDatabase,
+} from "../../scripts/db-bootstrap";
 
 const isLocalDb =
   process.env.SQL_HOST === "localhost" || process.env.SQL_HOST === "127.0.0.1";
@@ -132,6 +145,15 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
     );
     return Number(result.rows[0].count);
   };
+
+  /**
+   * db-per-company (T8, AC-49): `db("tenant")` outside a request now requires
+   * an explicit scope. `AuditLogDAO` is called here directly (a plain object,
+   * never through real middleware), and `capture` reads `db("tenant")`
+   * itself, so every test that reaches either needs this.
+   */
+  const runAsCoreTenant = <T>(fn: () => Promise<T>): Promise<T> =>
+    withTenantTarget({ physicalKey: "core", instance: rawCoreInstance() }, fn);
 
   /**
    * Run something through the DAO and hand back every statement it issued.
@@ -398,172 +420,189 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
   // ============ §4a — the plan the UNION exists for ========================
 
   describe("the history query plan (§4a)", () => {
-    it("uses both index legs and seq-scans no audit_logs partition", async () => {
-      const statements = await capture(() =>
-        dao.getHistory(
+    it(
+      "uses both index legs and seq-scans no audit_logs partition",
+      () =>
+        runAsCoreTenant(async () => {
+          const statements = await capture(() =>
+            dao.getHistory(
+              "machine_types",
+              machineTypeUuid,
+              1,
+              20,
+              requestFor(companyUuid, companyId),
+            ),
+          );
+          // The page of txIds, their count, and their rows (§4b): the third
+          // only runs when the first found something, so its presence is also
+          // the proof that the fixture has history.
+          expect(statements).toHaveLength(3);
+
+          const plans = await Promise.all(statements.map(explain));
+          // eslint-disable-next-line no-console
+          console.info(
+            "[§4a] EXPLAIN of the history statements:\n" +
+              statements
+                .map(
+                  (s, i) => `--- statement ${i + 1} ---\n${s.sql}\n${plans[i]}`,
+                )
+                .join("\n\n"),
+          );
+
+          for (const [index, plan] of plans.entries()) {
+            // Leg 1 (`entityName`/`entityUuid`) and leg 2
+            // (`rootEntity`/`rootUuid`) each reach their own index. Partitions
+            // holding no rows at all fall back to whichever index is cheapest
+            // to scan, which is a size artifact of a laptop database, not a
+            // plan defect — hence "at least one partition uses each leg"
+            // rather than "every partition does".
+            expect({ index, entityLeg: ENTITY_LEG.test(plan) }).toEqual({
+              index,
+              entityLeg: true,
+            });
+            expect({ index, rootLeg: ROOT_LEG.test(plan) }).toEqual({
+              index,
+              rootLeg: true,
+            });
+            // The thing the UNION buys: no partition is read end to end. An
+            // `OR` over the two columns is what puts a Seq Scan here.
+            expect({
+              index,
+              seqScan: /Seq Scan on audit_logs/.test(plan),
+            }).toEqual({
+              index,
+              seqScan: false,
+            });
+          }
+        }),
+      60000,
+    );
+
+    it("returns the record's rows, so the plan is not a plan for nothing", () =>
+      runAsCoreTenant(async () => {
+        const history = await dao.getHistory(
           "machine_types",
           machineTypeUuid,
           1,
           20,
           requestFor(companyUuid, companyId),
-        ),
-      );
-      // The page of txIds, their count, and their rows (§4b): the third only
-      // runs when the first found something, so its presence is also the proof
-      // that the fixture has history.
-      expect(statements).toHaveLength(3);
-
-      const plans = await Promise.all(statements.map(explain));
-      // eslint-disable-next-line no-console
-      console.info(
-        "[§4a] EXPLAIN of the history statements:\n" +
-          statements
-            .map((s, i) => `--- statement ${i + 1} ---\n${s.sql}\n${plans[i]}`)
-            .join("\n\n"),
-      );
-
-      for (const [index, plan] of plans.entries()) {
-        // Leg 1 (`entityName`/`entityUuid`) and leg 2 (`rootEntity`/`rootUuid`)
-        // each reach their own index. Partitions holding no rows at all fall
-        // back to whichever index is cheapest to scan, which is a size
-        // artifact of a laptop database, not a plan defect — hence "at least
-        // one partition uses each leg" rather than "every partition does".
-        expect({ index, entityLeg: ENTITY_LEG.test(plan) }).toEqual({
-          index,
-          entityLeg: true,
-        });
-        expect({ index, rootLeg: ROOT_LEG.test(plan) }).toEqual({
-          index,
-          rootLeg: true,
-        });
-        // The thing the UNION buys: no partition is read end to end. An `OR`
-        // over the two columns is what puts a Seq Scan here.
-        expect({ index, seqScan: /Seq Scan on audit_logs/.test(plan) }).toEqual(
-          {
-            index,
-            seqScan: false,
-          },
         );
-      }
-    }, 60000);
-
-    it("returns the record's rows, so the plan is not a plan for nothing", async () => {
-      const history = await dao.getHistory(
-        "machine_types",
-        machineTypeUuid,
-        1,
-        20,
-        requestFor(companyUuid, companyId),
-      );
-      expect(history.totalCount).toBe(2); // the Alta and the Modificacion
-      const rows = history.data.flatMap((group) => group.rows);
-      expect(rows.map((row) => row.operation).sort()).toEqual([
-        "Alta",
-        "Modificacion",
-      ]);
-    });
+        expect(history.totalCount).toBe(2); // the Alta and the Modificacion
+        const rows = history.data.flatMap((group) => group.rows);
+        expect(rows.map((row) => row.operation).sort()).toEqual([
+          "Alta",
+          "Modificacion",
+        ]);
+      }));
   });
 
   // ============ §4c — the list query prunes partitions =====================
 
   describe("the list query plan (§4c)", () => {
-    it("prunes partitions once the window excludes one", async () => {
-      const total = Number(
-        (
-          await outside.query<CountRow>(
-            `SELECT count(*) FROM pg_inherits WHERE inhparent = 'audit_logs'::regclass`,
-          )
-        ).rows[0].count,
-      );
-      expect(total).toBeGreaterThan(1);
+    it(
+      "prunes partitions once the window excludes one",
+      () =>
+        runAsCoreTenant(async () => {
+          const total = Number(
+            (
+              await outside.query<CountRow>(
+                `SELECT count(*) FROM pg_inherits WHERE inhparent = 'audit_logs'::regclass`,
+              )
+            ).rows[0].count,
+          );
+          expect(total).toBeGreaterThan(1);
 
-      const plansFor = async (query: Record<string, unknown>) => {
-        const statements = await capture(() =>
-          dao.getAllWithFilters(requestFor(companyUuid, companyId, query)),
-        );
-        expect(statements).toHaveLength(2); // the page and its count
-        return Promise.all(statements.map(explain));
-      };
+          const plansFor = async (query: Record<string, unknown>) => {
+            const statements = await capture(() =>
+              dao.getAllWithFilters(requestFor(companyUuid, companyId, query)),
+            );
+            expect(statements).toHaveLength(2); // the page and its count
+            return Promise.all(statements.map(explain));
+          };
 
-      // A read with a company but no date bound reaches every partition there
-      // is — precisely the read §4c narrows to 90 days by default.
-      const unbounded = await plansFor({});
-      for (const plan of unbounded) {
-        expect(partitionsIn(plan)).toHaveLength(total);
-      }
+          // A read with a company but no date bound reaches every partition there
+          // is — precisely the read §4c narrows to 90 days by default.
+          const unbounded = await plansFor({});
+          for (const plan of unbounded) {
+            expect(partitionsIn(plan)).toHaveLength(total);
+          }
 
-      // The same read inside a window drops every month the window cannot
-      // contain. **Both** bounds, deliberately: today the oldest partition IS
-      // the current month — the ledger was created this month — so a lower
-      // bound alone excludes nothing, and §4c's `from = now - 90 days` starts
-      // pruning only once months older than the window exist. The upper bound
-      // proves the mechanism now, and the assertion keeps holding then.
-      const monthStart = new Date();
-      monthStart.setUTCDate(1);
-      monthStart.setUTCHours(0, 0, 0, 0);
-      const windowed = await plansFor({
-        from: monthStart.toISOString(),
-        to: new Date().toISOString(),
-      });
+          // The same read inside a window drops every month the window cannot
+          // contain. **Both** bounds, deliberately: today the oldest partition IS
+          // the current month — the ledger was created this month — so a lower
+          // bound alone excludes nothing, and §4c's `from = now - 90 days` starts
+          // pruning only once months older than the window exist. The upper bound
+          // proves the mechanism now, and the assertion keeps holding then.
+          const monthStart = new Date();
+          monthStart.setUTCDate(1);
+          monthStart.setUTCHours(0, 0, 0, 0);
+          const windowed = await plansFor({
+            from: monthStart.toISOString(),
+            to: new Date().toISOString(),
+          });
 
-      console.info(
-        "[§4c] partitions per statement:",
-        JSON.stringify({
-          total,
-          unbounded: unbounded.map((plan) => partitionsIn(plan).length),
-          windowed: windowed.map(partitionsIn),
+          console.info(
+            "[§4c] partitions per statement:",
+            JSON.stringify({
+              total,
+              unbounded: unbounded.map((plan) => partitionsIn(plan).length),
+              windowed: windowed.map(partitionsIn),
+            }),
+          );
+
+          for (const plan of windowed) {
+            const scanned = partitionsIn(plan);
+            expect(scanned.length).toBeGreaterThan(0);
+            expect(scanned.length).toBeLessThan(total);
+            // The month the fixtures were written in is the one that survives.
+            expect(
+              scanned.some((name) => /^audit_logs_y\d{4}m\d{2}$/.test(name)),
+            ).toBe(true);
+          }
         }),
-      );
-
-      for (const plan of windowed) {
-        const scanned = partitionsIn(plan);
-        expect(scanned.length).toBeGreaterThan(0);
-        expect(scanned.length).toBeLessThan(total);
-        // The month the fixtures were written in is the one that survives.
-        expect(
-          scanned.some((name) => /^audit_logs_y\d{4}m\d{2}$/.test(name)),
-        ).toBe(true);
-      }
-    }, 60000);
+      60000,
+    );
   });
 
   // ============ §4 — changedKey is a filter, not a no-op ===================
 
   describe("the changedKey filter", () => {
-    it("returns exactly what a hand-written @> query returns", async () => {
-      const page = await dao.getAllWithFilters(
-        requestFor(companyUuid, companyId, {
-          changedKey: "attribute",
-          limit: "100",
-        }),
-      );
-      const fromApi = page.data.map((row) => row.uuid).sort();
+    it("returns exactly what a hand-written @> query returns", () =>
+      runAsCoreTenant(async () => {
+        const page = await dao.getAllWithFilters(
+          requestFor(companyUuid, companyId, {
+            changedKey: "attribute",
+            limit: "100",
+          }),
+        );
+        const fromApi = page.data.map((row) => row.uuid).sort();
 
-      const handWritten = await outside.query<UuidRow>(
-        `SELECT l.uuid FROM audit_logs l
+        const handWritten = await outside.query<UuidRow>(
+          `SELECT l.uuid FROM audit_logs l
            JOIN companies c ON c.id = l."companyId"
           WHERE c.uuid = $1 AND l."changedKeys" @> ARRAY['attribute']::text[]
           ORDER BY l.uuid`,
-        [companyUuid],
-      );
-      const fromSql = handWritten.rows.map((row) => row.uuid).sort();
+          [companyUuid],
+        );
+        const fromSql = handWritten.rows.map((row) => row.uuid).sort();
 
-      // Non-empty on purpose: two identical empty lists would agree about
-      // nothing. The `Modificacion` of the fixture is the row both must find.
-      expect(fromSql.length).toBe(1);
-      expect(fromApi).toEqual(fromSql);
-    });
+        // Non-empty on purpose: two identical empty lists would agree about
+        // nothing. The `Modificacion` of the fixture is the row both must find.
+        expect(fromSql.length).toBe(1);
+        expect(fromApi).toEqual(fromSql);
+      }));
 
-    it("is a real predicate — a key nothing changed returns nothing", async () => {
-      const page = await dao.getAllWithFilters(
-        requestFor(companyUuid, companyId, {
-          changedKey: "notAColumnAnywhere",
-        }),
-      );
-      // A filter that had degraded into a no-op would return the company's
-      // whole ledger here, which is what makes this the L-007 canary.
-      expect(page.totalCount).toBe(0);
-    });
+    it("is a real predicate — a key nothing changed returns nothing", () =>
+      runAsCoreTenant(async () => {
+        const page = await dao.getAllWithFilters(
+          requestFor(companyUuid, companyId, {
+            changedKey: "notAColumnAnywhere",
+          }),
+        );
+        // A filter that had degraded into a no-op would return the company's
+        // whole ledger here, which is what makes this the L-007 canary.
+        expect(page.totalCount).toBe(0);
+      }));
   });
 
   // ============ §0.4 — the cascade gap, from both sides ====================
@@ -604,37 +643,42 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
       }
     }, 60000);
 
-    it("is therefore absent from the parent's history entry, and present by transactionRef", async () => {
-      const history = await dao.getHistory(
-        "corrugations",
-        corrugationUuid,
-        1,
-        20,
-        requestFor(companyUuid, companyId),
-      );
-      const deletion = history.data.find((group) =>
-        group.rows.some((row) => row.operation === "Baja"),
-      );
-      expect(deletion).toBeDefined();
-      // The documented gap: the `rootUuid` leg cannot see a child whose
-      // `rootUuid` is NULL, so the entry carries the parent's row alone.
-      expect((deletion?.rows ?? []).map((row) => row.entityName)).toEqual([
-        "corrugations",
-      ]);
+    it(
+      "is therefore absent from the parent's history entry, and present by transactionRef",
+      () =>
+        runAsCoreTenant(async () => {
+          const history = await dao.getHistory(
+            "corrugations",
+            corrugationUuid,
+            1,
+            20,
+            requestFor(companyUuid, companyId),
+          );
+          const deletion = history.data.find((group) =>
+            group.rows.some((row) => row.operation === "Baja"),
+          );
+          expect(deletion).toBeDefined();
+          // The documented gap: the `rootUuid` leg cannot see a child whose
+          // `rootUuid` is NULL, so the entry carries the parent's row alone.
+          expect((deletion?.rows ?? []).map((row) => row.entityName)).toEqual([
+            "corrugations",
+          ]);
 
-      // And the compensating route, which is why the gap is acceptable: the
-      // transaction reference groups the whole deletion.
-      const byTx = await dao.getAllWithFilters(
-        requestFor(companyUuid, companyId, {
-          transactionRef: deletion?.txId,
-          limit: "100",
+          // And the compensating route, which is why the gap is acceptable:
+          // the transaction reference groups the whole deletion.
+          const byTx = await dao.getAllWithFilters(
+            requestFor(companyUuid, companyId, {
+              transactionRef: deletion?.txId,
+              limit: "100",
+            }),
+          );
+          const layerRows = byTx.data.filter(
+            (row) => row.entityName === "corrugation_layers",
+          );
+          expect(layerRows).toHaveLength(2);
         }),
-      );
-      const layerRows = byTx.data.filter(
-        (row) => row.entityName === "corrugation_layers",
-      );
-      expect(layerRows).toHaveLength(2);
-    }, 60000);
+      60000,
+    );
   });
 
   // ============ R-5 — the premise of the 400 ==============================
@@ -674,19 +718,24 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
       ]);
     });
 
-    it("makes those rows visible in the parent's history", async () => {
-      const history = await dao.getHistory(
-        "roles",
-        roleUuid,
-        1,
-        20,
-        requestFor(companyUuid, companyId),
-      );
-      const rows = history.data.flatMap((group) => group.rows);
-      expect(rows.some((row) => row.entityName === "role_permissions")).toBe(
-        true,
-      );
-    }, 60000);
+    it(
+      "makes those rows visible in the parent's history",
+      () =>
+        runAsCoreTenant(async () => {
+          const history = await dao.getHistory(
+            "roles",
+            roleUuid,
+            1,
+            20,
+            requestFor(companyUuid, companyId),
+          );
+          const rows = history.data.flatMap((group) => group.rows);
+          expect(
+            rows.some((row) => row.entityName === "role_permissions"),
+          ).toBe(true);
+        }),
+      60000,
+    );
   });
 });
 
@@ -769,9 +818,14 @@ describeIfLocalDb(
         poolMax: 3,
         poolMin: 0,
       });
-      await tenantDatabaseDAO.transition(createdRow.id, "provisioning", "active", {
-        migrationState: "current",
-      });
+      await tenantDatabaseDAO.transition(
+        createdRow.id,
+        "provisioning",
+        "active",
+        {
+          migrationState: "current",
+        },
+      );
       tenantRowId = createdRow.id;
 
       // Two audited writes, one per plane: `companies` (central) via a plain
@@ -824,9 +878,11 @@ describeIfLocalDb(
           entityUuid: companyUuid,
         }),
       );
-      expect(page.data.some((row) => row.after?.description === mark6("central-change"))).toBe(
-        true,
-      );
+      expect(
+        page.data.some(
+          (row) => row.after?.description === mark6("central-change"),
+        ),
+      ).toBe(true);
     });
 
     it("reads a `customers` (tenant) change from the dedicated database only, via withTenant", async () => {

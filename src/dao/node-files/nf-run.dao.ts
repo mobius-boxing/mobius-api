@@ -59,9 +59,12 @@ export interface INodeFilesLockCandidate {
 /**
  * Runs, company-scoped like every DAO here (L-009) — with exactly TWO
  * deliberate exceptions, both used only by the background worker, both marked:
- * `listExtracting` and `claimNext`. The worker serves every tenant, so it
- * cannot be handed one company's id; instead the claimed row carries its own
- * `companyId`, and every follow-up call the worker makes is scoped with THAT.
+ * `listExtracting` and `claimNext`. db-per-company (T8): the worker now visits
+ * one tenant's own database at a time, inside that company's `withTenant`
+ * scope, so these two queries never see another company's rows regardless —
+ * they stay unscoped-by-argument because the worker still reads the claimed
+ * row's own `companyId` back (never trusts an argument for it), and every
+ * follow-up call is scoped with THAT.
  *
  * The joins reach `nf_workflows` and `nf_documents` only — the same database
  * key. Nothing here joins `companies` or `users`.
@@ -292,17 +295,14 @@ export class NfRunDAO {
   ): Promise<number> {
     if (ids.length === 0) return 0;
     const knex = db("tenant");
-    return knex(TABLE)
-      .whereIn("id", ids)
-      .where("status", "running")
-      .update({
-        status: "failed",
-        error: message,
-        lockedAt: null,
-        lockedBy: null,
-        finishedAt: knex.fn.now(),
-        updatedAt: knex.fn.now(),
-      });
+    return knex(TABLE).whereIn("id", ids).where("status", "running").update({
+      status: "failed",
+      error: message,
+      lockedAt: null,
+      lockedBy: null,
+      finishedAt: knex.fn.now(),
+      updatedAt: knex.fn.now(),
+    });
   }
 
   /** Put abandoned runs back in the queue. Returns how many moved. */
