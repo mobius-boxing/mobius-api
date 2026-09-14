@@ -20,6 +20,11 @@ import { ownerOf, tablesOf } from "./ownership";
  * physical tables** carrying the trigger, reached by **75 `attachAudit` calls**
  * because `files` exists in both planes (same physical table today, and
  * `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER` is idempotent).
+ *
+ * db-per-company T6 adds `db_servers`, `tenant_databases` and
+ * `tenant_migration_runs` — all `core`, all audited, none excluded, none
+ * fanned out: **84 application tables, 77 distinct audited tables, 78
+ * `attachAudit` calls.**
  */
 
 /**
@@ -56,6 +61,10 @@ export const AUDIT_REDACT: Record<string, string[]> = {
   invitations: ["token"],
   // 20260824000006; `headerName` is not a secret.
   nf_credentials: ["secretCiphertext", "secretIv", "secretTag"],
+  // db-per-company T6, AC-35: same treatment, one packed bytea column each
+  // instead of nf_credentials' three text columns (model D-33).
+  db_servers: ["adminCredentialCiphertext"],
+  tenant_databases: ["credentialCiphertext"],
 };
 
 /**
@@ -239,6 +248,10 @@ export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   sales_order_approval_events: "orders.edit", // child of `sales_orders`
   sales_orders: "orders.edit",
   users: "users.edit", // `PUT /roles/assign` is the one coded users write
+  // ── db-per-company T6: platform-ops tables, superAdmin-only (D-46) ────────
+  db_servers: null,
+  tenant_databases: null,
+  tenant_migration_runs: null,
 };
 
 /**
@@ -345,6 +358,7 @@ export const AUDIT_FK_TABLE: Record<string, string> = {
   salesOrderId: "sales_orders",
   salesPersonId: "users",
   salesUserId: "users",
+  serverId: "db_servers",
   sketchFileUuid: "files",
   sourceWarehouseId: "warehouses",
   stageId: "production_route_stages",
@@ -353,6 +367,7 @@ export const AUDIT_FK_TABLE: Record<string, string> = {
   supplierId: "suppliers",
   technicalFileUuid: "files",
   technicalSheetFileUuid: "files",
+  tenantDatabaseId: "tenant_databases",
   toolingId: "toolings",
   toolingTypeId: "tooling_types",
   traceTypeId: "trace_types",

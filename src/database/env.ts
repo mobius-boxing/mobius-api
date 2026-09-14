@@ -1,11 +1,22 @@
+import type {
+  IDbServer,
+  ITenantDatabase,
+} from "../interfaces/tenant/tenant.interfaces";
+
 export type ConnectionSettings = {
   host: string | undefined;
   port: number;
   database: string;
   user: string | undefined;
   password: string | undefined;
-  /** The EC2 Postgres is a container on a private Docker network with SSL off. */
-  ssl: false;
+  /**
+   * The EC2 Postgres is a container on a private Docker network with SSL off
+   * — `false` for `connectionFor("core")`, always. The verified-TLS shape
+   * exists for `connectionForTenant`, an RDS tenant on the open internet
+   * (db-per-company D-8/D-9); there is no unverified-but-encrypted state on
+   * purpose, because it is not meaningfully safer than none.
+   */
+  ssl: false | { rejectUnauthorized: true; ca?: string };
 };
 
 export class MissingDatabaseNameError extends Error {
@@ -54,5 +65,29 @@ export function connectionFor(key: "core"): ConnectionSettings {
     user: process.env[`${prefix}USER`] ?? process.env.SQL_USER,
     password: process.env[`${prefix}PASSWORD`] ?? process.env.SQL_PASSWORD,
     ssl: false,
+  };
+}
+
+/**
+ * A tenant database's connection, built from its registry rows and an
+ * already-resolved password (db-per-company D-7, D-26). Never reads the
+ * environment for the tenant's own identity — only for the shared server's
+ * `host`/`port` fallback, and only through the two variables `connectionFor`
+ * already spells (D-8): `row.serverId`'s row has NULL `host`/`port` exactly
+ * when it is the shared container (D-26), so the fallback here is the same
+ * `SQL_HOST`/`SQL_PORT` the core connection uses, never a third spelling.
+ */
+export function connectionForTenant(
+  row: ITenantDatabase,
+  server: IDbServer,
+  password: string,
+): ConnectionSettings {
+  return {
+    host: server.host ?? process.env.SQL_HOST,
+    port: server.port ?? (Number(process.env.SQL_PORT) || 5432),
+    database: row.databaseName,
+    user: row.dbUser,
+    password,
+    ssl: server.sslMode === "disable" ? false : { rejectUnauthorized: true },
   };
 }
