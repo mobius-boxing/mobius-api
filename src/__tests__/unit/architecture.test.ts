@@ -309,7 +309,10 @@ describe("AC-10 (db-per-company T2) — central tables are read only by the cent
   };
 
   const CENTRAL_PATHS: readonly RegExp[] = [
-    /^dao\/(company|user|company-module|invitation|role|permission|module|email-token)\//,
+    // `user-device` (device approval): `user_devices` is itself a `core` table
+    // (model D-10), joined to `users` on the same `db("core")` connection —
+    // never cross-plane.
+    /^dao\/(company|user|company-module|invitation|role|permission|module|email-token|user-device)\//,
     /^services\/(core-client|rbac|auth[^/]*|company-purge)\.service\.ts$/,
     /^middlewares\/(auth|audit-context)\.middleware\.ts$/,
     /^controllers\/(auth|companies|users|invitations|modules|public)\//,

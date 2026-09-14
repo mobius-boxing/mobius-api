@@ -57,6 +57,9 @@ export const ROUTE_PLANE: Record<string, "central" | "tenant" | "mixed"> = {
   "db-servers": "central",
   "delivery-locations": "tenant",
   "delivery-zones": "tenant",
+  // Device approval (feat/device-approval): `user_devices` is a `core` table
+  // joined only to `users` (also `core`, model D-10) — no tenant DB involved.
+  devices: "central",
   files: "tenant",
   "finished-goods": "tenant",
   "flap-type": "tenant",
