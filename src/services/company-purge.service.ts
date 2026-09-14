@@ -1,5 +1,13 @@
+import type { Knex } from "knex";
 import { db, physicalKeyOf } from "../database/registry";
 import { DB_KEYS, DbKey, PhysicalKey } from "../database/keys";
+import {
+  crossPlaneRefs,
+  type ForeignKeyDeleteRule,
+} from "../database/cross-plane-refs";
+import { PURGE_HOOKS, declaredUserReferences } from "../modules/registry";
+
+export { NODE_FILES_PURGE_ORDER } from "../modules/node-files/purge.hook";
 
 /**
  * Company purge — the ONE sanctioned door for removing ledger rows
@@ -130,30 +138,15 @@ const representatives = (): Map<PhysicalKey, DbKey> => {
 export const purgeTargets = (): PhysicalKey[] => [...representatives().keys()];
 
 /**
- * The node-files tables carry `companyId` with no foreign key to `companies`,
- * so the cascade never reaches them and they are deleted explicitly
- * (db-per-company T0, finding F-1). Children before parents, so the order is
- * safe whatever each foreign key's delete rule is (`nf_runs.workflowId` is
- * RESTRICT); `__tests__/db/company-purge.db.test.ts` checks it against
- * `pg_constraint`.
- */
-export const NODE_FILES_PURGE_ORDER = [
-  "nf_node_runs",
-  "nf_runs",
-  "nf_documents",
-  "nf_workflow_credentials",
-  "nf_workflows",
-  "nf_credentials",
-] as const;
-
-/**
  * Every table whose company rows no `ON DELETE CASCADE` from `companies`
  * removes, because this routine deletes them itself. The P scripts refuse a
  * database holding any other such table.
  */
 export const EXPLICITLY_PURGED_TABLES: readonly string[] = [
   "audit_logs",
-  ...NODE_FILES_PURGE_ORDER,
+  ...PURGE_HOOKS.flatMap((hook) =>
+    hook.companyRows === "explicit" ? hook.tables : [],
+  ),
 ];
 
 /** `is_local = true` — see the "two settings" note above. Never `false`. */
@@ -164,9 +157,10 @@ const SKIP_ON = "select set_config('mobius.audit_skip', 'on', true)";
 /**
  * Remove a company: its audit trail first (explicitly — `audit_logs."companyId"`
  * carries NO foreign key under ruling R-B, so nothing cascades it away), then
- * its node-files rows (explicitly, for the same reason — see
- * `NODE_FILES_PURGE_ORDER`), then the company row itself, whose existing
- * `ON DELETE CASCADE`s take the tenant's business data with it.
+ * the rows of every module whose purge hook deletes explicitly (node-files, for
+ * the same reason — see `modules/node-files/purge.hook.ts`), then the company
+ * row itself, whose existing `ON DELETE CASCADE`s take the other modules'
+ * business data with it.
  *
  * @param companyId internal numeric id (`CompanyDAO.getIdByUuid` / `.getByUuid`)
  */
@@ -187,16 +181,10 @@ export async function purgeCompany(
         .delete();
 
       if (physical === physicalKeyOf("tenant")) {
-        for (const table of NODE_FILES_PURGE_ORDER) {
-          // Raw, because this transaction is guarded as `key` — `core` while
-          // the tenant plane shares its database — and the wrong-database guard
-          // rejects a tenant-owned table name there. A second transaction on the
-          // tenant key is not an option: see "One transaction per physical
-          // DATABASE" above.
-          await trx.raw('delete from ?? where "companyId" = ?', [
-            table,
-            companyId,
-          ]);
+        for (const hook of PURGE_HOOKS) {
+          if (hook.companyRows === "explicit") {
+            await hook.purgeCompany(trx, companyId);
+          }
         }
       }
 
@@ -212,4 +200,168 @@ export async function purgeCompany(
   }
 
   return { companyDeleted, ledgerRowsDeleted };
+}
+
+/** What `purgeUser` does to the rows holding one user reference. */
+export type UserReferenceAction = "delete" | "set-null" | "refuse";
+
+/** A tenant column holding a `users.id`, and what purging that user does to it. */
+export type UserReference = {
+  table: string;
+  column: string;
+  action: UserReferenceAction;
+  source: "foreign-key" | "manifest";
+};
+
+/**
+ * Each foreign key's own delete rule, applied by hand so the result is the same
+ * once the tenant's database has no foreign key to `users`. RESTRICT and NO
+ * ACTION refuse because that is what the database does today; SET DEFAULT has
+ * no default to set a user id to, so it refuses too.
+ */
+const ACTION_BY_DELETE_RULE: Record<ForeignKeyDeleteRule, UserReferenceAction> =
+  {
+    CASCADE: "delete",
+    "SET NULL": "set-null",
+    RESTRICT: "refuse",
+    "NO ACTION": "refuse",
+    "SET DEFAULT": "refuse",
+  };
+
+const referenceName = (ref: { table: string; column: string }): string =>
+  `${ref.table}.${ref.column}`;
+
+/**
+ * Every user reference in the tenant plane: the foreign keys the catalogue
+ * reports (`crossPlaneRefs`) plus the columns module manifests declare because
+ * they have none. Where both name a column the foreign key's rule wins, since
+ * it is what the database enforces.
+ */
+export async function userReferences(knex: Knex): Promise<UserReference[]> {
+  const fromForeignKeys = new Map<string, UserReference>();
+  for (const ref of await crossPlaneRefs(knex)) {
+    if (ref.referencedTable !== "users") continue;
+    fromForeignKeys.set(referenceName(ref), {
+      table: ref.table,
+      column: ref.column,
+      action: ACTION_BY_DELETE_RULE[ref.deleteRule],
+      source: "foreign-key",
+    });
+  }
+  const fromManifests = declaredUserReferences()
+    .filter((ref) => !fromForeignKeys.has(referenceName(ref)))
+    .map(
+      (ref): UserReference => ({
+        table: ref.table,
+        column: ref.column,
+        action: ref.nullable ? "set-null" : "refuse",
+        source: "manifest",
+      }),
+    );
+  return [...fromForeignKeys.values(), ...fromManifests];
+}
+
+export type UserReferenceBlocker = { reference: string; rows: number };
+
+/**
+ * A user still referenced where the reference may not be removed. `code` is
+ * the foreign-key-violation SQLSTATE, so the error middleware answers exactly
+ * what deleting that user answered before the purge existed.
+ */
+export class UserPurgeRefusedError extends Error {
+  readonly code = "23503";
+
+  constructor(
+    readonly userId: number,
+    readonly blockers: readonly UserReferenceBlocker[],
+  ) {
+    super(
+      `user ${userId} cannot be purged: still referenced by ${blockers
+        .map((b) => `${b.reference} (${b.rows} ${b.rows === 1 ? "row" : "rows"})`)
+        .join(", ")}`,
+    );
+    this.name = "UserPurgeRefusedError";
+  }
+}
+
+export type UserPurgeResult = {
+  userDeleted: boolean;
+  /** `table.column` → rows deleted because they referenced the user. */
+  rowsDeleted: Record<string, number>;
+  /** `table.column` → values set to NULL. */
+  valuesNulled: Record<string, number>;
+};
+
+const rowCountOf = (result: unknown): number =>
+  (result as { rowCount?: number | null } | undefined)?.rowCount ?? 0;
+
+/**
+ * Remove a user and every tenant reference to it, per `userReferences`:
+ * CASCADE rows deleted, SET NULL values nulled, and a refusal — before any
+ * write — while a RESTRICT / NO ACTION or declared NOT NULL reference remains.
+ *
+ * The tenant plane goes first and the `users` row last, so a failure never
+ * leaves tenant rows pointing at a user that is already gone. While both planes
+ * share one database that is a single transaction, and it covers every
+ * company's rows at once — which is how a superAdmin (no company) is purged
+ * across every tenant today (brief D-62); iterating separate tenant databases
+ * needs the tenant registry.
+ *
+ * Audit capture stays on: each deleted or nulled row writes its own trail, and
+ * the ledger's rows by this user are kept.
+ */
+export async function purgeUser(userId: number): Promise<UserPurgeResult> {
+  const references = await userReferences(db("core"));
+  const tenantKey = representatives().get(physicalKeyOf("tenant")) ?? "tenant";
+
+  const blockers: UserReferenceBlocker[] = [];
+  for (const ref of references.filter((r) => r.action === "refuse")) {
+    const result = (await db(tenantKey).raw(
+      "select count(*)::int as n from ?? where ?? = ?",
+      [ref.table, ref.column, userId],
+    )) as { rows: { n: number }[] };
+    const rows = result.rows[0]?.n ?? 0;
+    if (rows > 0) blockers.push({ reference: referenceName(ref), rows });
+  }
+  if (blockers.length > 0) throw new UserPurgeRefusedError(userId, blockers);
+
+  const outcome: UserPurgeResult = {
+    userDeleted: false,
+    rowsDeleted: {},
+    valuesNulled: {},
+  };
+  const coreLast = [...representatives()].sort(
+    ([, a], [, b]) => Number(a === "core") - Number(b === "core"),
+  );
+  for (const [physical, key] of coreLast) {
+    await db(key).transaction(async (trx) => {
+      if (physical === physicalKeyOf("tenant")) {
+        // Deletes first: a row about to go needs no NULL written (and audited).
+        for (const ref of references.filter((r) => r.action === "delete")) {
+          outcome.rowsDeleted[referenceName(ref)] = rowCountOf(
+            await trx.raw("delete from ?? where ?? = ?", [
+              ref.table,
+              ref.column,
+              userId,
+            ]),
+          );
+        }
+        for (const ref of references.filter((r) => r.action === "set-null")) {
+          outcome.valuesNulled[referenceName(ref)] = rowCountOf(
+            await trx.raw("update ?? set ?? = null where ?? = ?", [
+              ref.table,
+              ref.column,
+              ref.column,
+              userId,
+            ]),
+          );
+        }
+      }
+      if (key === "core") {
+        outcome.userDeleted =
+          (await trx("users").where({ id: userId }).delete()) > 0;
+      }
+    });
+  }
+  return outcome;
 }
