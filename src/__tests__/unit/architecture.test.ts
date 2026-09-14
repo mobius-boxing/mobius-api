@@ -199,6 +199,11 @@ describe("AC-56 — the registry is the only door", () => {
     // the app.
     "services/tenant-provisioning.service.ts",
     "scripts/tenant-register-shared.ts",
+    // db-per-company T11: `tenant:move` (C2) is the same shape — a one-off
+    // process that opens the connection lifecycle itself, streaming rows
+    // between two physical databases neither of which is "the" registry
+    // connection any single DAO owns.
+    "scripts/tenant-move.ts",
   ];
 
   const NON_DAO_CONNECTION_HOLDERS = [
@@ -233,7 +238,7 @@ describe("AC-56 — the registry is the only door", () => {
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
     expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(3);
-    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(18);
+    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(19);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(
       NON_DAO_CONNECTION_HOLDERS.length,
