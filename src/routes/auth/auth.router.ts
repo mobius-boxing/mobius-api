@@ -55,6 +55,14 @@ export class AuthRouter {
       apiRateLimiter,
       this.authController.getProfile.bind(this.authController),
     );
+    // The waiting screen's poll. Exempt from the device gate, so a pending
+    // member can watch their own device's status while every other route 403s.
+    this.router.get(
+      "/device",
+      authenticate,
+      apiRateLimiter,
+      this.authController.getDevice.bind(this.authController),
+    );
     // Stateless JWT logout — exists so the client's POST doesn't 404; becomes
     // meaningful if/when server-side token revocation lands.
     this.router.post("/logout", authenticate, apiRateLimiter, (_req, res) => {

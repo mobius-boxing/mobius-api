@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { IDeviceSession } from "./interfaces/user-device/user-device.interfaces";
 
 export interface IBaseController {
   getAll(req: Request, res: Response, next: NextFunction): Promise<void>;
@@ -27,6 +28,13 @@ declare global {
        * for a superAdmin with no company selected.
        */
       companyId?: number;
+      /**
+       * The caller's own device, resolved by the auth middleware: `null` for an
+       * admin/superAdmin and for a member whose header matches no row. `token`
+       * is never set here — only the login response that minted the secret
+       * carries it (I-2).
+       */
+      device?: IDeviceSession | null;
       /** Per-request cache filled by requirePermission. */
       permissionCodes?: string[];
       permissionHasRole?: boolean;

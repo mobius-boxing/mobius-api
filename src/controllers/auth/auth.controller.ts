@@ -18,6 +18,7 @@ import {
 } from "../../dto/input/auth";
 import { EmailService } from "../../services/email.service";
 import { generateToken } from "../../middlewares/auth.middleware";
+import { issueOrReuseDevice } from "../../services/device.service";
 import { validatePassword, BCRYPT_COST } from "../../utils/passwordPolicy";
 
 export class AuthController {
@@ -218,11 +219,21 @@ export class AuthController {
         permissions,
       };
 
+      const device = await issueOrReuseDevice(
+        {
+          id: userWithCompany.id,
+          uuid: userWithCompany.uuid,
+          role: userWithCompany.role,
+        },
+        req,
+      );
+
       res.status(200).json({
         success: true,
         data: {
           user: userResponse,
           token,
+          device,
         },
       });
     } catch (err: any) {
@@ -296,11 +307,25 @@ export class AuthController {
           companyName: withCompany?.company?.name,
           modules,
           permissions,
+          device: req.device ?? null,
         },
       });
     } catch (err: any) {
       next(err);
     }
+  }
+
+  /**
+   * The waiting screen's poll (exempt from the gate, D-22). `req.device` is the
+   * row as it stands now, so an admin's approval reaches the member on their
+   * next poll. It can never carry `token`: the middleware resolves the row from
+   * the hash and the secret is unrecoverable from it (I-2).
+   */
+  public getDevice(req: Request, res: Response): void {
+    res.status(200).json({
+      success: true,
+      data: req.device ?? null,
+    });
   }
 
   public async changePassword(
@@ -493,11 +518,17 @@ export class AuthController {
         modules: enabledModules,
       };
 
+      const device = await issueOrReuseDevice(
+        { id: user.id, uuid: user.uuid, role: user.role },
+        req,
+      );
+
       res.status(200).json({
         success: true,
         data: {
           user: userResponse,
           token: authToken,
+          device,
         },
       });
     } catch (err: any) {

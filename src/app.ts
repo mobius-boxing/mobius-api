@@ -45,7 +45,7 @@ app.use(
     origin: (origin, callback) =>
       callback(null, !!origin && isOriginAllowed(origin)),
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Device-Token"],
     // A cross-origin browser can only read headers named here. File downloads
     // (countdown's Excel export) are fetched with the auth header rather than a
     // plain <a href>, so the SPA reads the server-chosen filename and the

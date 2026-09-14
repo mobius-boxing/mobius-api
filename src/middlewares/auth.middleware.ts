@@ -3,6 +3,12 @@ import * as jwt from "jsonwebtoken";
 import { UserDAO } from "../dao";
 import { armAudit } from "../database/audit-context";
 import { resolveTenantContext } from "./tenant-context.middleware";
+import { IDeviceSession } from "../interfaces/user-device/user-device.interfaces";
+import {
+  DEVICE_TOKEN_HEADER,
+  isDeviceGatedRole,
+  resolveDevice,
+} from "../services/device.service";
 
 interface IJWTPayload {
   userId: string;
@@ -17,6 +23,59 @@ interface IJWTPayload {
   iat?: number;
   exp?: number;
 }
+
+/**
+ * The only authenticated routes a member on an unapproved device may reach
+ * (I-6, D-22). Keys are `METHOD <full mounted path>`: inside a router `req.path`
+ * is relative to the mount, so matching on it alone would exempt a `GET /device`
+ * or `POST /logout` on EVERY router. Adding a route cannot widen this set.
+ */
+export const DEVICE_GATE_EXEMPT = new Set([
+  "GET /api/auth/me",
+  "GET /api/auth/profile",
+  "GET /api/auth/device",
+  "POST /api/auth/logout",
+]);
+
+const DEVICE_GATE_REJECTIONS = {
+  DEVICE_UNKNOWN:
+    "This device is not registered for your account. Please log in again.",
+  DEVICE_PENDING: "This device is waiting for an administrator's approval.",
+  DEVICE_REVOKED:
+    "This device has been revoked. Log in again to request access.",
+} as const;
+
+/**
+ * The gate. Writes nothing (I-3); the body is the plain error envelope, so a
+ * blocked caller learns the reason and nothing about the row.
+ *
+ * @returns false when it has already answered; the caller must not call next().
+ */
+const rejectUnapprovedDevice = (
+  req: Request,
+  res: Response,
+  role: IJWTPayload["role"],
+  device: IDeviceSession | null,
+): boolean => {
+  if (!isDeviceGatedRole(role) || device?.status === "approved") return true;
+  if (DEVICE_GATE_EXEMPT.has(`${req.method} ${req.baseUrl}${req.path}`)) {
+    return true;
+  }
+
+  const code: keyof typeof DEVICE_GATE_REJECTIONS =
+    device === null
+      ? "DEVICE_UNKNOWN"
+      : device.status === "pending"
+        ? "DEVICE_PENDING"
+        : "DEVICE_REVOKED";
+
+  res.status(403).json({
+    success: false,
+    message: DEVICE_GATE_REJECTIONS[code],
+    code,
+  });
+  return false;
+};
 
 export const authenticate = async (
   req: Request,
@@ -64,12 +123,21 @@ export const authenticate = async (
       return;
     }
 
+    // The role here is the one on the row just loaded, never `decoded.role`: a
+    // member whose token claims `admin` must still be gated (I-5).
+    const device = await resolveDevice(
+      { id: user.id, uuid: decoded.userId, role: user.role },
+      req.headers[DEVICE_TOKEN_HEADER],
+    );
+    if (!rejectUnapprovedDevice(req, res, user.role, device)) return;
+
     (req as any).user = {
       userId: decoded.userId,
       email: decoded.email,
       role: decoded.role,
       companyId: decoded.companyId,
     };
+    req.device = device;
 
     if (!(await resolveTenantContext(req, res))) return;
 
@@ -115,12 +183,23 @@ export const optionalAuth = async (
     const user = await userDAO.getByUuid(decoded.userId);
 
     if (user && user.isActive) {
-      (req as any).user = {
-        userId: decoded.userId,
-        email: decoded.email,
-        role: decoded.role,
-        companyId: decoded.companyId,
-      };
+      const device = await resolveDevice(
+        { id: user.id, uuid: decoded.userId, role: user.role },
+        req.headers[DEVICE_TOKEN_HEADER],
+      );
+      req.device = device;
+
+      // D-17: a member on an unapproved device is anonymous here rather than
+      // rejected. Nothing mounts `optionalAuth` today — a future route that
+      // adopts it must not become the one door that skips the gate.
+      if (!isDeviceGatedRole(user.role) || device?.status === "approved") {
+        (req as any).user = {
+          userId: decoded.userId,
+          email: decoded.email,
+          role: decoded.role,
+          companyId: decoded.companyId,
+        };
+      }
     }
 
     // AUDIT (P1): same arming as `authenticate`. `optionalAuth` is exported but
