@@ -79,6 +79,35 @@ import {
   purgeTargets,
 } from "../../../services/company-purge.service";
 
+/** What the mocked catalogue reports for `crossPlaneRefs`. */
+let crossPlaneRows;
+/** When set, replaces the manifests' declared user references. */
+let declaredOverride;
+
+jest.mock("../../../database/cross-plane-refs", () => ({
+  __esModule: true,
+  crossPlaneRefs: async () => crossPlaneRows,
+}));
+
+jest.mock("../../../modules/registry", () => {
+  const actual = jest.requireActual("../../../modules/registry");
+  return {
+    __esModule: true,
+    ...actual,
+    declaredUserReferences: () =>
+      declaredOverride ?? actual.declaredUserReferences(),
+  };
+});
+
+import {
+  EXPLICITLY_PURGED_TABLES,
+  UserPurgeRefusedError,
+  purgeUser,
+  userReferences,
+} from "../../../services/company-purge.service";
+import { MODULE_MANIFESTS, PURGE_HOOKS } from "../../../modules/registry";
+import { TABLE_MODULE } from "../../../database/ownership";
+
 const NODE_FILES_DELETE_SQL = 'delete from ?? where "companyId" = ?';
 
 /** The node-files deletes, as `sequenceOf` renders them, children first. */
@@ -149,6 +178,8 @@ const givenOneDatabasePerKey = () => {
 beforeEach(() => {
   // The world as deployed today: both planes on one physical database.
   tenantTarget = "core";
+  crossPlaneRows = [];
+  declaredOverride = undefined;
 
   log = [];
   mocks = {};
@@ -491,5 +522,213 @@ describe("purgeCompany — failure", () => {
     ]);
     expect(mocks.core.writeCounts("audit_logs").delete).toBe(0);
     expect(mocks.core.writeCounts("companies").delete).toBe(0);
+  });
+});
+
+const USER_ID = 7;
+
+const fk = (table, column, deleteRule, referencedTable = "users") => ({
+  constraintName: `${table}_${column}_foreign`,
+  table,
+  column,
+  referencedTable,
+  referencedColumn: "id",
+  deleteRule,
+  nullable: deleteRule === "SET NULL",
+});
+
+/** The four node-files user columns with no foreign key (T4/D-orch-3, D-orch-7). */
+const DECLARED_NODE_FILES_USER_COLUMNS = [
+  "nf_credentials.createdByUserId",
+  "nf_workflows.createdByUserId",
+  "nf_documents.uploadedByUserId",
+  "nf_runs.reviewedByUserId",
+];
+
+const COUNT_SQL = "select count(*)::int as n from ?? where ?? = ?";
+const USER_DELETE_SQL = "delete from ?? where ?? = ?";
+const USER_NULL_SQL = "update ?? set ?? = null where ?? = ?";
+
+/**
+ * Make `raw` answer like pg: counts from `blocking` (`table.column` → rows),
+ * `rowCount` from `affected` for deletes and updates. Every call is still logged.
+ */
+const answerRaw = (key, { blocking = {}, affected = {} } = {}) => {
+  facades[key].raw = jest.fn((sql, bindings) => {
+    log.push({ key, op: "raw", sql, bindings });
+    const name = bindings ? `${bindings[0]}.${bindings[1]}` : "";
+    if (sql === COUNT_SQL) return { rows: [{ n: blocking[name] ?? 0 }] };
+    if (sql === USER_DELETE_SQL || sql === USER_NULL_SQL)
+      return { rowCount: affected[name] ?? 0 };
+    return sql;
+  });
+};
+
+describe("userReferences — each foreign key's own rule, plus the manifests", () => {
+  it("maps every delete rule, and ignores references to other central tables", async () => {
+    crossPlaneRows = [
+      fk("countdown_group_members", "userId", "CASCADE"),
+      fk("files", "uploadedBy", "SET NULL"),
+      fk("countdown_documents", "uploadedBy", "RESTRICT"),
+      fk("part_approval_events", "userId", "NO ACTION"),
+      fk("zz_default", "userId", "SET DEFAULT"),
+      fk("countdown_documents", "companyId", "CASCADE", "companies"),
+    ];
+    declaredOverride = [];
+
+    expect(await userReferences(facades.core)).toStrictEqual([
+      { table: "countdown_group_members", column: "userId", action: "delete", source: "foreign-key" },
+      { table: "files", column: "uploadedBy", action: "set-null", source: "foreign-key" },
+      { table: "countdown_documents", column: "uploadedBy", action: "refuse", source: "foreign-key" },
+      { table: "part_approval_events", column: "userId", action: "refuse", source: "foreign-key" },
+      { table: "zz_default", column: "userId", action: "refuse", source: "foreign-key" },
+    ]);
+  });
+
+  it("includes all four declared node-files user columns, each nulled", async () => {
+    crossPlaneRows = [fk("files", "uploadedBy", "SET NULL")];
+
+    const fromManifests = (await userReferences(facades.core)).filter(
+      (ref) => ref.source === "manifest",
+    );
+
+    expect(fromManifests.map((ref) => `${ref.table}.${ref.column}`).sort()).toStrictEqual(
+      [...DECLARED_NODE_FILES_USER_COLUMNS].sort(),
+    );
+    expect(fromManifests.every((ref) => ref.action === "set-null")).toBe(true);
+  });
+
+  it("refuses on a declared NOT NULL column", async () => {
+    declaredOverride = [{ table: "nf_runs", column: "reviewedByUserId", nullable: false }];
+
+    expect(await userReferences(facades.core)).toStrictEqual([
+      { table: "nf_runs", column: "reviewedByUserId", action: "refuse", source: "manifest" },
+    ]);
+  });
+
+  it("lets the foreign key's rule win when a column is both declared and constrained", async () => {
+    crossPlaneRows = [fk("files", "uploadedBy", "SET NULL")];
+    declaredOverride = [{ table: "files", column: "uploadedBy", nullable: false }];
+
+    expect(await userReferences(facades.core)).toStrictEqual([
+      { table: "files", column: "uploadedBy", action: "set-null", source: "foreign-key" },
+    ]);
+  });
+});
+
+describe("purgeUser — refuse, delete, null, then the user", () => {
+  beforeEach(() => {
+    crossPlaneRows = [
+      fk("countdown_group_members", "userId", "CASCADE"),
+      fk("files", "uploadedBy", "SET NULL"),
+      fk("countdown_documents", "uploadedBy", "RESTRICT"),
+    ];
+    declaredOverride = [{ table: "nf_workflows", column: "createdByUserId", nullable: true }];
+    mocks.core.fixture("users").deleteCount = 1;
+  });
+
+  it("counts blockers first, then deletes, nulls and removes the user in one transaction while the planes share a database", async () => {
+    answerRaw("core", {
+      affected: { "countdown_group_members.userId": 2, "files.uploadedBy": 3, "nf_workflows.createdByUserId": 1 },
+    });
+
+    await expect(purgeUser(USER_ID)).resolves.toStrictEqual({
+      userDeleted: true,
+      rowsDeleted: { "countdown_group_members.userId": 2 },
+      valuesNulled: { "files.uploadedBy": 3, "nf_workflows.createdByUserId": 1 },
+    });
+
+    expect(sequenceOf("core")).toStrictEqual([
+      `raw ${COUNT_SQL} [countdown_documents,uploadedBy,${USER_ID}]`,
+      "begin",
+      `raw ${USER_DELETE_SQL} [countdown_group_members,userId,${USER_ID}]`,
+      `raw ${USER_NULL_SQL} [files,uploadedBy,uploadedBy,${USER_ID}]`,
+      `raw ${USER_NULL_SQL} [nf_workflows,createdByUserId,createdByUserId,${USER_ID}]`,
+      "delete users",
+      "commit",
+    ]);
+    expect(mocks.core.fixture("users").whereCalls).toStrictEqual([[{ id: USER_ID }]]);
+    expect(sequenceOf("tenant")).toStrictEqual([]);
+  });
+
+  it("writes the tenant's references on the tenant's own database first, and the user last on core", async () => {
+    givenOneDatabasePerKey();
+    answerRaw("core");
+    answerRaw("tenant");
+
+    await purgeUser(USER_ID);
+
+    expect(log.map((entry) => entry.key === "core" ? `core ${entry.op}` : `tenant ${entry.op}`)).toStrictEqual([
+      "tenant raw",
+      "tenant begin",
+      "tenant raw",
+      "tenant raw",
+      "tenant raw",
+      "tenant commit",
+      "core begin",
+      "core delete",
+      "core commit",
+    ]);
+  });
+
+  it("refuses before any transaction while a RESTRICT reference remains, naming table, column and rows", async () => {
+    answerRaw("core", { blocking: { "countdown_documents.uploadedBy": 2 } });
+
+    const purge = purgeUser(USER_ID);
+    await expect(purge).rejects.toBeInstanceOf(UserPurgeRefusedError);
+    await expect(purge).rejects.toMatchObject({
+      code: "23503",
+      message: `user ${USER_ID} cannot be purged: still referenced by countdown_documents.uploadedBy (2 rows)`,
+    });
+
+    expect(log.filter((entry) => entry.op !== "raw" || entry.sql !== COUNT_SQL)).toStrictEqual([]);
+    expect(mocks.core.writeCounts("users").delete).toBe(0);
+  });
+
+  it("refuses on a declared NOT NULL column that still holds the user", async () => {
+    declaredOverride = [{ table: "nf_runs", column: "reviewedByUserId", nullable: false }];
+    answerRaw("core", { blocking: { "nf_runs.reviewedByUserId": 1 } });
+
+    await expect(purgeUser(USER_ID)).rejects.toThrow(
+      "still referenced by nf_runs.reviewedByUserId (1 row)",
+    );
+    expect(log.some((entry) => entry.op === "begin")).toBe(false);
+  });
+
+  it("reports userDeleted = false when no such user exists", async () => {
+    answerRaw("core");
+    mocks.core.fixture("users").deleteCount = 0;
+
+    await expect(purgeUser(USER_ID)).resolves.toMatchObject({ userDeleted: false });
+  });
+});
+
+describe("module hooks and manifests agree with the ownership metadata", () => {
+  const tablesOfModule = (slug) =>
+    Object.entries(TABLE_MODULE)
+      .filter(([, module]) => module === slug)
+      .map(([table]) => table)
+      .sort();
+
+  it("purges explicitly exactly the ledger plus every table of an explicit hook's module", () => {
+    expect(EXPLICITLY_PURGED_TABLES).toStrictEqual(["audit_logs", ...NODE_FILES_PURGE_ORDER]);
+    for (const hook of PURGE_HOOKS.filter((h) => h.companyRows === "explicit")) {
+      expect([...hook.tables].sort()).toStrictEqual(tablesOfModule(hook.slug));
+    }
+  });
+
+  it("has one manifest and one hook per catalogue slug, every module on the tenant plane", () => {
+    const slugs = [...new Set(Object.values(TABLE_MODULE))].sort();
+    expect(MODULE_MANIFESTS.map((m) => m.slug).sort()).toStrictEqual(slugs);
+    expect(PURGE_HOOKS.map((h) => h.slug).sort()).toStrictEqual(slugs);
+    for (const manifest of MODULE_MANIFESTS) expect(manifest.plane).toBe("tenant");
+  });
+
+  it("declares user references only on tables of the declaring module", () => {
+    for (const manifest of MODULE_MANIFESTS) {
+      for (const ref of manifest.userReferences) {
+        expect([ref.table, TABLE_MODULE[ref.table]]).toStrictEqual([ref.table, manifest.slug]);
+      }
+    }
   });
 });

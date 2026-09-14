@@ -17,6 +17,7 @@ import { CompanyDAO } from "../../dao/company/company.dao";
 import crypto from "crypto";
 import { EmailService } from "../../services/email.service";
 import { db } from "../../database/registry";
+import { purgeUser } from "../../services/company-purge.service";
 
 export class UsersController implements IBaseController {
   private _userDAO: UserDAO = new UserDAO();
@@ -394,9 +395,11 @@ export class UsersController implements IBaseController {
         return;
       }
 
-      const result = await this._userDAO.delete(existing.id);
+      // Not `UserDAO.delete`: tenant rows reference users by plain columns once
+      // the planes separate, so the purge removes them first (or refuses).
+      const result = await purgeUser(existing.id);
 
-      if (result) {
+      if (result.userDeleted) {
         res.status(200).json({
           success: true,
           message: "User deleted successfully",

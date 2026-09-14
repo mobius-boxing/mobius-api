@@ -53,6 +53,14 @@ const mockEmailService = {
   sendInvitationEmail: jest.fn(),
 };
 
+export const mockPurgeUser = jest.fn();
+
+jest.mock("../../../services/company-purge.service", () => ({
+  __esModule: true,
+  purgeUser: (...args) =>
+    require("./users.controller.test").mockPurgeUser(...args),
+}));
+
 // Mock uuid module
 jest.mock("uuid", () => ({
   v4: () => "generated-uuid",
@@ -401,13 +409,18 @@ describe("UsersController", () => {
       const existingUser = createTestUser({ id: 1 });
 
       mockUserDAO.getByUuid.mockResolvedValue(existingUser);
-      mockUserDAO.delete.mockResolvedValue(true);
+      mockPurgeUser.mockResolvedValue({
+        userDeleted: true,
+        rowsDeleted: {},
+        valuesNulled: {},
+      });
 
       const mockReq = createUuidParamRequest("existing-uuid") as Request;
 
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
-      expect(mockUserDAO.delete).toHaveBeenCalledWith(1);
+      expect(mockPurgeUser).toHaveBeenCalledWith(1);
+      expect(mockUserDAO.delete).not.toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
@@ -423,6 +436,40 @@ describe("UsersController", () => {
       await controller.delete(mockReq, mockRes as Response, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(404);
+    });
+
+    it("answers 404 with the unchanged envelope when the purge deleted no user", async () => {
+      mockUserDAO.getByUuid.mockResolvedValue(createTestUser({ id: 1 }));
+      mockPurgeUser.mockResolvedValue({
+        userDeleted: false,
+        rowsDeleted: {},
+        valuesNulled: {},
+      });
+
+      const mockReq = createUuidParamRequest("existing-uuid") as Request;
+
+      await controller.delete(mockReq, mockRes as Response, mockNext);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        message: "Failed to delete user",
+      });
+    });
+
+    it("hands a refused purge to the error middleware without answering itself", async () => {
+      mockUserDAO.getByUuid.mockResolvedValue(createTestUser({ id: 1 }));
+      const refusal = Object.assign(new Error("still referenced"), {
+        code: "23503",
+      });
+      mockPurgeUser.mockRejectedValue(refusal);
+
+      const mockReq = createUuidParamRequest("existing-uuid") as Request;
+
+      await controller.delete(mockReq, mockRes as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalledWith(refusal);
+      expect(mockRes.status).not.toHaveBeenCalled();
     });
   });
 
