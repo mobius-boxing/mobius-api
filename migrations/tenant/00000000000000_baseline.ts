@@ -8,6 +8,7 @@ import { ensureAuditPartitions } from "../../src/database/audit-triggers";
  * The first migration of every tenant database (db-per-company D-17): the
  * tenant plane's tables from a schema-only dump of the local core database,
  * with every foreign key to a central table dropped and its column indexed,
+ * and every user column a module manifest declares indexed too,
  * then the audit ledger, its functions and the triggers the audit manifest
  * assigns to the tenant plane. Ledger partitions are created when it runs.
  *
@@ -3296,6 +3297,14 @@ ALTER TABLE ONLY public.warehouse_locations
 CREATE INDEX countdown_reminder_digests_companyid_index ON public.countdown_reminder_digests USING btree ("companyId");
 
 CREATE INDEX files_uploadedby_index ON public.files USING btree ("uploadedBy");
+
+CREATE INDEX nf_credentials_createdbyuserid_index ON public.nf_credentials USING btree ("createdByUserId");
+
+CREATE INDEX nf_workflows_createdbyuserid_index ON public.nf_workflows USING btree ("createdByUserId");
+
+CREATE INDEX nf_documents_uploadedbyuserid_index ON public.nf_documents USING btree ("uploadedByUserId");
+
+CREATE INDEX nf_runs_reviewedbyuserid_index ON public.nf_runs USING btree ("reviewedByUserId");
 
 CREATE TABLE IF NOT EXISTS public.audit_logs (
   id                  bigserial   NOT NULL,

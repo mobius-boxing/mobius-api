@@ -27,6 +27,7 @@ import {
   type MigrationConnection,
 } from "../database/migration-sets";
 import { tablesOf } from "../database/ownership";
+import { declaredUserReferences } from "../modules/registry";
 
 /**
  * Writes `migrations/tenant/00000000000000_baseline.ts` (db-per-company D-17,
@@ -36,9 +37,11 @@ import { tablesOf } from "../database/ownership";
  *   npx ts-node src/scripts/generate-tenant-baseline.ts [--check]
  *
  * Source: `pg_dump --schema-only` of the tenant plane's tables in the LOCAL
- * database named by SQL_DATABASE, migrated to the latest core set. Every
- * foreign key `crossPlaneRefs` reports is dropped, and a column it leaves
- * without an index led by that column gets one.
+ * database named by SQL_DATABASE, whose `knex_migrations` must name exactly
+ * the files in `migrations/core/` — a database carrying another branch's
+ * migrations, or missing some, is refused. Every foreign key `crossPlaneRefs`
+ * reports is dropped. A column it leaves, or a user column a module manifest
+ * declares, gets an index when no index leads with it.
  *
  * The ledger, its two functions and every trigger are not taken from the dump:
  * they are rendered from `audit-triggers.ts` and `audit-coverage.ts`, so the
@@ -167,14 +170,16 @@ function withoutCrossPlaneForeignKeys(
   return kept;
 }
 
+type ColumnRef = { table: string; column: string };
+
 /**
- * An index for each former cross-plane column that no non-partial index leads
- * with: dropping the FK must not leave `purgeUser`-style lookups by that
- * column scanning the table (I-5).
+ * An index for each cross-plane column — FK-backed or manifest-declared — that
+ * no non-partial index leads with: `purgeUser` and the integrity check look
+ * rows up by that column, and must not scan the table for it (I-5).
  */
 async function indexesForUnindexedColumns(
   knex: Knex,
-  refs: readonly CrossPlaneRef[],
+  refs: readonly ColumnRef[],
   sections: readonly DumpSection[],
 ): Promise<DumpSection[]> {
   const columns = [
@@ -253,6 +258,7 @@ function renderModule(sql: string): string {
     " * The first migration of every tenant database (db-per-company D-17): the",
     " * tenant plane's tables from a schema-only dump of the local core database,",
     " * with every foreign key to a central table dropped and its column indexed,",
+    " * and every user column a module manifest declares indexed too,",
     " * then the audit ledger, its functions and the triggers the audit manifest",
     " * assigns to the tenant plane. Ledger partitions are created when it runs.",
     " *",
@@ -311,7 +317,11 @@ export async function renderTenantBaseline(
     refs,
     new Set(tenantTables),
   );
-  const indexes = await indexesForUnindexedColumns(knex, refs, schema);
+  const indexes = await indexesForUnindexedColumns(
+    knex,
+    [...refs, ...declaredUserReferences()],
+    schema,
+  );
   const sql = [
     ...[...schema, ...indexes].map((section) => section.body),
     ...(await auditStatements()),
@@ -319,59 +329,123 @@ export async function renderTenantBaseline(
   return renderModule(sql);
 }
 
+/**
+ * Why the source database's history is not exactly `migrations/core/`, or
+ * `undefined` when it is. Compared as sorted lists, so a duplicated name
+ * counts too.
+ */
+export function coreHistoryMismatch(
+  applied: readonly string[],
+  coreFiles: readonly string[],
+): string | undefined {
+  const sortedApplied = [...applied].sort();
+  const sortedFiles = [...coreFiles].sort();
+  if (
+    sortedApplied.length === sortedFiles.length &&
+    sortedApplied.every((name, i) => name === sortedFiles[i])
+  ) {
+    return undefined;
+  }
+  const notApplied = sortedFiles.filter((name) => !applied.includes(name));
+  const notInSet = sortedApplied.filter((name) => !coreFiles.includes(name));
+  return (
+    "the source database's knex_migrations is not exactly migrations/core " +
+    `(${sortedApplied.length} applied, ${sortedFiles.length} files); ` +
+    `not applied: [${notApplied.join(", ")}]; ` +
+    `not in migrations/core: [${notInSet.join(", ")}]. ` +
+    "Generate from a database built by `npm run db:bootstrap` on this branch."
+  );
+}
+
+export type SourceDatabase = { knex: Knex; connection: MigrationConnection };
+
+export type GenerateBaselineDeps = {
+  env: NodeJS.ProcessEnv;
+  openSource: () => SourceDatabase;
+  coreMigrationFiles: () => string[];
+  render: (source: SourceDatabase) => Promise<string>;
+  baselineFile: string;
+  out: (line: string) => void;
+  err: (line: string) => void;
+};
+
+export const generateTenantBaselineDeps = (
+  env: NodeJS.ProcessEnv,
+): GenerateBaselineDeps => ({
+  env,
+  openSource: () => {
+    const connection = coreMigrationConnection();
+    return {
+      connection,
+      knex: createKnex({ client: "pg", connection, pool: { min: 0, max: 1 } }),
+    };
+  },
+  coreMigrationFiles: () =>
+    fs
+      .readdirSync(migrationsDirectory("core"))
+      .filter((name) => name.endsWith(".ts")),
+  render: ({ knex, connection }) =>
+    renderTenantBaseline(knex, connection, env.PG_DUMP ?? "pg_dump"),
+  baselineFile: baselinePath(),
+  out: console.log,
+  err: console.error,
+});
+
 export async function runGenerateTenantBaseline(
   argv: readonly string[],
-  out: (line: string) => void,
-  err: (line: string) => void,
+  deps: GenerateBaselineDeps,
 ): Promise<number> {
-  const refusal = localOnlyRefusal("generate-tenant-baseline", process.env);
+  const refusal = localOnlyRefusal("generate-tenant-baseline", deps.env);
   if (refusal !== undefined) {
-    err(refusal);
+    deps.err(refusal);
     return 1;
   }
   const unknown = argv.find((arg) => arg !== "--check");
   if (unknown !== undefined) {
-    err(
+    deps.err(
       `generate-tenant-baseline: unknown argument ${unknown}\n` +
         "usage: generate-tenant-baseline [--check]",
     );
     return 2;
   }
-  const source = coreMigrationConnection();
-  const knex = createKnex({
-    client: "pg",
-    connection: source,
-    pool: { min: 0, max: 1 },
-  });
+  let source: SourceDatabase | undefined;
   try {
-    const rendered = await renderTenantBaseline(
-      knex,
-      source,
-      process.env.PG_DUMP ?? "pg_dump",
+    source = deps.openSource();
+    const applied = (await source.knex.raw(
+      "select name from knex_migrations",
+    )) as { rows: { name: string }[] };
+    const mismatch = coreHistoryMismatch(
+      applied.rows.map((row) => row.name),
+      deps.coreMigrationFiles(),
     );
-    const file = baselinePath();
+    if (mismatch !== undefined) {
+      deps.err(`generate-tenant-baseline: refused: ${mismatch}`);
+      return 1;
+    }
+    const rendered = await deps.render(source);
+    const file = deps.baselineFile;
     if (argv.includes("--check")) {
       const committed = fs.existsSync(file)
         ? fs.readFileSync(file, "utf8")
         : "";
       if (committed !== rendered) {
-        err(`${file} differs from a fresh render: regenerate it`);
+        deps.err(`${file} differs from a fresh render: regenerate it`);
         return 1;
       }
-      out(`${file} is current`);
+      deps.out(`${file} is current`);
       return 0;
     }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, rendered);
-    out(`wrote ${file}`);
+    deps.out(`wrote ${file}`);
     return 0;
   } catch (error) {
-    err(
+    deps.err(
       `generate-tenant-baseline: ${error instanceof Error ? error.message : String(error)}`,
     );
     return 1;
   } finally {
-    await knex.destroy();
+    await source?.knex.destroy();
   }
 }
 
@@ -379,8 +453,7 @@ if (require.main === module) {
   dotenv.config();
   void runGenerateTenantBaseline(
     process.argv.slice(2),
-    console.log,
-    console.error,
+    generateTenantBaselineDeps(process.env),
   ).then((code) => {
     process.exitCode = code;
   });

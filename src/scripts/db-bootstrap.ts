@@ -7,6 +7,7 @@ import {
   localOnlyRefusal,
   migrationConfigFor,
   migrationLog,
+  type MigrationConnection,
   type MigrationSet,
 } from "../database/migration-sets";
 
@@ -33,13 +34,39 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 export const scratchTenantDatabase = (runId: string): string =>
   `zz_jest_tenant_${runId}`;
 
-type BootstrapTarget = {
+export type BootstrapTarget = {
   set: MigrationSet;
   database: string;
   mustNotExist: boolean;
 };
 
-function targetFor(argv: readonly string[]): BootstrapTarget | string {
+export type DbBootstrapDeps = {
+  env: NodeJS.ProcessEnv;
+  connection: () => MigrationConnection;
+  /** `true` when the database was created, `false` when it already existed. */
+  createDatabase: (
+    target: BootstrapTarget,
+    connection: MigrationConnection,
+  ) => Promise<boolean>;
+  migrate: (
+    target: BootstrapTarget,
+    connection: MigrationConnection,
+  ) => Promise<readonly string[]>;
+  out: (line: string) => void;
+  err: (line: string) => void;
+};
+
+type ParsedArgs =
+  | { scratchTenant: false }
+  | { scratchTenant: true; runId: string | undefined };
+
+/**
+ * Argument parsing only — no connection needed, so an unknown flag is refused
+ * (exit 2, usage) before `deps.connection()` ever runs. Resolving the
+ * connection first made a bad flag fail with `MissingDatabaseNameError`
+ * whenever `SQL_DATABASE` was unset, hiding the real problem behind exit 1.
+ */
+function parseArgs(argv: readonly string[]): ParsedArgs | string {
   const tokens = [...argv];
   let scratchTenant = false;
   let runId: string | undefined;
@@ -56,73 +83,78 @@ function targetFor(argv: readonly string[]): BootstrapTarget | string {
       return `unknown argument ${String(token)}`;
     }
   }
-  if (!scratchTenant) {
-    if (runId !== undefined) return "--run applies only to --scratch-tenant";
-    return {
-      set: "core",
-      database: coreMigrationConnection().database,
-      mustNotExist: false,
-    };
+  if (!scratchTenant && runId !== undefined) {
+    return "--run applies only to --scratch-tenant";
+  }
+  return { scratchTenant, runId };
+}
+
+function targetFor(parsed: ParsedArgs, coreDatabase: string): BootstrapTarget {
+  if (!parsed.scratchTenant) {
+    return { set: "core", database: coreDatabase, mustNotExist: false };
   }
   return {
     set: "tenant",
-    database: scratchTenantDatabase(runId ?? randomBytes(4).toString("hex")),
+    database: scratchTenantDatabase(
+      parsed.runId ?? randomBytes(4).toString("hex"),
+    ),
     mustNotExist: true,
   };
 }
 
-/** `true` when the database was created, `false` when it already existed. */
-async function createDatabase(
-  target: BootstrapTarget,
-  owner: string | undefined,
-): Promise<boolean> {
-  const core = coreMigrationConnection();
-  const adminUser = process.env.SQL_ADMIN_USER ?? core.user;
-  const admin = new Client({
-    host: core.host,
-    port: core.port,
-    user: adminUser,
-    password: process.env.SQL_ADMIN_USER
-      ? process.env.SQL_ADMIN_PASSWORD
-      : core.password,
-    database: "postgres",
-  });
-  await admin.connect();
-  try {
-    const role = await admin.query<{ allowed: boolean; name: string }>(
-      `select rolcreatedb or rolsuper as allowed, current_user as name
-         from pg_roles where rolname = current_user`,
-    );
-    const self = role.rows[0];
-    if (!self?.allowed) {
-      throw new Error(
-        `role ${adminUser ?? "(default)"} lacks CREATEDB: set ` +
-          `SQL_ADMIN_USER/SQL_ADMIN_PASSWORD to a role that has it`,
+const createDatabaseAs =
+  (env: NodeJS.ProcessEnv): DbBootstrapDeps["createDatabase"] =>
+  async (target, connection) => {
+    const adminUser = env.SQL_ADMIN_USER ?? connection.user;
+    const admin = new Client({
+      host: connection.host,
+      port: connection.port,
+      user: adminUser,
+      password: env.SQL_ADMIN_USER
+        ? env.SQL_ADMIN_PASSWORD
+        : connection.password,
+      database: "postgres",
+    });
+    await admin.connect();
+    try {
+      const role = await admin.query<{ allowed: boolean; name: string }>(
+        `select rolcreatedb or rolsuper as allowed, current_user as name
+           from pg_roles where rolname = current_user`,
       );
-    }
-    const existing = await admin.query(
-      `select 1 from pg_database where datname = $1`,
-      [target.database],
-    );
-    if ((existing.rowCount ?? 0) > 0) {
-      if (target.mustNotExist) {
-        throw new Error(`${target.database} already exists`);
+      const self = role.rows[0];
+      if (!self?.allowed) {
+        throw new Error(
+          `role ${adminUser ?? "(default)"} lacks CREATEDB: set ` +
+            `SQL_ADMIN_USER/SQL_ADMIN_PASSWORD to a role that has it`,
+        );
       }
-      return false;
+      const existing = await admin.query(
+        `select 1 from pg_database where datname = $1`,
+        [target.database],
+      );
+      if ((existing.rowCount ?? 0) > 0) {
+        if (target.mustNotExist) {
+          throw new Error(`${target.database} already exists`);
+        }
+        return false;
+      }
+      const owner = connection.user;
+      const ownerClause =
+        owner !== undefined && owner !== self.name ? ` OWNER "${owner}"` : "";
+      await admin.query(`CREATE DATABASE "${target.database}"${ownerClause}`);
+      return true;
+    } finally {
+      await admin.end();
     }
-    const ownerClause =
-      owner !== undefined && owner !== self.name ? ` OWNER "${owner}"` : "";
-    await admin.query(`CREATE DATABASE "${target.database}"${ownerClause}`);
-    return true;
-  } finally {
-    await admin.end();
-  }
-}
+  };
 
-async function migrate(target: BootstrapTarget): Promise<readonly string[]> {
+const migrateTarget: DbBootstrapDeps["migrate"] = async (
+  target,
+  connection,
+) => {
   const knex = createKnex({
     ...migrationConfigFor(target.set, {
-      ...coreMigrationConnection(),
+      ...connection,
       database: target.database,
     }),
     pool: { min: 0, max: 2 },
@@ -132,48 +164,57 @@ async function migrate(target: BootstrapTarget): Promise<readonly string[]> {
   } finally {
     await knex.destroy();
   }
-}
+};
+
+export const dbBootstrapDeps = (env: NodeJS.ProcessEnv): DbBootstrapDeps => ({
+  env,
+  connection: coreMigrationConnection,
+  createDatabase: createDatabaseAs(env),
+  migrate: migrateTarget,
+  out: console.log,
+  err: console.error,
+});
 
 export async function runDbBootstrap(
   argv: readonly string[],
-  out: (line: string) => void,
-  err: (line: string) => void,
+  deps: DbBootstrapDeps,
 ): Promise<number> {
-  const refusal = localOnlyRefusal("db:bootstrap", process.env);
+  const refusal = localOnlyRefusal("db:bootstrap", deps.env);
   if (refusal !== undefined) {
-    err(refusal);
+    deps.err(refusal);
     return 1;
   }
+  const parsed = parseArgs(argv);
+  if (typeof parsed === "string") {
+    deps.err(`db:bootstrap: ${parsed}\n${USAGE}`);
+    return 2;
+  }
   try {
-    const target = targetFor(argv);
-    if (typeof target === "string") {
-      err(`db:bootstrap: ${target}\n${USAGE}`);
-      return 2;
-    }
-    const owner = coreMigrationConnection().user;
-    const unsafe = [target.database, owner].find(
+    const connection = deps.connection();
+    const target = targetFor(parsed, connection.database);
+    const unsafe = [target.database, connection.user].find(
       (name) => name !== undefined && !IDENTIFIER.test(name),
     );
     if (unsafe !== undefined) {
-      err(`db:bootstrap: refusing to interpolate identifier ${unsafe}`);
+      deps.err(`db:bootstrap: refusing to interpolate identifier ${unsafe}`);
       return 2;
     }
-    const created = await createDatabase(target, owner);
-    out(
+    const created = await deps.createDatabase(target, connection);
+    deps.out(
       `[bootstrap] ${target.database}: ${created ? "created" : "already exists"}`,
     );
-    const applied = await migrate(target);
-    out(
+    const applied = await deps.migrate(target, connection);
+    deps.out(
       `[bootstrap] ${target.set} set: ${
         applied.length === 0
           ? "already up to date"
           : `applied ${applied.join(", ")}`
       }`,
     );
-    out(target.database);
+    deps.out(target.database);
     return 0;
   } catch (error) {
-    err(
+    deps.err(
       `db:bootstrap: ${error instanceof Error ? error.message : String(error)}`,
     );
     return 1;
@@ -182,7 +223,7 @@ export async function runDbBootstrap(
 
 if (require.main === module) {
   dotenv.config();
-  void runDbBootstrap(process.argv.slice(2), console.log, console.error).then(
+  void runDbBootstrap(process.argv.slice(2), dbBootstrapDeps(process.env)).then(
     (code) => {
       process.exitCode = code;
     },
