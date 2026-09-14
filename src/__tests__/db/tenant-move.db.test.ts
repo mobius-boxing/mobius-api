@@ -250,9 +250,20 @@ describeIfReady("tenant:move against real Postgres (T11)", () => {
     await registerOnShared(a.id);
     await registerOnShared(b.id);
 
+    // A non-empty jsonb array, plus customer 2's default `[]`: node-pg would
+    // send either as a Postgres array literal (a rejected insert, or `{}`).
+    // The explicit microsecond timestamp is one a JS Date would truncate.
+    const contacts = [
+      { name: "Zz Jest Contact", position: "Compras", isPrimary: true },
+    ];
     await one(
-      `insert into customers (uuid, "companyId", name) values (gen_random_uuid(), ?, ?) returning id`,
-      [a.id, "Zz Jest Move Customer 1"],
+      `insert into customers (uuid, "companyId", name, contacts, "createdAt") values (gen_random_uuid(), ?, ?, ?::jsonb, ?) returning id`,
+      [
+        a.id,
+        "Zz Jest Move Customer 1",
+        JSON.stringify(contacts),
+        "2026-01-02 03:04:05.123456+00",
+      ],
     );
     await one(
       `insert into customers (uuid, "companyId", name) values (gen_random_uuid(), ?, ?) returning id`,
@@ -364,6 +375,25 @@ describeIfReady("tenant:move against real Postgres (T11)", () => {
         (await targetKnex("customers").count())[0]?.count,
       );
       expect(targetCustomers).toBe(sourceCounts.customers);
+      const targetContacts = await targetKnex("customers")
+        .where("name", "like", "Zz Jest Move Customer %")
+        .orderBy("name")
+        .select("contacts");
+      expect(targetContacts.map((r) => r.contacts)).toEqual([contacts, []]);
+      const sourceCreatedAt = (
+        await one<{ t: string }>(
+          `select "createdAt"::text as t from customers where "companyId" = ? and name = ?`,
+          [a.id, "Zz Jest Move Customer 1"],
+        )
+      ).t;
+      const targetCreatedAt = (
+        (await targetKnex.raw(
+          `select "createdAt"::text as t from customers where name = ?`,
+          ["Zz Jest Move Customer 1"],
+        )) as { rows: { t: string }[] }
+      ).rows[0]?.t;
+      expect(sourceCreatedAt).toContain(".123456");
+      expect(targetCreatedAt).toBe(sourceCreatedAt);
       const targetFiles = Number((await targetKnex("files").count())[0]?.count);
       expect(targetFiles).toBe(sourceCounts.files - 1);
       const targetAudit = Number(

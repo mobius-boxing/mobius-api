@@ -951,6 +951,36 @@ async function tableHasIdColumn(knex: Knex, table: string): Promise<boolean> {
 }
 
 /**
+ * Types node-pg does not hand back insertable unchanged: json/jsonb arrive as
+ * JS values (an array is then sent as a Postgres array literal — rejected, or
+ * `[]` stored as `{}`) and date/time types as JS Dates, which drop
+ * microseconds. Selecting these as text lets Postgres parse the exact source
+ * value on insert.
+ */
+const COPY_AS_TEXT_TYPES = new Set([
+  "json",
+  "jsonb",
+  "date",
+  "timestamp with time zone",
+  "timestamp without time zone",
+  "time with time zone",
+  "time without time zone",
+]);
+
+async function copySelectColumns(
+  knex: Knex,
+  table: string,
+): Promise<{ hasId: boolean; columns: Array<string | Knex.Raw> }> {
+  const info = await knex(table).columnInfo();
+  const columns = Object.entries(info).map(([name, column]) =>
+    COPY_AS_TEXT_TYPES.has(column.type)
+      ? knex.raw("??::text as ??", [`t.${name}`, name])
+      : `t.${name}`,
+  );
+  return { hasId: Object.prototype.hasOwnProperty.call(info, "id"), columns };
+}
+
+/**
  * Wipes `table` on the target and re-copies the rows `predicate` selects from
  * the source, batched by `id` (D-52), in one target transaction. The wipe
  * (rather than a plain append) is what makes a rerun after a crash
@@ -966,13 +996,13 @@ async function copyTable(
   table: string,
   predicate: { sql: string; bindings: unknown[] },
 ): Promise<number> {
-  const hasId = await tableHasIdColumn(source, table);
+  const { hasId, columns } = await copySelectColumns(source, table);
   let total = 0;
   await target.transaction(async (trx) => {
     await trx.raw(table === "audit_logs" ? MOVE_MAINTENANCE_ON : MOVE_SKIP_ON);
     if (!hasId) {
       const rows = (await source(`${table} as t`)
-        .select("*")
+        .select(columns)
         .whereRaw(predicate.sql, predicate.bindings)) as Array<
         Record<string, unknown>
       >;
@@ -983,7 +1013,7 @@ async function copyTable(
     let lastId = 0;
     for (;;) {
       const rows = (await source(`${table} as t`)
-        .select("*")
+        .select(columns)
         .whereRaw(predicate.sql, predicate.bindings)
         .andWhere("id", ">", lastId)
         .orderBy("id", "asc")
