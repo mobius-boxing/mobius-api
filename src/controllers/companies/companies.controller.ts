@@ -13,11 +13,18 @@ import {
   CompanyUpdateInputDTO,
 } from "../../dto/input/company";
 import { setAuditAction } from "../../database/audit-context";
-import { db } from "../../database/registry";
+import { db, withTenantTarget } from "../../database/registry";
 import { purgeCompany } from "../../services/company-purge.service";
+import { TenantDatabaseDAO } from "../../dao/tenant-database/tenant-database.dao";
+import {
+  beginProvisioning,
+  decommissionTenantDatabase,
+  runProvisioningSteps,
+} from "../../services/tenant-provisioning.service";
 
 export class CompaniesController implements IBaseController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
+  private _tenantDatabaseDAO: TenantDatabaseDAO = new TenantDatabaseDAO();
   private _moduleDAO: ModuleDAO = new ModuleDAO();
   private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
   private _userDAO: UserDAO = new UserDAO();
@@ -132,9 +139,52 @@ export class CompaniesController implements IBaseController {
         );
       }
 
+      // Tenant database provisioning (model D-19; brief AC-62): the default
+      // placement, started in-process and fire-and-forget — company creation
+      // never fails because of it (a thrown/refused start just leaves
+      // `tenantDatabase: null`, matching `GET .../tenant-database`'s own
+      // `TENANT_DB_NOT_REGISTERED` state for "no row at all").
+      let tenantDatabaseSummary: { status: string; placement: string } | null =
+        null;
+      try {
+        if (result.id) {
+          const prepared = await beginProvisioning(result.id, {
+            deferServerPreconditions: true,
+          });
+          if (prepared.ok) {
+            tenantDatabaseSummary = {
+              status: prepared.row.status,
+              placement: prepared.server.kind,
+            };
+            if (prepared.needsRun) {
+              void runProvisioningSteps(
+                prepared.row,
+                prepared.server,
+                prepared.companyUuid,
+              ).catch((provisionErr) => {
+                console.error(
+                  `Tenant provisioning failed for company #${result.id}:`,
+                  provisionErr,
+                );
+              });
+            }
+          } else {
+            console.error(
+              `Failed to start tenant provisioning for company #${result.id}:`,
+              prepared.reason,
+            );
+          }
+        }
+      } catch (provisionErr) {
+        console.error(
+          "Failed to start tenant provisioning on company create:",
+          provisionErr,
+        );
+      }
+
       res.status(201).json({
         success: true,
-        data: result,
+        data: { ...result, tenantDatabase: tenantDatabaseSummary },
       });
     } catch (err: any) {
       next(err);
@@ -253,11 +303,59 @@ export class CompaniesController implements IBaseController {
         });
         return;
       }
+      const companyId = existing.id;
 
       // NOT `CompanyDAO.delete`: the ledger is append-only in the database, so
       // removing a company is only possible through the purge path, which turns
       // maintenance mode on for its own transaction (see company-purge.service).
-      const result = await purgeCompany(existing.id);
+      //
+      // A live tenant_databases row (model D-20, brief AC-63) goes through
+      // `decommissionTenantDatabase` first — park/purge, THEN the row+company
+      // delete, all inside its own transaction. A company with no live row
+      // (never registered, or only a `provisioning`/`failed` build attempt)
+      // keeps the pre-T10 plain purge, unchanged.
+      const liveTenantRow =
+        await this._tenantDatabaseDAO.getLiveByCompanyId(companyId);
+
+      let result: { companyDeleted: boolean };
+      if (liveTenantRow) {
+        try {
+          const decommission = await decommissionTenantDatabase(companyId);
+          if (!decommission.ok) {
+            res.status(500).json({
+              success: false,
+              code: "TENANT_DECOMMISSION_FAILED",
+              message: "Failed to decommission the company's tenant database.",
+            });
+            return;
+          }
+          result = decommission;
+        } catch (decommissionErr) {
+          console.error(
+            `Tenant decommission failed for company #${companyId}:`,
+            decommissionErr,
+          );
+          res.status(500).json({
+            success: false,
+            code: "TENANT_DECOMMISSION_FAILED",
+            message: "Failed to decommission the company's tenant database.",
+          });
+          return;
+        }
+      } else {
+        // T8/AC-49 (found while verifying T10): `purgeCompany`'s target list
+        // resolves `physicalKeyOf("tenant")`, which now throws outside any
+        // tenant scope — and `/companies` is a `central`-plane route (model),
+        // so it never acquires one. A company with no live tenant row has
+        // nothing on a separate tenant plane to purge anyway (pre-T9
+        // semantics: "tenant" was always "core" here), so asserting that
+        // known fact for the duration of this one call is correct, not a
+        // workaround — mirrors T8's own `runAsCoreTenant` precedent.
+        result = await withTenantTarget(
+          { physicalKey: "core", instance: db("core") },
+          () => purgeCompany(companyId),
+        );
+      }
 
       if (result.companyDeleted) {
         res.status(200).json({

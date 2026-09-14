@@ -34,6 +34,12 @@
  *    `entityUuid`** — the premise of R-5, i.e. of the 400 the history endpoint
  *    returns for them. If that ever stopped being true the 400 would be
  *    hiding reachable history.
+ * 6. **(T10, brief AC-64) `entityName` routes to the RIGHT physical database**,
+ *    proven against a genuinely separate dedicated tenant database rather than
+ *    the pre-C1 shared-target fallback the first five claims run against: a
+ *    `companies` (central-set) change lands in — and is only readable from —
+ *    the core ledger, and a `customers` (tenant) change lands in — and is only
+ *    readable from — the company's own dedicated database.
  *
  * Needs a database, and there is none by default (`.env` points at the deployed
  * host), so it is guarded to `localhost` and skips everywhere else — the same
@@ -53,14 +59,28 @@
 import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { Request } from "express";
 import { Client, QueryResult } from "pg";
+import { v4 as uuidv4 } from "uuid";
 import {
   connectAll,
   disconnectAll,
   db,
   rawCoreInstance,
+  withTenant,
   withTenantTarget,
 } from "../../database/registry";
+import {
+  evictTenant,
+  invalidateTenantCache,
+} from "../../database/tenant-pools";
+import { withAuditContext } from "../../database/audit-context";
 import { AuditLogDAO } from "../../dao/audit-log/audit-log.dao";
+import { CompanyDAO } from "../../dao/company/company.dao";
+import { DbServerDAO } from "../../dao/db-server/db-server.dao";
+import { TenantDatabaseDAO } from "../../dao/tenant-database/tenant-database.dao";
+import {
+  dbBootstrapDeps,
+  scratchTenantDatabase,
+} from "../../scripts/db-bootstrap";
 
 const isLocalDb =
   process.env.SQL_HOST === "localhost" || process.env.SQL_HOST === "127.0.0.1";
@@ -718,3 +738,191 @@ describeIfLocalDb("Audit read against the database (P3, track T7)", () => {
     );
   });
 });
+
+/**
+ * Claim 6 (T10, brief AC-64): a genuinely separate dedicated tenant database,
+ * not the pre-C1 shared-target fallback the suite above runs against — see
+ * the module docstring.
+ *
+ * Needs `SQL_ADMIN_USER`/`SQL_ADMIN_PASSWORD` (a role with CREATEDB), the same
+ * as `tenant-pools.db.test.ts` — never skipped, throws with the reason
+ * instead (that suite's own sibling rule).
+ */
+describeIfLocalDb(
+  "Audit read — two-target routing to a dedicated tenant database (T10, AC-64)",
+  () => {
+    const dao = new AuditLogDAO();
+    const RUN6 = Date.now().toString(36);
+    const mark6 = (suffix: string): string => `p3t10_${RUN6}_${suffix}`;
+
+    let admin: Client;
+    let deps: ReturnType<typeof dbBootstrapDeps>;
+    let serverId = 0;
+    let companyId = 0;
+    let companyUuid = "";
+    let databaseName = "";
+    let tenantRowId = 0;
+    let customerUuid = "";
+
+    beforeAll(async () => {
+      await connectAll();
+      if (!process.env.SQL_ADMIN_USER || !process.env.SQL_ADMIN_PASSWORD) {
+        throw new Error(
+          "audit-read.db.test.ts claim 6 needs SQL_ADMIN_USER/SQL_ADMIN_PASSWORD " +
+            "(a role with CREATEDB) — never skipped.",
+        );
+      }
+      deps = dbBootstrapDeps(process.env);
+      const connection = deps.connection();
+      admin = new Client({
+        host: connection.host,
+        port: connection.port,
+        user: process.env.SQL_ADMIN_USER,
+        password: process.env.SQL_ADMIN_PASSWORD,
+        database: "postgres",
+      });
+      await admin.connect();
+
+      const server = await new DbServerDAO().getDefaultPlacement();
+      if (!server) throw new Error("no default-placement db_servers row");
+      serverId = server.id;
+
+      const company = await new CompanyDAO().create({
+        name: mark6("company"),
+        slug: mark6("company").replace(/_/g, "-"),
+      } as never);
+      companyId = company.id ?? 0;
+      companyUuid = company.uuid ?? "";
+
+      databaseName = scratchTenantDatabase(mark6("db"));
+      const target = {
+        set: "tenant" as const,
+        database: databaseName,
+        mustNotExist: true,
+      };
+      await deps.createDatabase(target, connection);
+      await deps.migrate(target, connection);
+      await admin.query(
+        `ALTER DATABASE "${databaseName}" SET mobius.company_id = '${companyId}'`,
+      );
+
+      const tenantDatabaseDAO = new TenantDatabaseDAO();
+      const createdRow = await tenantDatabaseDAO.create({
+        uuid: uuidv4(),
+        companyId,
+        serverId,
+        databaseName,
+        dbUser: process.env.SQL_USER ?? "",
+        credentialRef: "env:SQL_PASSWORD",
+        credentialCiphertext: null,
+        poolMax: 3,
+        poolMin: 0,
+      });
+      await tenantDatabaseDAO.transition(
+        createdRow.id,
+        "provisioning",
+        "active",
+        {
+          migrationState: "current",
+        },
+      );
+      tenantRowId = createdRow.id;
+
+      // Two audited writes, one per plane: `companies` (central) via a plain
+      // core update, `customers` (tenant) inside `withTenant` so `db("tenant")`
+      // resolves to the DEDICATED database just bootstrapped — not the static
+      // fallback the rest of this file relies on pre-C1.
+      await withAuditContext(
+        { source: "script", username: mark6("fixture"), companyId },
+        async () => {
+          await db("core")("companies")
+            .where("id", companyId)
+            .update({ description: mark6("central-change") });
+        },
+      );
+
+      customerUuid = uuidv4();
+      await withTenant(companyId, async () => {
+        await withAuditContext(
+          { source: "script", username: mark6("fixture"), companyId },
+          async () => {
+            await db("tenant")("customers").insert({
+              uuid: customerUuid,
+              companyId,
+              name: mark6("customer"),
+              code: mark6("code"),
+            });
+          },
+        );
+      });
+    }, 60000);
+
+    afterAll(async () => {
+      await evictTenant(tenantRowId);
+      invalidateTenantCache(companyId);
+      if (tenantRowId) {
+        await db("core")("tenant_databases").where("id", tenantRowId).del();
+      }
+      if (companyId) await new CompanyDAO().delete(companyId);
+      if (databaseName) {
+        await admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
+      }
+      await admin.end();
+      await disconnectAll();
+    }, 60000);
+
+    it("reads a `companies` (central-set) change from the core ledger only", async () => {
+      const page = await dao.getAllWithFilters(
+        requestFor(companyUuid, companyId, {
+          entityName: "companies",
+          entityUuid: companyUuid,
+        }),
+      );
+      expect(
+        page.data.some(
+          (row) => row.after?.description === mark6("central-change"),
+        ),
+      ).toBe(true);
+    });
+
+    it("reads a `customers` (tenant) change from the dedicated database only, via withTenant", async () => {
+      const page = await withTenant(companyId, () =>
+        dao.getAllWithFilters(
+          requestFor(companyUuid, companyId, {
+            entityName: "customers",
+            entityUuid: customerUuid,
+          }),
+        ),
+      );
+      expect(page.data).toHaveLength(1);
+      expect(page.data[0]?.entityUuid).toBe(customerUuid);
+    });
+
+    it("never finds the tenant-database change by querying core directly, or vice versa", async () => {
+      // Straight to core, bypassing `auditDbFor`'s own routing, to prove the
+      // row really is absent there rather than just unreached by the DAO.
+      const coreHit = await db("core")("audit_logs")
+        .where({ entityName: "customers", entityUuid: customerUuid })
+        .first();
+      expect(coreHit).toBeUndefined();
+
+      const tenantClient = new Client({
+        host: process.env.SQL_HOST,
+        port: Number(process.env.SQL_PORT) || 5432,
+        user: process.env.SQL_USER,
+        password: process.env.SQL_PASSWORD,
+        database: databaseName,
+      });
+      await tenantClient.connect();
+      try {
+        const tenantHit = await tenantClient.query(
+          `select 1 from audit_logs where "entityName" = 'companies' and "entityUuid" = $1`,
+          [companyUuid],
+        );
+        expect(tenantHit.rowCount).toBe(0);
+      } finally {
+        await tenantClient.end();
+      }
+    });
+  },
+);

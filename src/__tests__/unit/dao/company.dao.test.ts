@@ -122,8 +122,11 @@ describe("CompanyDAO", () => {
       const result = await dao.getByUuid(testData.uuid);
 
       expect(mockKnex).toHaveBeenCalledWith("companies");
+      // T10 (model, AC-62): getByUuid now left-joins tenant_databases/db_servers
+      // for the `tenantDatabase` field, so the filter column is qualified —
+      // same lookup, same column, no longer ambiguous once the joins are added.
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        "uuid",
+        "companies.uuid",
         testData.uuid,
       );
       expect(result?.name).toBe(testData.name);
