@@ -1,4 +1,4 @@
-import { knex as createKnex, type Knex } from "knex";
+import type { Knex } from "knex";
 import {
   connectAll,
   disconnectAll,
@@ -6,12 +6,15 @@ import {
   rawCoreInstance,
   withTenantTarget,
 } from "../database/registry";
-import { connectionFor, connectionForTenant } from "../database/env";
-import { resolveCredential } from "../database/credential-resolver";
-import { crossPlaneRefs } from "../database/cross-plane-refs";
+import { GENERATED_CROSS_PLANE_REFS } from "../database/cross-plane-refs.generated";
 import { userReferences } from "../services/company-purge.service";
-import { TenantDatabaseDAO } from "../dao/tenant-database/tenant-database.dao";
-import { DbServerDAO } from "../dao/db-server/db-server.dao";
+import {
+  closeDedicatedTenant,
+  listDedicatedTenants,
+  openDedicatedTenant,
+  resolveDedicatedTenant,
+  type DedicatedTenantTarget,
+} from "../database/dedicated-tenants";
 import {
   discoverScopedTables,
   discoverSetNullUserColumns,
@@ -20,10 +23,7 @@ import {
   readSnapshotFile,
   type PurgeSnapshot,
 } from "../services/purge-snapshot.service";
-import type {
-  IDbServer,
-  ITenantDatabase,
-} from "../interfaces/tenant/tenant.interfaces";
+import type { ITenantDatabase } from "../interfaces/tenant/tenant.interfaces";
 
 /**
  * Referential integrity across the plane boundary, where no foreign key can
@@ -59,15 +59,19 @@ const rowsOf = async <T>(
 const referenceLabel = (ref: PlaneReference): string =>
   `${ref.table}.${ref.column} → ${ref.referencedTable}.${ref.referencedColumn}`;
 
-export async function integrityReferences(
-  core: Knex,
-): Promise<PlaneReference[]> {
+/**
+ * Reads the T12a generated file, never the catalogue: once a tenant's tables
+ * live in their own database, that database's own catalogue no longer holds
+ * the cross-plane constraints the shared one used to (the baseline generator
+ * dropped them) — so this cannot be a live query against any one target.
+ */
+export function integrityReferences(): PlaneReference[] {
   const references = new Map<string, PlaneReference>();
   const add = (ref: PlaneReference): void => {
     references.set(referenceLabel(ref), ref);
   };
-  for (const ref of await crossPlaneRefs(core)) add(ref);
-  for (const ref of await userReferences(core)) {
+  for (const ref of GENERATED_CROSS_PLANE_REFS) add(ref);
+  for (const ref of userReferences()) {
     add({ ...ref, referencedTable: "users", referencedColumn: "id" });
   }
   return [...references.values()];
@@ -186,7 +190,7 @@ export async function checkPreC1(
     const [row] = await rowsOf<{ missing: number; foreign: number }>(
       knex,
       `select count(*) filter (where u.id is null)::int as missing,
-              count(*) filter (where u.id is not null and u."companyId" is not null
+              count(*) filter (where u.id is not null
                                  and ${c.companyColumn ? `t.?? is not null and u."companyId" <> t.??` : "false"})::int as foreign
          from ?? t left join users u on u.id = t.??
         where t.?? is not null`,
@@ -307,17 +311,16 @@ export async function checkFleetCoverage(
   return { failures, warnings };
 }
 
-export type DedicatedTenantTarget = {
-  row: ITenantDatabase;
-  server: IDbServer;
-};
-
 export type IntegrityCliDeps = {
   core: () => Knex;
   /** The shared/legacy target — pre-cutover, where "tenant" IS core (C0/C1). */
   tenant: () => Knex;
   now: () => Date;
   listDedicatedTenants: () => Promise<DedicatedTenantTarget[]>;
+  /** T12a `--company`: the one dedicated target for a company, or `null` off it / unprovisioned. */
+  resolveCompany: (
+    companyUuid: string,
+  ) => Promise<DedicatedTenantTarget | null>;
   openTenant: (target: DedicatedTenantTarget) => Promise<Knex>;
   closeTenant: (knex: Knex) => Promise<void>;
   out: (line: string) => void;
@@ -329,9 +332,12 @@ const FLAGS = {
   "pre-c1": "boolean",
   snapshot: "single",
   "fleet-coverage": "boolean",
+  company: "single",
 } as const;
 const USAGE =
-  "usage: db-check-integrity [--pre-c1 --snapshot <purge-snapshot.json>] [--fleet-coverage]";
+  "usage: db-check-integrity [--pre-c1 --snapshot <purge-snapshot.json>] [--fleet-coverage] [--company <uuid>]";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function runDbCheckIntegrity(
   argv: readonly string[],
@@ -345,8 +351,19 @@ export async function runDbCheckIntegrity(
   const preC1 = parsed.value.flags.has("pre-c1");
   const fleetCoverage = parsed.value.flags.has("fleet-coverage");
   const snapshotFile = parsed.value.flags.get("snapshot")?.[0];
+  const companyUuid = parsed.value.flags.get("company")?.[0];
   if (preC1 !== (snapshotFile !== undefined) || (preC1 && fleetCoverage)) {
     deps.err(USAGE);
+    return 2;
+  }
+  if (companyUuid !== undefined && (preC1 || fleetCoverage)) {
+    deps.err(USAGE);
+    return 2;
+  }
+  if (companyUuid !== undefined && !UUID_PATTERN.test(companyUuid)) {
+    deps.err(
+      `db-check-integrity: --company needs a uuid, got "${companyUuid}"\n${USAGE}`,
+    );
     return 2;
   }
   let snapshot: PurgeSnapshot | null = null;
@@ -361,7 +378,53 @@ export async function runDbCheckIntegrity(
 
   const findings: string[] = [];
   const warnings: string[] = [];
-  const references = await integrityReferences(deps.core());
+  const references = integrityReferences();
+
+  const checkOneTarget = async (
+    target: DedicatedTenantTarget,
+  ): Promise<void> => {
+    const tenantKnex = await deps.openTenant(target);
+    try {
+      for (const ref of references) {
+        const orphans = await findOrphans(
+          tenantKnex,
+          deps.core(),
+          ref,
+          deps.batchSize,
+        );
+        if (orphans) {
+          findings.push(
+            `orphans: ${target.row.databaseName} — ${ref.table}.${ref.column} has ${orphans.orphanValues} value(s) missing from ${ref.referencedTable}.${ref.referencedColumn} (e.g. ${orphans.sample.join(", ")})`,
+          );
+        }
+      }
+      const pinFinding = await checkDedicatedTenantPin(tenantKnex, target.row);
+      if (pinFinding) findings.push(pinFinding);
+      findings.push(
+        ...(await checkDedicatedTenantRows(tenantKnex, target.row)),
+      );
+    } finally {
+      await deps.closeTenant(tenantKnex);
+    }
+  };
+
+  if (companyUuid !== undefined) {
+    // T12a: the runbook's per-company C2 step — the dedicated pin/row/orphan
+    // checks for the ONE company just moved, not the whole fleet.
+    const target = await deps.resolveCompany(companyUuid);
+    if (!target) {
+      deps.err(
+        `db-check-integrity: --company ${companyUuid}: no live dedicated tenant database (still on the shared target, unprovisioned, or no such company) — run with no --company for the shared target`,
+      );
+      return 2;
+    }
+    await checkOneTarget(target);
+    for (const finding of findings) deps.err(`db-check-integrity: ${finding}`);
+    deps.out(
+      `db-check-integrity: ${findings.length === 0 ? "CLEAN" : `${findings.length} finding(s)`}; ${references.length} cross-plane references checked; company ${companyUuid} (${target.row.databaseName})`,
+    );
+    return findings.length === 0 ? 0 : 1;
+  }
   let dedicatedCount = 0;
 
   if (snapshot) {
@@ -388,34 +451,7 @@ export async function runDbCheckIntegrity(
     // the same orphan check plus the I-2 pin/foreign-companyId check.
     const dedicated = await deps.listDedicatedTenants();
     dedicatedCount = dedicated.length;
-    for (const target of dedicated) {
-      const tenantKnex = await deps.openTenant(target);
-      try {
-        for (const ref of references) {
-          const orphans = await findOrphans(
-            tenantKnex,
-            deps.core(),
-            ref,
-            deps.batchSize,
-          );
-          if (orphans) {
-            findings.push(
-              `orphans: ${target.row.databaseName} — ${ref.table}.${ref.column} has ${orphans.orphanValues} value(s) missing from ${ref.referencedTable}.${ref.referencedColumn} (e.g. ${orphans.sample.join(", ")})`,
-            );
-          }
-        }
-        const pinFinding = await checkDedicatedTenantPin(
-          tenantKnex,
-          target.row,
-        );
-        if (pinFinding) findings.push(pinFinding);
-        findings.push(
-          ...(await checkDedicatedTenantRows(tenantKnex, target.row)),
-        );
-      } finally {
-        await deps.closeTenant(tenantKnex);
-      }
-    }
+    for (const target of dedicated) await checkOneTarget(target);
     if (fleetCoverage) {
       // I-18 holds only "from C1 onward" — opt-in so a database that never
       // ran `tenant:register-shared` (every local/CI fixture pre-C1) does not
@@ -437,31 +473,17 @@ export async function runDbCheckIntegrity(
   return findings.length === 0 ? 0 : 1;
 }
 
-async function realListDedicatedTenants(): Promise<DedicatedTenantTarget[]> {
-  const coreDatabase = connectionFor("core").database;
-  const tenantDAO = new TenantDatabaseDAO();
-  const dbServerDAO = new DbServerDAO();
-  const rows = (await tenantDAO.listForFleetMigration()).filter(
-    (row) => row.databaseName !== coreDatabase,
-  );
-  const targets: DedicatedTenantTarget[] = [];
-  for (const row of rows) {
-    const server = await dbServerDAO.getById(row.serverId);
-    if (server) targets.push({ row, server });
-  }
-  return targets;
-}
-
-async function realOpenTenant(target: DedicatedTenantTarget): Promise<Knex> {
-  const password = await resolveCredential(
-    target.row.credentialRef,
-    target.row.credentialCiphertext,
-  );
-  return createKnex({
-    client: "pg",
-    connection: connectionForTenant(target.row, target.server, password),
-    pool: { min: 0, max: 1 },
-  });
+async function realResolveCompany(
+  companyUuid: string,
+): Promise<DedicatedTenantTarget | null> {
+  // Exempted central-table read (CORE_TABLE_READER_EXEMPTIONS,
+  // architecture.test.ts): a one-off process resolving a CLI argument, same
+  // as migrate-all.ts's `--company`.
+  const company = await db("core")("companies")
+    .where("uuid", companyUuid)
+    .first<{ id: number } | undefined>("id");
+  if (!company) return null;
+  return resolveDedicatedTenant(company.id);
 }
 
 if (require.main === module) {
@@ -481,9 +503,10 @@ if (require.main === module) {
             core: () => db("core"),
             tenant: () => db("tenant"),
             now: () => new Date(),
-            listDedicatedTenants: realListDedicatedTenants,
-            openTenant: realOpenTenant,
-            closeTenant: (knex) => knex.destroy(),
+            listDedicatedTenants,
+            resolveCompany: realResolveCompany,
+            openTenant: openDedicatedTenant,
+            closeTenant: closeDedicatedTenant,
             out: (line) => console.log(line),
             err: (line) => console.error(line),
           }),

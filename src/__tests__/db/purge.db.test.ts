@@ -242,10 +242,11 @@ describeIfLocalDb(
 
     /**
      * db-per-company (T8, AC-49): `db("tenant")` outside a request now
-     * requires an explicit scope. `purgeUser`/`purgeCompany`/
-     * `db-check-integrity` (T9) still assume the pre-T7 shared instance, so
-     * every test reaching one of them needs this; none opens a competing
-     * scope of its own.
+     * requires an explicit scope. `purgeCompany`/`db-check-integrity` still
+     * assume the pre-T7 shared instance, so every test reaching one of them
+     * needs this; none opens a competing scope of its own. `purgeUser`
+     * (T12a) no longer needs it — it resolves its own targets — but the
+     * wrapper is harmless for it too.
      */
     const runAsCoreTenant = <T>(fn: () => Promise<T>): Promise<T> =>
       withTenantTarget(
@@ -264,6 +265,7 @@ describeIfLocalDb(
         // dedicated tenants) — the pre-T9 shared-target check above already
         // covers this suite's whole scenario.
         listDedicatedTenants: async () => [],
+        resolveCompany: async () => null,
         openTenant: async () => db("tenant"),
         closeTenant: async () => undefined,
         out: (line) => out.push(line),
