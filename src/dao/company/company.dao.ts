@@ -1,3 +1,4 @@
+import type { Knex } from "knex";
 import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import {
@@ -85,7 +86,9 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
 
   async getByUuid(uuid: string): Promise<ICompany | null> {
     const knex = db("core");
-    const company = await knex(this.tableName).where("uuid", uuid).first();
+    const company = await this.withTenantDatabaseJoin(knex(this.tableName))
+      .where("companies.uuid", uuid)
+      .first();
 
     return company ? this.mapToInterface(company) : null;
   }
@@ -196,7 +199,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
     const knex = db("core");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
-    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+    const dataQuery = this.withTenantDatabaseJoin(knex(this.tableName));
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
     const countQuery = knex(this.tableName);
@@ -238,6 +241,31 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
     return mapped;
   }
 
+  /**
+   * `companies` left-joined to its live `tenant_databases` row and that row's
+   * `db_servers.kind` (model, T10, brief AC-62): `null` on both joined columns
+   * means "not registered", never a second row (I-1's partial unique index
+   * guarantees at most one live row per company, so this join cannot fan out).
+   */
+  private withTenantDatabaseJoin(
+    query: Knex.QueryBuilder<any, any[]>,
+  ): Knex.QueryBuilder<any, any[]> {
+    return query
+      .leftJoin("tenant_databases", function () {
+        this.on("tenant_databases.companyId", "=", "companies.id").andOn(
+          db("core").raw(
+            `"tenant_databases"."status" in ('active','suspended','decommissioning')`,
+          ),
+        );
+      })
+      .leftJoin("db_servers", "db_servers.id", "tenant_databases.serverId")
+      .select(
+        `${this.tableName}.*`,
+        "tenant_databases.status as tenantDatabaseStatus",
+        "db_servers.kind as tenantDatabasePlacement",
+      );
+  }
+
   private mapToInterface(record: any): ICompany {
     return {
       id: record.id,
@@ -252,6 +280,16 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
       branding: record.branding ?? {},
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
+      ...(record.tenantDatabaseStatus !== undefined
+        ? {
+            tenantDatabase: record.tenantDatabaseStatus
+              ? {
+                  status: record.tenantDatabaseStatus,
+                  placement: record.tenantDatabasePlacement,
+                }
+              : null,
+          }
+        : {}),
     };
   }
 }

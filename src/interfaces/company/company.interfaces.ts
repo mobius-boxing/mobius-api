@@ -43,4 +43,12 @@ export interface ICompany {
   updatedAt?: Date;
   // Stats (optional, for special methods)
   userCount?: number;
+  /**
+   * The company's live `tenant_databases` row, projected down to what a
+   * superAdmin list/detail view needs (model, T10, brief AC-62). `null` means
+   * "not registered" (left join miss) — distinct from `undefined`, which
+   * means "this DAO method never populates the field" (e.g. `getById`, used
+   * internally where the join would be wasted work).
+   */
+  tenantDatabase?: { status: string; placement: string } | null;
 }

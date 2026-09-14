@@ -51,6 +51,10 @@ export const ROUTE_PLANE: Record<string, "central" | "tenant" | "mixed"> = {
   countdown: "tenant",
   customer: "tenant",
   "customer-category": "tenant",
+  // db-per-company T10 (known amendment, brief HANDOFF "T10/T11 launch
+  // notes"): a new central-plane route folder needs an explicit entry — the
+  // architecture test forces every folder to be classified.
+  "db-servers": "central",
   "delivery-locations": "tenant",
   "delivery-zones": "tenant",
   files: "tenant",

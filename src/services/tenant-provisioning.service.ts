@@ -397,44 +397,90 @@ async function runTenantSteps(
   }
 }
 
-export type ProvisionOptions = { serverUuid?: string };
+export type ProvisionOptions = {
+  serverUuid?: string;
+  /**
+   * T10/D-1: `POST /companies`'s auto-provision (model D-19 — "company creation
+   * never fails because of provisioning") needs a row created even against a
+   * server that is not currently accepting placements, so the eventual failure
+   * is a visible `failed` row rather than no row at all. The explicit
+   * `.../provision` endpoint never sets this: it answers 409 synchronously
+   * instead (brief AC-59), which is what a superAdmin calling it needs.
+   */
+  deferServerPreconditions?: boolean;
+};
 
 export type ProvisionResult =
   | { ok: true; row: ITenantDatabase }
   | { ok: false; reason: string; row: ITenantDatabase | null };
 
+/** T10's discriminant for routing a `beginProvisioning` failure to its HTTP code (model). */
+export type ProvisionFailureCode =
+  | "COMPANY_NOT_FOUND"
+  | "SERVER_NOT_FOUND"
+  | "SERVER_NOT_ACCEPTING"
+  | "SERVER_NOT_PROVISIONABLE"
+  | "TENANT_DB_ALREADY_PROVISIONED";
+
 async function resolveProvisioningServer(
   options: ProvisionOptions,
-): Promise<IDbServer | { failure: string }> {
+): Promise<IDbServer | { failure: string; code: ProvisionFailureCode }> {
   const dbServerDAO = new DbServerDAO();
   const server = options.serverUuid
     ? await dbServerDAO.getByUuid(options.serverUuid)
     : await dbServerDAO.getDefaultPlacement();
-  if (!server) return { failure: "no such db_servers row (SERVER_NOT_FOUND)" };
+  if (!server)
+    return {
+      failure: "no such db_servers row (SERVER_NOT_FOUND)",
+      code: "SERVER_NOT_FOUND",
+    };
+  if (options.deferServerPreconditions) return server;
   if (server.status !== "active") {
     return {
       failure: `db_servers "${server.name}" is ${server.status} (SERVER_NOT_ACCEPTING)`,
+      code: "SERVER_NOT_ACCEPTING",
     };
   }
   if (!server.adminUser) {
     return {
       failure: `db_servers "${server.name}" has no adminUser (SERVER_NOT_PROVISIONABLE)`,
+      code: "SERVER_NOT_PROVISIONABLE",
     };
   }
   return server;
 }
 
 /**
- * Provision (or retry-provision) a dedicated tenant database for `companyId`
- * (model D-19; brief AC-50…52). Idempotent (I-11): a fresh call creates the
- * row and both the role and database exactly once; a retry of a `failed` row
- * resumes at the first incomplete step, never repeating a completed CREATE.
+ * T10/D-1 (self-approved amendment, reported at close-out): `provisionTenantDatabase`
+ * split into `beginProvisioning` (row lookup/creation only — no network round trip to
+ * a real server) and `runProvisioningSteps` (the admin/tenant work), so the HTTP
+ * `provision` endpoint can satisfy model D-19 / brief AC-59 (202 with the row's real,
+ * already-persisted `"provisioning"` state) without either duplicating this file's
+ * row-creation logic in the controller or repurposing the test-only `ProvisionHooks`
+ * seam for production control flow. `provisionTenantDatabase` itself is unchanged in
+ * signature and behavior — every existing caller (T9's DB/unit tests) still awaits one
+ * call and gets the exact same final `ProvisionResult`.
  */
-export async function provisionTenantDatabase(
+export type BeginProvisioningResult =
+  | {
+      ok: true;
+      row: ITenantDatabase;
+      server: IDbServer;
+      companyUuid: string;
+      /** false only for the D-70 collision path: a `failed` row was created and there is nothing left to run. */
+      needsRun: boolean;
+    }
+  | {
+      ok: false;
+      code: ProvisionFailureCode;
+      reason: string;
+      row: ITenantDatabase | null;
+    };
+
+export async function beginProvisioning(
   companyId: number,
   options: ProvisionOptions = {},
-  hooks: ProvisionHooks = {},
-): Promise<ProvisionResult> {
+): Promise<BeginProvisioningResult> {
   const tenantDAO = new TenantDatabaseDAO();
   const companyDAO = new CompanyDAO();
 
@@ -442,6 +488,7 @@ export async function provisionTenantDatabase(
   if (live) {
     return {
       ok: false,
+      code: "TENANT_DB_ALREADY_PROVISIONED",
       reason: `tenant_databases already has a live row (status "${live.status}") — TENANT_DB_ALREADY_PROVISIONED`,
       row: live,
     };
@@ -449,12 +496,13 @@ export async function provisionTenantDatabase(
 
   const server = await resolveProvisioningServer(options);
   if ("failure" in server)
-    return { ok: false, reason: server.failure, row: null };
+    return { ok: false, code: server.code, reason: server.failure, row: null };
 
   const company = await companyDAO.getById(companyId);
   if (!company || company.id === undefined) {
     return {
       ok: false,
+      code: "COMPANY_NOT_FOUND",
       reason: "no such company (COMPANY_NOT_FOUND)",
       row: null,
     };
@@ -467,11 +515,14 @@ export async function provisionTenantDatabase(
       companyId,
       company.slug ?? String(companyId),
     );
-    const collision = await findNameCollision(
-      server,
-      naming.databaseName,
-      naming.dbUser,
-    );
+    // A not-yet-provisionable server (deferred preconditions) has no admin
+    // connection to check a collision against — `findNameCollision` would
+    // throw the very "not provisionable" error this branch exists to turn
+    // into a `failed` row instead of a lost company-create request.
+    const canCheckCollision = server.status === "active" && !!server.adminUser;
+    const collision = canCheckCollision
+      ? await findNameCollision(server, naming.databaseName, naming.dbUser)
+      : null;
     if (collision) {
       const created = await tenantDAO.create({
         uuid: uuidv4(),
@@ -485,10 +536,13 @@ export async function provisionTenantDatabase(
       await tenantDAO.transition(created.id, "provisioning", "failed", {
         lastMigrationError: collision,
       });
+      const failedRow = await tenantDAO.getById(created.id);
       return {
-        ok: false,
-        reason: collision,
-        row: await tenantDAO.getById(created.id),
+        ok: true,
+        row: failedRow as ITenantDatabase,
+        server,
+        companyUuid,
+        needsRun: false,
       };
     }
     const password = randomBytes(24).toString("base64url");
@@ -504,8 +558,26 @@ export async function provisionTenantDatabase(
     });
   } else if (row.status === "failed") {
     await tenantDAO.transition(row.id, "failed", "provisioning");
+    row = (await tenantDAO.getById(row.id)) as ITenantDatabase;
   }
 
+  return { ok: true, row, server, companyUuid, needsRun: true };
+}
+
+/**
+ * Runs the admin+tenant provisioning steps for a row `beginProvisioning` already
+ * created/resumed, and transitions it to its final `active`/`failed` state. Safe to
+ * call without awaiting from an HTTP handler (D-19's "in-process, asynchronously") —
+ * every outcome, including a thrown step, ends in a `transition()` call, never an
+ * unhandled rejection the caller must catch to stay correct.
+ */
+export async function runProvisioningSteps(
+  row: ITenantDatabase,
+  server: IDbServer,
+  companyUuid: string,
+  hooks: ProvisionHooks = {},
+): Promise<ProvisionResult> {
+  const tenantDAO = new TenantDatabaseDAO();
   try {
     const password = await resolveCredential(
       row.credentialRef,
@@ -529,6 +601,36 @@ export async function provisionTenantDatabase(
     });
     return { ok: false, reason: message, row: await tenantDAO.getById(row.id) };
   }
+}
+
+/**
+ * Provision (or retry-provision) a dedicated tenant database for `companyId`
+ * (model D-19; brief AC-50…52). Idempotent (I-11): a fresh call creates the
+ * row and both the role and database exactly once; a retry of a `failed` row
+ * resumes at the first incomplete step, never repeating a completed CREATE.
+ *
+ * Kept as a single awaited call for CLI/test callers (T9); the HTTP `provision`
+ * endpoint calls `beginProvisioning`/`runProvisioningSteps` separately instead (T10/D-1).
+ */
+export async function provisionTenantDatabase(
+  companyId: number,
+  options: ProvisionOptions = {},
+  hooks: ProvisionHooks = {},
+): Promise<ProvisionResult> {
+  const prepared = await beginProvisioning(companyId, options);
+  if (!prepared.ok) return prepared;
+  if (!prepared.needsRun)
+    return {
+      ok: false,
+      reason: prepared.row?.lastMigrationError ?? "provisioning failed",
+      row: prepared.row,
+    };
+  return runProvisioningSteps(
+    prepared.row,
+    prepared.server,
+    prepared.companyUuid,
+    hooks,
+  );
 }
 
 /**
