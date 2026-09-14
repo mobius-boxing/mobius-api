@@ -327,22 +327,18 @@ describeIfLocalDb(
     });
 
     it("names exactly the company tables no ON DELETE CASCADE reaches as explicitly purged", async () => {
-      // T12b/D-orch-1: `tenant_databases.companyId` is ON DELETE RESTRICT, not
-      // CASCADE, so it shows up here too — `purgeCompany` reaches it via
-      // `deleteNonLiveTenantDatabaseRows` (T12a), a real explicit delete just
-      // not driven by `PURGE_HOOKS`. The expected set is built from the
-      // service's own tables, not a second hardcoded copy of this one.
-      const explicitlyReached = [
-        ...EXPLICITLY_PURGED_TABLES,
+      // The P scripts pass EXPLICITLY_PURGED_TABLES unchanged, so the real
+      // schema is checked against exactly that list, never a padded copy.
+      expect(EXPLICITLY_PURGED_TABLES).toContain(
         NON_LIVE_TENANT_DATABASES_TABLE,
-      ];
+      );
       const tables = await discoverScopedTables(db("core"));
       const uncovered = await findTablesNotPurged(db("core"), tables, []);
       expect(uncovered.map((c) => c.split(".")[0]).sort()).toEqual(
-        [...explicitlyReached].sort(),
+        [...EXPLICITLY_PURGED_TABLES].sort(),
       );
       expect(
-        await findTablesNotPurged(db("core"), tables, explicitlyReached),
+        await findTablesNotPurged(db("core"), tables, EXPLICITLY_PURGED_TABLES),
       ).toEqual([]);
     });
 

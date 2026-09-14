@@ -147,23 +147,6 @@ const representatives = (): Map<PhysicalKey, DbKey> => {
 export const purgeTargets = (): PhysicalKey[] => [...representatives().keys()];
 
 /**
- * Every table whose company rows no `ON DELETE CASCADE` from `companies`
- * removes, because this routine deletes them itself. The P scripts refuse a
- * database holding any other such table.
- */
-export const EXPLICITLY_PURGED_TABLES: readonly string[] = [
-  "audit_logs",
-  ...PURGE_HOOKS.flatMap((hook) =>
-    hook.companyRows === "explicit" ? hook.tables : [],
-  ),
-];
-
-/** `is_local = true` — see the "two settings" note above. Never `false`. */
-const MAINTENANCE_ON =
-  "select set_config('mobius.audit_maintenance', 'on', true)";
-const SKIP_ON = "select set_config('mobius.audit_skip', 'on', true)";
-
-/**
  * T12a/D-orch-1: a `tenant_databases` row that never reached live never had a
  * database "handed to a tenant" — `failed` (the attempt errored out) or
  * `provisioning` (still building, or abandoned mid-build). RESTRICT (I-14)
@@ -182,6 +165,26 @@ const NON_LIVE_TENANT_DATABASE_STATUSES = ["failed", "provisioning"] as const;
  * value instead of a second, driftable copy of the string.
  */
 export const NON_LIVE_TENANT_DATABASES_TABLE = "tenant_databases";
+
+/**
+ * Every table whose company rows no `ON DELETE CASCADE` from `companies`
+ * removes, because this routine deletes them itself. The P scripts refuse a
+ * database holding any other such table. `tenant_databases` belongs here: its
+ * RESTRICT key is met by `deleteNonLiveTenantDatabaseRows`, and a live row
+ * still refuses the company delete.
+ */
+export const EXPLICITLY_PURGED_TABLES: readonly string[] = [
+  "audit_logs",
+  NON_LIVE_TENANT_DATABASES_TABLE,
+  ...PURGE_HOOKS.flatMap((hook) =>
+    hook.companyRows === "explicit" ? hook.tables : [],
+  ),
+];
+
+/** `is_local = true` — see the "two settings" note above. Never `false`. */
+const MAINTENANCE_ON =
+  "select set_config('mobius.audit_maintenance', 'on', true)";
+const SKIP_ON = "select set_config('mobius.audit_skip', 'on', true)";
 
 const deleteNonLiveTenantDatabaseRows = (
   trx: Knex.Transaction,

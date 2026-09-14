@@ -864,9 +864,10 @@ describe("module hooks and manifests agree with the ownership metadata", () => {
       .map(([table]) => table)
       .sort();
 
-  it("purges explicitly exactly the ledger plus every table of an explicit hook's module", () => {
+  it("purges explicitly exactly the ledger, the non-live registry rows and every table of an explicit hook's module", () => {
     expect(EXPLICITLY_PURGED_TABLES).toStrictEqual([
       "audit_logs",
+      "tenant_databases",
       ...NODE_FILES_PURGE_ORDER,
     ]);
     for (const hook of PURGE_HOOKS.filter(
