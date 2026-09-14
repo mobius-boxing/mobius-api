@@ -11,13 +11,18 @@
  * regenerates the baseline and needs the `pg_dump` of the server's major
  * version (`PG_DUMP`, else `pg_dump` on PATH); without it that case fails.
  *
- * Guarded to localhost like every real-DB suite. Run it from
- * `repos/mobius-api`:
+ * `SQL_DATABASE` must be migrated to exactly `migrations/core/`: the generator
+ * refuses any other history (a peer branch's extra migrations included), so
+ * point it at a database built by `npm run db:bootstrap` on this branch rather
+ * than a shared local one. Guarded to localhost like every real-DB suite. Run
+ * it from `repos/mobius-api`:
  *
- *   PG_DUMP=/opt/homebrew/opt/postgresql@16/bin/pg_dump \
- *   SQL_HOST=localhost SQL_PORT=5432 SQL_USER=traffic_user SQL_PASSWORD=… \
- *   SQL_DATABASE=traffic_production SQL_ADMIN_USER=<CREATEDB role> SQL_ADMIN_PASSWORD=… \
+ *   export SQL_HOST=localhost SQL_PORT=5432 SQL_USER=traffic_user SQL_PASSWORD=… \
+ *     SQL_ADMIN_USER=<CREATEDB role> SQL_ADMIN_PASSWORD=… \
+ *     PG_DUMP=/opt/homebrew/opt/postgresql@16/bin/pg_dump SQL_DATABASE=zz_core_<you>
+ *   npm run db:bootstrap
  *   npx jest src/__tests__/schema/tenant-baseline.schema.test.ts
+ *   # then drop zz_core_<you>
  */
 import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { spawnSync } from "child_process";
@@ -41,12 +46,13 @@ import {
 } from "../../database/audit-triggers";
 import {
   TENANT_BASELINE_FILE,
-  coreMigrationConnection,
   migrationsDirectory,
+  type MigrationConnection,
 } from "../../database/migration-sets";
+import { declaredUserReferences } from "../../modules/registry";
 import {
-  baselinePath,
-  renderTenantBaseline,
+  generateTenantBaselineDeps,
+  runGenerateTenantBaseline,
 } from "../../scripts/generate-tenant-baseline";
 
 const isLocalDb =
@@ -264,16 +270,30 @@ describeIfLocalDb(
       );
     });
 
-    it("keeps each former cross-plane column's type and nullability, and indexes it (AC-25, I-5)", async () => {
+    it("keeps each cross-plane column's type and nullability, FK-backed or manifest-declared, and indexes it (AC-25, I-5)", async () => {
       const localKnex = createKnex({
         client: "pg",
         connection: { ...server, ...app, database: process.env.SQL_DATABASE },
         pool: { min: 0, max: 1 },
       });
-      const refs = await crossPlaneRefs(localKnex).finally(() =>
+      const foreignKeyRefs = await crossPlaneRefs(localKnex).finally(() =>
         localKnex.destroy(),
       );
-      expect(refs.length).toBeGreaterThan(0);
+      const declared = declaredUserReferences();
+      expect(foreignKeyRefs.length).toBeGreaterThan(0);
+      expect(declared.length).toBeGreaterThan(0);
+      const refs = [
+        ...new Map(
+          [...foreignKeyRefs, ...declared].map((ref) => [
+            `${ref.table}.${ref.column}`,
+            { table: ref.table, column: ref.column },
+          ]),
+        ).values(),
+      ];
+      expect(refs.length).toBe(
+        new Set(foreignKeyRefs.map((ref) => `${ref.table}.${ref.column}`))
+          .size + declared.length,
+      );
       const tables = sorted(new Set(refs.map((ref) => ref.table)));
       const byColumn = (columns: ColumnRow[]): Map<string, string> =>
         new Map(
@@ -473,22 +493,43 @@ describeIfLocalDb(
     });
 
     it("regenerates the committed baseline byte-for-byte from the local database (AC-27)", async () => {
-      const source = coreMigrationConnection();
-      const knex = createKnex({
-        client: "pg",
-        connection: source,
-        pool: { min: 0, max: 1 },
+      const errors: string[] = [];
+      const code = await runGenerateTenantBaseline(["--check"], {
+        ...generateTenantBaselineDeps(process.env),
+        out: () => undefined,
+        err: (line) => errors.push(line),
       });
-      try {
-        const rendered = await renderTenantBaseline(
-          knex,
-          source,
-          process.env.PG_DUMP ?? "pg_dump",
-        );
-        expect(rendered).toEqual(fs.readFileSync(baselinePath(), "utf8"));
-      } finally {
-        await knex.destroy();
-      }
+      expect({ code, errors }).toEqual({ code: 0, errors: [] });
+    }, 60000);
+
+    it("refuses to generate from a database whose history is not migrations/core (W2)", async () => {
+      const connection: MigrationConnection = {
+        ...server,
+        user: app.user,
+        password: app.password,
+        database: SCRATCH,
+        ssl: false,
+      };
+      const errors: string[] = [];
+      const code = await runGenerateTenantBaseline(["--check"], {
+        ...generateTenantBaselineDeps(process.env),
+        openSource: () => ({
+          connection,
+          knex: createKnex({
+            client: "pg",
+            connection,
+            pool: { min: 0, max: 1 },
+          }),
+        }),
+        out: () => undefined,
+        err: (line) => errors.push(line),
+      });
+      expect(code).toBe(1);
+      expect(errors).toEqual([
+        expect.stringContaining(
+          `not in migrations/core: [${TENANT_BASELINE_FILE}]`,
+        ),
+      ]);
     }, 60000);
   },
 );

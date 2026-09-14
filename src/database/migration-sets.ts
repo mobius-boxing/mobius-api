@@ -86,6 +86,23 @@ export const refuseTenantConnection = (): never => {
 };
 
 /**
+ * `knexfile.ts`'s envs. Both connections are providers that knex calls only
+ * when it opens one, so `migrate:make` works with no database env at all.
+ */
+export function knexfileConfig(): Record<MigrationSet, Knex.Config> {
+  return {
+    core: {
+      ...migrationConfigFor("core", coreMigrationConnection),
+      pool: {
+        min: 2,
+        max: 10,
+      },
+    },
+    tenant: migrationConfigFor("tenant", refuseTenantConnection),
+  };
+}
+
+/**
  * Why `command` must not run in this environment, or `undefined` when it may.
  *
  * `SQL_HOST` unset is refused too: nothing proves it is local. Callers load

@@ -1,11 +1,5 @@
-import type { Knex } from "knex";
 import dotenv from "dotenv";
-import {
-  coreMigrationConnection,
-  migrationConfigFor,
-  refuseTenantConnection,
-  type MigrationSet,
-} from "./src/database/migration-sets";
+import { knexfileConfig } from "./src/database/migration-sets";
 dotenv.config();
 
 /**
@@ -16,15 +10,4 @@ dotenv.config();
  * `tenant` has no connection on purpose: `migrate:create:tenant` only writes a
  * file, and anything that would connect fails with the reason.
  */
-const config: Record<MigrationSet, Knex.Config> = {
-  core: {
-    ...migrationConfigFor("core", coreMigrationConnection()),
-    pool: {
-      min: 2,
-      max: 10,
-    },
-  },
-  tenant: migrationConfigFor("tenant", refuseTenantConnection),
-};
-
-export default config;
+export default knexfileConfig();
