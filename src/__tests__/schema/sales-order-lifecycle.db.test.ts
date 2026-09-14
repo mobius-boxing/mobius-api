@@ -107,6 +107,24 @@ describeIfLocalDb("SalesOrderDAO lifecycle (AC-5, AC-6, AC-14)", () => {
       ]);
       // companies cascades products / customers / delivery_locations.
       await client.query(`DELETE FROM companies WHERE id = $1`, [companyId]);
+      // L-013 / T12b: every audited insert/update/delete above wrote its own
+      // ledger row (audit_logs has no FK to companies — explicit deletion
+      // required, same as company-purge.service.ts). Identified by this
+      // run's own companyId (a fresh company minted in beforeAll), never by
+      // timestamp. `is_local` `set_config` needs an explicit transaction —
+      // outside one it would revert before the DELETE that follows it runs,
+      // and the ledger's protection trigger would then raise P0001.
+      await client.query("BEGIN");
+      await client.query(
+        "select set_config('mobius.audit_maintenance', 'on', true)",
+      );
+      await client.query(
+        `DELETE FROM audit_logs
+           WHERE "companyId" = $1
+              OR ("entityName" = 'companies' AND "entityId" = $1)`,
+        [companyId],
+      );
+      await client.query("COMMIT");
     } finally {
       await client.end();
       await disconnectAll();

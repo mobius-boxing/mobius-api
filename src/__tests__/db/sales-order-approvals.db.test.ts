@@ -195,6 +195,25 @@ describeIfLocalDb("Sales order approvals against the database", () => {
       ]);
       // companies cascades products / customers.
       await client.query(`DELETE FROM companies WHERE id = $1`, [companyId]);
+      // L-013 / T12b: every audited insert/update/delete above (including the
+      // scratch users' own rows) wrote its own ledger row — audit_logs has no
+      // FK to companies or users, so nothing above cascades it away.
+      // Identified by this run's own companyId/scratchUserIds, never by
+      // timestamp. `is_local` `set_config` needs an explicit transaction —
+      // outside one it would revert before the DELETE that follows it runs,
+      // and the ledger's protection trigger would then raise P0001.
+      await client.query("BEGIN");
+      await client.query(
+        "select set_config('mobius.audit_maintenance', 'on', true)",
+      );
+      await client.query(
+        `DELETE FROM audit_logs
+           WHERE "companyId" = $1
+              OR ("entityName" = 'companies' AND "entityId" = $1)
+              OR ("entityName" = 'users' AND "entityId" = any($2))`,
+        [companyId, scratchUserIds],
+      );
+      await client.query("COMMIT");
     } finally {
       await client.end();
       await disconnectAll();

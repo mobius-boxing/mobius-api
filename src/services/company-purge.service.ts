@@ -176,11 +176,18 @@ const SKIP_ON = "select set_config('mobius.audit_skip', 'on', true)";
  */
 const NON_LIVE_TENANT_DATABASE_STATUSES = ["failed", "provisioning"] as const;
 
+/**
+ * T12b/D-orch-1: named so the company-purge.db.test.ts suite can build its
+ * "every table purgeCompany explicitly reaches" expectation from this real
+ * value instead of a second, driftable copy of the string.
+ */
+export const NON_LIVE_TENANT_DATABASES_TABLE = "tenant_databases";
+
 const deleteNonLiveTenantDatabaseRows = (
   trx: Knex.Transaction,
   companyId: number,
 ): Promise<number> =>
-  trx("tenant_databases")
+  trx(NON_LIVE_TENANT_DATABASES_TABLE)
     .where({ companyId })
     .whereIn("status", NON_LIVE_TENANT_DATABASE_STATUSES)
     .delete();
