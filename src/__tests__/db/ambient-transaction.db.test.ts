@@ -62,6 +62,7 @@ import {
   connectAll,
   disconnectAll,
   db,
+  rawCoreInstance,
   withTenantTarget,
 } from "../../database/registry";
 import type { DbKey } from "../../database/keys";
@@ -133,6 +134,16 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
 
   const tableCount = (table: string): Promise<number> =>
     countOutside(`SELECT count(*) FROM ${table}`);
+
+  /**
+   * db-per-company (T8, AC-49): `db("tenant")` outside a request now requires
+   * an explicit scope. Every claim in this file except "two distinct physical
+   * databases" (which opens its own `withTenantTarget` onto a scratch
+   * database) exercises `core` and `tenant` sharing ONE physical database —
+   * this is that shared target.
+   */
+  const runAsCoreTenant = <T>(fn: () => Promise<T>): Promise<T> =>
+    withTenantTarget({ physicalKey: "core", instance: rawCoreInstance() }, fn);
 
   /** An insert through the ambient facade, in the shape a DAO would issue it. */
   const insertWarehouse = async (name: string): Promise<void> => {
@@ -255,25 +266,27 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       const corrugation = mark("ROLLBACK-CORR");
 
       await expect(
-        withAuditContext({ source: "script", username: "test" }, async () => {
-          await insertWarehouse(warehouse);
-          await db("tenant")("corrugations").insert({
-            uuid: randomUUID(),
-            code: corrugation,
-            description: "rolled back",
-            companyId,
-          });
+        runAsCoreTenant(() =>
+          withAuditContext({ source: "script", username: "test" }, async () => {
+            await insertWarehouse(warehouse);
+            await db("tenant")("corrugations").insert({
+              uuid: randomUUID(),
+              code: corrugation,
+              description: "rolled back",
+              companyId,
+            });
 
-          // The writes really happened — inside the transaction they are
-          // visible, outside it they are not. Without this pair the test would
-          // also pass if the inserts had silently done nothing, which is the
-          // exact failure a mock cannot distinguish.
-          expect(await warehousesNamedInside(warehouse)).toBe(1);
-          expect(await warehousesNamed(warehouse)).toBe(0);
-          expect(await corrugationsCoded(corrugation)).toBe(0);
+            // The writes really happened — inside the transaction they are
+            // visible, outside it they are not. Without this pair the test would
+            // also pass if the inserts had silently done nothing, which is the
+            // exact failure a mock cannot distinguish.
+            expect(await warehousesNamedInside(warehouse)).toBe(1);
+            expect(await warehousesNamed(warehouse)).toBe(0);
+            expect(await corrugationsCoded(corrugation)).toBe(0);
 
-          throw new Error("request failed after writing");
-        }),
+            throw new Error("request failed after writing");
+          }),
+        ),
       ).rejects.toThrow("request failed after writing");
 
       // The proof, from the separate connection.
@@ -285,9 +298,8 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       const warehouse = mark("COMMIT-WH");
       const corrugation = mark("COMMIT-CORR");
 
-      await withAuditContext(
-        { source: "script", username: "test" },
-        async () => {
+      await runAsCoreTenant(() =>
+        withAuditContext({ source: "script", username: "test" }, async () => {
           await insertWarehouse(warehouse);
           await db("tenant")("corrugations").insert({
             uuid: randomUUID(),
@@ -297,7 +309,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
           });
           // Still invisible outside — the commit has not happened yet.
           expect(await warehousesNamed(warehouse)).toBe(0);
-        },
+        }),
       );
 
       expect(await warehousesNamed(warehouse)).toBe(1);
@@ -313,61 +325,62 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
   });
 
   describe("AC-14 — the audit setting inside the transaction", () => {
-    it("is the exact Appendix A key set, transaction-locally", async () => {
-      let setting: Record<string, unknown> | null = null;
-      let insideOtherConnection: Record<string, unknown> | null = null;
+    it("is the exact Appendix A key set, transaction-locally", () =>
+      runAsCoreTenant(async () => {
+        let setting: Record<string, unknown> | null = null;
+        let insideOtherConnection: Record<string, unknown> | null = null;
 
-      await withAuditContext(
-        { source: "script", username: "test", companyId: 42 },
-        async () => {
-          // Open the transaction first, so the setting is applied.
-          await warehousesNamedInside(mark("NOBODY"));
-          setting = await settingInside("tenant");
-          // A plain query on the SAME pool takes a DIFFERENT connection (the
-          // transaction is holding its own), so it must see nothing: this is
-          // what `set_config(..., true)` buys, proven rather than trusted.
-          insideOtherConnection = await withoutAudit(() =>
-            settingInside("tenant"),
-          );
-        },
-      );
+        await withAuditContext(
+          { source: "script", username: "test", companyId: 42 },
+          async () => {
+            // Open the transaction first, so the setting is applied.
+            await warehousesNamedInside(mark("NOBODY"));
+            setting = await settingInside("tenant");
+            // A plain query on the SAME pool takes a DIFFERENT connection (the
+            // transaction is holding its own), so it must see nothing: this is
+            // what `set_config(..., true)` buys, proven rather than trusted.
+            insideOtherConnection = await withoutAudit(() =>
+              settingInside("tenant"),
+            );
+          },
+        );
 
-      expect(setting).not.toBeNull();
-      const value = setting as unknown as Record<string, unknown>;
-      // eslint-disable-next-line no-console
-      console.info("[AC-14] mobius.audit =", JSON.stringify(value));
+        expect(setting).not.toBeNull();
+        const value = setting as unknown as Record<string, unknown>;
+        // eslint-disable-next-line no-console
+        console.info("[AC-14] mobius.audit =", JSON.stringify(value));
 
-      expect(Object.keys(value).sort()).toEqual([...SETTING_KEYS].sort());
-      expect(
-        Object.keys(value.context as Record<string, unknown>).sort(),
-      ).toEqual([...CONTEXT_KEYS].sort());
-      expect(value.source).toBe("script");
-      expect(value.username).toBe("test");
-      expect(value.companyId).toBe(42);
-      expect(value.actorCompanyId).toBeNull();
-      expect(value.userId).toBeNull();
-      expect(value.action).toBeNull();
-      expect(typeof value.requestId).toBe("string");
+        expect(Object.keys(value).sort()).toEqual([...SETTING_KEYS].sort());
+        expect(
+          Object.keys(value.context as Record<string, unknown>).sort(),
+        ).toEqual([...CONTEXT_KEYS].sort());
+        expect(value.source).toBe("script");
+        expect(value.username).toBe("test");
+        expect(value.companyId).toBe(42);
+        expect(value.actorCompanyId).toBeNull();
+        expect(value.userId).toBeNull();
+        expect(value.action).toBeNull();
+        expect(typeof value.requestId).toBe("string");
 
-      expect(insideOtherConnection).toBeNull();
-      // And from a connection this process does not pool at all.
-      const outsideSetting = await outside.query<SettingRow>(
-        "select current_setting('mobius.audit', true) as v",
-      );
-      expect(
-        outsideSetting.rows[0].v === null || outsideSetting.rows[0].v === "",
-      ).toBe(true);
+        expect(insideOtherConnection).toBeNull();
+        // And from a connection this process does not pool at all.
+        const outsideSetting = await outside.query<SettingRow>(
+          "select current_setting('mobius.audit', true) as v",
+        );
+        expect(
+          outsideSetting.rows[0].v === null || outsideSetting.rows[0].v === "",
+        ).toBe(true);
 
-      // The COMMIT discarded it. Without the `true` in `set_config` the value
-      // would be session-level and would ride the connection back into the
-      // pool, so the next unrelated request on that connection would inherit a
-      // stranger's actor — the reason the third argument is not optional.
-      // Sampled across the pool because which connection comes back is the
-      // pool's business, not ours.
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        expect(await withoutAudit(() => settingInside("tenant"))).toBeNull();
-      }
-    });
+        // The COMMIT discarded it. Without the `true` in `set_config` the
+        // value would be session-level and would ride the connection back
+        // into the pool, so the next unrelated request on that connection
+        // would inherit a stranger's actor — the reason the third argument is
+        // not optional. Sampled across the pool because which connection
+        // comes back is the pool's business, not ours.
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          expect(await withoutAudit(() => settingInside("tenant"))).toBeNull();
+        }
+      }));
   });
 
   describe("nested transactions become savepoints", () => {
@@ -376,9 +389,8 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       const inner = mark("SP-INNER");
       const after = mark("SP-AFTER");
 
-      await withAuditContext(
-        { source: "script", username: "test" },
-        async () => {
+      await runAsCoreTenant(() =>
+        withAuditContext({ source: "script", username: "test" }, async () => {
           await insertWarehouse(before);
 
           // `db(k).transaction(cb)` under an armed request is `trx.transaction`
@@ -402,7 +414,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
           expect(await warehousesNamedInside(before)).toBe(1);
           expect(await warehousesNamedInside(inner)).toBe(0);
           await insertWarehouse(after);
-        },
+        }),
       );
 
       expect(await warehousesNamed(before)).toBe(1);
@@ -430,32 +442,34 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       const innerCommitted = mark("SPC-INNER");
 
       await expect(
-        withAuditContext({ source: "script", username: "test" }, async () => {
-          await insertWarehouse(outer);
+        runAsCoreTenant(() =>
+          withAuditContext({ source: "script", username: "test" }, async () => {
+            await insertWarehouse(outer);
 
-          await db("tenant").transaction(async (trx) => {
-            // An independent transaction could not see this row: it is
-            // uncommitted work of the request's transaction.
-            const seen = await trx<{ id: number }>("warehouses").where(
-              "name",
-              outer,
-            );
-            expect(seen).toHaveLength(1);
-            await trx("warehouses").insert({
-              uuid: randomUUID(),
-              name: innerCommitted,
-              company_id: companyId,
-              grid_rows: 1,
-              grid_cols: 1,
+            await db("tenant").transaction(async (trx) => {
+              // An independent transaction could not see this row: it is
+              // uncommitted work of the request's transaction.
+              const seen = await trx<{ id: number }>("warehouses").where(
+                "name",
+                outer,
+              );
+              expect(seen).toHaveLength(1);
+              await trx("warehouses").insert({
+                uuid: randomUUID(),
+                name: innerCommitted,
+                company_id: companyId,
+                grid_rows: 1,
+                grid_cols: 1,
+              });
             });
-          });
 
-          // The inner transaction "committed" — and is still invisible outside.
-          expect(await warehousesNamedInside(innerCommitted)).toBe(1);
-          expect(await warehousesNamed(innerCommitted)).toBe(0);
+            // The inner transaction "committed" — and is still invisible outside.
+            expect(await warehousesNamedInside(innerCommitted)).toBe(1);
+            expect(await warehousesNamed(innerCommitted)).toBe(0);
 
-          throw new Error("request failed after the inner commit");
-        }),
+            throw new Error("request failed after the inner commit");
+          }),
+        ),
       ).rejects.toThrow("request failed after the inner commit");
 
       expect(await warehousesNamed(outer)).toBe(0);
@@ -475,22 +489,24 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       expect(await layersOutside()).toEqual([1, 2]);
 
       await expect(
-        withAuditContext({ source: "script", username: "test" }, async () => {
-          // `replaceLayers` opens `db("tenant").transaction(...)` itself — under
-          // the ambient transaction that is a savepoint, so its writes are the
-          // request's writes and die with it.
-          await dao.replaceLayers(corrugationId, [
-            {
-              position: 1,
-              isLiner: false,
-              paperClassId: null,
-              fluteTypeId: null,
-            },
-          ]);
-          // Committed state is untouched while the request is in flight.
-          expect(await layersOutside()).toEqual([1, 2]);
-          throw new Error("request failed after replaceLayers");
-        }),
+        runAsCoreTenant(() =>
+          withAuditContext({ source: "script", username: "test" }, async () => {
+            // `replaceLayers` opens `db("tenant").transaction(...)` itself —
+            // under the ambient transaction that is a savepoint, so its
+            // writes are the request's writes and die with it.
+            await dao.replaceLayers(corrugationId, [
+              {
+                position: 1,
+                isLiner: false,
+                paperClassId: null,
+                fluteTypeId: null,
+              },
+            ]);
+            // Committed state is untouched while the request is in flight.
+            expect(await layersOutside()).toEqual([1, 2]);
+            throw new Error("request failed after replaceLayers");
+          }),
+        ),
       ).rejects.toThrow("request failed after replaceLayers");
 
       // Before P1 this stack would have been rewritten to a single layer and
@@ -510,28 +526,33 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       let openKeys: string[] = [];
 
       await expect(
-        withAuditContext({ source: "script", username: "test" }, async () => {
-          await db("core")("companies").insert({
-            uuid: randomUUID(),
-            name: company,
-            slug: company.toLowerCase(),
-          });
-          await insertWarehouse(warehouse);
+        runAsCoreTenant(() =>
+          withAuditContext({ source: "script", username: "test" }, async () => {
+            await db("core")("companies").insert({
+              uuid: randomUUID(),
+              name: company,
+              slug: company.toLowerCase(),
+            });
+            await insertWarehouse(warehouse);
 
-          corePid = await backendPidInside("core");
-          tenantPid = await backendPidInside("tenant");
-          coreTxid = await textInside("core", "select txid_current()::text as v");
-          tenantTxid = await textInside(
-            "tenant",
-            "select txid_current()::text as v",
-          );
-          openKeys = [...(getAuditState()?.trx.keys() ?? [])];
+            corePid = await backendPidInside("core");
+            tenantPid = await backendPidInside("tenant");
+            coreTxid = await textInside(
+              "core",
+              "select txid_current()::text as v",
+            );
+            tenantTxid = await textInside(
+              "tenant",
+              "select txid_current()::text as v",
+            );
+            openKeys = [...(getAuditState()?.trx.keys() ?? [])];
 
-          expect((await settingInside("core"))?.source).toBe("script");
-          expect((await settingInside("tenant"))?.source).toBe("script");
+            expect((await settingInside("core"))?.source).toBe("script");
+            expect((await settingInside("tenant"))?.source).toBe("script");
 
-          throw new Error("shared-target request failed");
-        }),
+            throw new Error("shared-target request failed");
+          }),
+        ),
       ).rejects.toThrow("shared-target request failed");
 
       // One entry, one backend, one transaction id: two transactions on one
@@ -614,9 +635,9 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
           if (databasesBefore > 0) {
             await admin.query(`DROP DATABASE IF EXISTS ${scratchDb}`);
             // L-013: the scratch database is gone, not merely emptied.
-            expect(
-              await countOutside(`SELECT count(*) FROM pg_database`),
-            ).toBe(databasesBefore);
+            expect(await countOutside(`SELECT count(*) FROM pg_database`)).toBe(
+              databasesBefore,
+            );
           }
         } finally {
           await admin.end();
@@ -654,9 +675,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
 
                 // Each transaction carries its own copy of the setting.
                 expect((await settingInside("core"))?.source).toBe("script");
-                expect((await settingInside("tenant"))?.source).toBe(
-                  "script",
-                );
+                expect((await settingInside("tenant"))?.source).toBe("script");
 
                 throw new Error("two-target request failed");
               },
@@ -670,10 +689,9 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
         expect(tenantDatabase).toBe(scratchDb);
 
         expect(
-          await countOutside(
-            `SELECT count(*) FROM companies WHERE name = $1`,
-            [company],
-          ),
+          await countOutside(`SELECT count(*) FROM companies WHERE name = $1`, [
+            company,
+          ]),
         ).toBe(0);
         expect(await scratchWarehousesNamed(warehouse)).toBe(0);
       });
@@ -698,9 +716,8 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
       const late = mark("FIN-LATE");
       const afterFinish = mark("FIN-AFTER");
 
-      await withAuditContext(
-        { source: "script", username: "test" },
-        async () => {
+      await runAsCoreTenant(() =>
+        withAuditContext({ source: "script", username: "test" }, async () => {
           await insertWarehouse(inTrx);
 
           // Built now, awaited after the finish. Knex builders are lazy, so
@@ -725,7 +742,7 @@ describeIfLocalDb("Ambient audit transaction against the database", () => {
           await insertWarehouse(afterFinish);
           expect(await warehousesNamed(afterFinish)).toBe(1);
           expect(await warehousesNamed(inTrx)).toBe(0);
-        },
+        }),
       );
 
       expect(await warehousesNamed(late)).toBe(1);

@@ -1,5 +1,11 @@
 import { knex as createKnex, type Knex } from "knex";
-import { connectAll, disconnectAll, db } from "../database/registry";
+import {
+  connectAll,
+  disconnectAll,
+  db,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../database/registry";
 import { connectionFor, connectionForTenant } from "../database/env";
 import { resolveCredential } from "../database/credential-resolver";
 import { crossPlaneRefs } from "../database/cross-plane-refs";
@@ -462,16 +468,26 @@ if (require.main === module) {
   void (async () => {
     try {
       await connectAll();
-      process.exitCode = await runDbCheckIntegrity(process.argv.slice(2), {
-        core: () => db("core"),
-        tenant: () => db("tenant"),
-        now: () => new Date(),
-        listDedicatedTenants: realListDedicatedTenants,
-        openTenant: realOpenTenant,
-        closeTenant: (knex) => knex.destroy(),
-        out: (line) => console.log(line),
-        err: (line) => console.error(line),
-      });
+      // db-per-company (T8, AC-49): `tenant: () => db("tenant")` answers the
+      // shared-placement check (a C1 company's target IS the core database,
+      // D-31's dedupe) — outside a request that needs an explicit scope now
+      // that the fallback is gone. `openTenant`/`closeTenant` are unaffected:
+      // they open their own dedicated connection per tenant and never call
+      // `db()` at all.
+      process.exitCode = await withTenantTarget(
+        { physicalKey: "core", instance: rawCoreInstance() },
+        () =>
+          runDbCheckIntegrity(process.argv.slice(2), {
+            core: () => db("core"),
+            tenant: () => db("tenant"),
+            now: () => new Date(),
+            listDedicatedTenants: realListDedicatedTenants,
+            openTenant: realOpenTenant,
+            closeTenant: (knex) => knex.destroy(),
+            out: (line) => console.log(line),
+            err: (line) => console.error(line),
+          }),
+      );
     } catch (error) {
       console.error(error);
       process.exitCode = 1;

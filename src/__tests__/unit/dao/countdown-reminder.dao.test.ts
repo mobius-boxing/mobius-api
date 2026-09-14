@@ -125,8 +125,7 @@ describe("CountdownReminderDAO.findDue", () => {
 
   beforeEach(async () => {
     resetCaptures();
-    mockEnabledCompanyIds = [3, 6];
-    await new CountdownReminderDAO().findDue("2026-08-13");
+    await new CountdownReminderDAO().findDue(3, "2026-08-13");
     const call = mockRawCalls.tenant[0];
     if (!call) throw new Error("findDue emitted no query on the tenant key");
     sql = call.sql;
@@ -147,9 +146,8 @@ describe("CountdownReminderDAO.findDue", () => {
 
   it("binds the caller's today exactly twice — never `current_date`", () => {
     // The session is UTC; the customer's day comes from todayInBuenosAires, and
-    // one definition of today serves the claim and the work. Between the two
-    // sits the enabled-company list from core.
-    expect(bindings).toEqual(["2026-08-13", [3, 6], "2026-08-13"]);
+    // one definition of today serves the claim and the work.
+    expect(bindings).toEqual(["2026-08-13", 3, "2026-08-13"]);
     expect(sql).not.toContain("current_date");
   });
 
@@ -164,34 +162,64 @@ describe("CountdownReminderDAO.findDue", () => {
     expect(sql).toContain(`d.status = 'pending'`);
   });
 
-  it("keeps the module-enablement and subscription gate", () => {
-    // The gate itself (enabled link, not canceled/past_due, slug) is
-    // CoreClient.companyIdsWithModuleEnabled's predicate; here: it is asked for
-    // countdown, once, and its answer is the only company filter.
-    expect(mockCoreCalls).toEqual([
-      { method: "companyIdsWithModuleEnabled", args: ["countdown"] },
-    ]);
-    expect(sql).toContain(`d."companyId" = any(?)`);
-    expect(bindings[1]).toEqual(mockEnabledCompanyIds);
+  /**
+   * T8/D-1: the module-enablement gate (`CoreClient.companyIdsWithModuleEnabled`)
+   * moved to the service, which decides the tenant list BEFORE any `withTenant`
+   * scope opens — this DAO now runs once per company, inside that company's own
+   * scope, and never asks core anything. Filtering on a bound scalar (`= ?`)
+   * rather than `= any(companyIds)` is what a per-company scope requires: on a
+   * shared physical target (C1), an `any(...)` filter naming every enabled
+   * company would read other tenants' rows out of the very database this call
+   * is scoped to.
+   */
+  it("asks core nothing and filters on exactly the one company it was scoped to", () => {
+    expect(mockCoreCalls).toEqual([]);
+    expect(sql).toContain(`d."companyId" = ?`);
+    expect(sql).not.toContain(`= any(`);
+    expect(bindings[1]).toBe(3);
   });
 
   it("orders deterministically, so a digest and its log rows are reproducible", () => {
     expect(sql).toContain(`order by d."dueDate" asc, d.title asc, d.id asc`);
   });
+
+  /**
+   * Rewritten for T8 (old → new, D-95): was "keeps the module-enablement and
+   * subscription gate" — `CoreClient.companyIdsWithModuleEnabled`'s predicate
+   * (enabled link + not canceled/past_due) is what let a due document through
+   * at all. That decision now happens in the SERVICE, once, before any
+   * `withTenant` scope opens (`CountdownRemindersService.run`,
+   * countdown-reminders.service.test.ts's "iterates every module-enabled
+   * company…" and "asks nothing … when no company has the module enabled").
+   * The stronger claim this keeps: the DAO itself asks core NOTHING —
+   * verified again here, under the gate's old name, so a regression that
+   * re-adds a core round-trip to this DAO is caught under either title.
+   */
+  it("no longer applies the module-enablement gate itself — moved to the service (T8)", () => {
+    expect(mockCoreCalls).toEqual([]);
+  });
 });
 
-describe("CountdownReminderDAO.findDue — no company has the module", () => {
+/**
+ * Rewritten for T8 (old → new, D-95): was "CountdownReminderDAO.findDue — no
+ * company has the module" / "selects nothing and sends no query at all". That
+ * gate lived here when `findDue` took the whole enabled-company list; now it
+ * takes exactly one `companyId` the caller already decided to visit, so there
+ * is no "empty list" case left at this seam — the DAO sends its query
+ * unconditionally, once per company, and an empty result is an ordinary
+ * "nothing due today", not a skipped call.
+ */
+describe("CountdownReminderDAO.findDue — always queries its own company, unconditionally", () => {
   beforeEach(() => {
     resetCaptures();
   });
 
-  it("selects nothing and sends no query at all", async () => {
-    mockEnabledCompanyIds = [];
-
+  it("sends its query even for a company with nothing due, and returns no rows", async () => {
     await expect(
-      new CountdownReminderDAO().findDue("2026-08-13"),
+      new CountdownReminderDAO().findDue(3, "2026-08-13"),
     ).resolves.toEqual([]);
-    for (const calls of Object.values(mockRawCalls)) expect(calls).toEqual([]);
+    expect(mockRawCalls.tenant).toHaveLength(1);
+    expect(mockCoreCalls).toEqual([]);
   });
 });
 

@@ -49,7 +49,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { Client } from "pg";
 import { randomUUID } from "node:crypto";
-import { connectAll, disconnectAll, db } from "../../database/registry";
+import {
+  connectAll,
+  disconnectAll,
+  db,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../../database/registry";
 import { withAuditContext } from "../../database/audit-context";
 
 const isLocalDb =
@@ -510,15 +516,21 @@ describeIfLocalDb("Audit capture against the database (P2)", () => {
 
       await withAuditContext(
         { source: "job", username: "node-files-worker", companyId },
-        async () => {
-          await db("tenant")("warehouses").insert({
-            uuid,
-            name: mark("WH-JOB"),
-            company_id: companyId,
-            grid_rows: 1,
-            grid_cols: 1,
-          });
-        },
+        () =>
+          // db-per-company (T8, AC-49): `db("tenant")` outside a request now
+          // requires an explicit scope. This suite's "tenant" and "core" are
+          // the one physical database `SQL_DATABASE` names.
+          withTenantTarget(
+            { physicalKey: "core", instance: rawCoreInstance() },
+            () =>
+              db("tenant")("warehouses").insert({
+                uuid,
+                name: mark("WH-JOB"),
+                company_id: companyId,
+                grid_rows: 1,
+                grid_cols: 1,
+              }),
+          ),
       );
 
       const rows = await rowsFor("warehouses", uuid);

@@ -34,6 +34,27 @@ import type { INodeFilesClaimedRun } from "../../../interfaces/node-files/node-f
 import type { IModuleEmail } from "../../../services/module-email.service";
 
 /**
+ * db-per-company (T8): both jobs now iterate `CoreClient.companyIdsWithModuleEnabled`
+ * and run each company inside `withTenant`. Every fixture here belongs to
+ * company 2 (`CLAIM.companyId`, `dueRow().companyId`, `recipient().companyId`),
+ * so both modules resolve to exactly one tenant and the R-C boundary
+ * assertions this file exists for are otherwise unaffected: `withTenant` is
+ * mocked to run its callback in place, with no ALS scope and no audit
+ * ambient state of its own to interfere with `observe()`.
+ */
+const FIXTURE_COMPANY_ID = 2;
+
+jest.mock("../../../database/registry", () => ({
+  withTenant: <T>(_companyId: number, fn: () => Promise<T>) => fn(),
+}));
+
+jest.mock("../../../services/core-client.service", () => ({
+  CoreClient: {
+    companyIdsWithModuleEnabled: async () => [FIXTURE_COMPANY_ID],
+  },
+}));
+
+/**
  * What the ledger would record if this call wrote a row: the armed state, or
  * `null` for "no context, `source='sql'`". Captured at call time because the
  * state is ambient and gone by the time an assertion could look for it.
@@ -67,7 +88,9 @@ const mockRecordOutcome =
     (runId: number, outcome: ICountdownReminderOutcome) => Promise<void>
   >();
 const mockFindDue =
-  jest.fn<(today: string) => Promise<ICountdownDueDocumentRow[]>>();
+  jest.fn<
+    (companyId: number, today: string) => Promise<ICountdownDueDocumentRow[]>
+  >();
 const mockFindRecipients =
   jest.fn<(userIds: number[]) => Promise<ICountdownReminderRecipient[]>>();
 const mockSendModuleEmail =
@@ -85,9 +108,9 @@ jest.mock("../../../dao/countdown/countdown-reminder.dao", () => ({
       record("recordOutcome");
       return mockRecordOutcome(runId, outcome);
     }
-    findDue(today: string) {
+    findDue(companyId: number, today: string) {
       record("findDue");
-      return mockFindDue(today);
+      return mockFindDue(companyId, today);
     }
     findDigestedUserIds() {
       return Promise.resolve(new Set<number>());
@@ -305,7 +328,7 @@ describe("node-files worker — job audit context", () => {
     mockListExtracting.mockResolvedValue([{ id: 9, lockedAt: null }]);
     mockRequeue.mockResolvedValue(1);
 
-    expect(await sweepStaleLocks()).toBe(1);
+    expect(await sweepStaleLocks(FIXTURE_COMPANY_ID)).toBe(1);
     expect(seen.listExtracting).toEqual([JOB_WORKER]);
     expect(seen.requeue).toEqual([JOB_WORKER]);
   });
@@ -314,7 +337,7 @@ describe("node-files worker — job audit context", () => {
     mockListRunningClaims.mockResolvedValue([{ id: 9, lockedAt: null }]);
     mockFailAbandoned.mockResolvedValue(1);
 
-    expect(await sweepAbandonedExecutions()).toBe(1);
+    expect(await sweepAbandonedExecutions(FIXTURE_COMPANY_ID)).toBe(1);
     expect(seen.listRunningClaims).toEqual([JOB_WORKER]);
     expect(seen.failAbandonedExecutions).toEqual([JOB_WORKER]);
   });
@@ -322,7 +345,7 @@ describe("node-files worker — job audit context", () => {
   it("claims a runnable run as the job but executes the graph outside it (R-C)", async () => {
     mockClaimNextRunnable.mockResolvedValue(CLAIM);
 
-    expect(await processNextExecution()).toBe(true);
+    expect(await processNextExecution(FIXTURE_COMPANY_ID)).toBe(true);
     expect(seen.claimNextRunnable).toEqual([JOB_WORKER]);
     // `executeRun` alternates node HTTP/e-mail calls with its own inserts:
     // no context may be armed around it.
@@ -333,7 +356,7 @@ describe("node-files worker — job audit context", () => {
     mockClaimNextRunnable.mockResolvedValue(CLAIM);
     mockExecuteRun.mockRejectedValue(new Error("executor exploded"));
 
-    expect(await processNextExecution()).toBe(true);
+    expect(await processNextExecution(FIXTURE_COMPANY_ID)).toBe(true);
     expect(seen.finishExecution).toEqual([JOB_WORKER]);
   });
 
@@ -344,7 +367,11 @@ describe("node-files worker — job audit context", () => {
       return Promise.resolve({ values: {}, tokensIn: 1, tokensOut: 2 });
     });
 
-    expect(await processNextRun(() => Promise.resolve({ extract }))).toBe(true);
+    expect(
+      await processNextRun(FIXTURE_COMPANY_ID, () =>
+        Promise.resolve({ extract }),
+      ),
+    ).toBe(true);
 
     // The LLM call, the byte fetch and the write that follows them: all
     // unattributed by design, none of them holding a transaction open.
@@ -365,17 +392,36 @@ describe("the jobs when the audit context contributes nothing", () => {
       failed: 0,
       skipped: 0,
     });
-    expect(await sweepStaleLocks()).toBe(0);
-    expect(await sweepAbandonedExecutions()).toBe(0);
-    expect(await processNextExecution()).toBe(false);
+    expect(await sweepStaleLocks(FIXTURE_COMPANY_ID)).toBe(0);
+    expect(await sweepAbandonedExecutions(FIXTURE_COMPANY_ID)).toBe(0);
+    expect(await processNextExecution(FIXTURE_COMPANY_ID)).toBe(false);
   });
 
-  it("propagates the step's own error, not a transaction error", async () => {
+  /**
+   * Rewritten for T8 (old → new, D-95): `runDailyOnce()` used to propagate a
+   * step's throw straight to the caller — there was exactly one implicit
+   * tenant. db-per-company (model D-22, AC-47) makes that tenant explicit and
+   * iterated: a company whose claim throws is logged and skipped so the rest
+   * of the fleet still gets its reminders, the same isolation `run()` already
+   * gives the batch itself. The stronger claim this keeps is unchanged in
+   * spirit — the step's OWN message reaches the log, not some generic
+   * transaction-wrapper text — and adds that no other tenant's day is lost
+   * over it (here, trivially: the only fixture tenant IS the one that threw).
+   */
+  it("logs the step's own error per tenant, not a transaction error, and does not escape", async () => {
     const boom = new Error("claim failed");
     mockClaimToday.mockRejectedValue(boom);
+    const errorSpy = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
-    await expect(new CountdownRemindersService().runDailyOnce()).rejects.toBe(
-      boom,
+    await expect(
+      new CountdownRemindersService().runDailyOnce(),
+    ).resolves.toBeNull();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`tenant ${FIXTURE_COMPANY_ID}`),
+      "claim failed",
     );
   });
 });

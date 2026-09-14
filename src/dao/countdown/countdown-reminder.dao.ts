@@ -43,8 +43,8 @@ export interface ICountdownDigestInput {
 
 export class CountdownReminderDAO {
   /**
-   * Every pending document currently inside its own reminder window, across
-   * every company that has the module.
+   * Every pending document of `companyId` currently inside its own reminder
+   * window.
    *
    * The window has no lower bound: `dueDate - today <= reminderDays` selects a
    * document from the day it enters its threshold and keeps selecting it every
@@ -53,25 +53,22 @@ export class CountdownReminderDAO {
    * offset day landed on a weekend and went quiet forever once a document was
    * late; this cannot.
    *
-   * The module filter is `CoreClient.companyIdsWithModuleEnabled`, which applies
-   * `CompanyModuleDAO.isEnabled`'s predicate (enabled link + a subscription
-   * state that is not canceled/past_due): a company that stopped paying must
-   * stop receiving mail, and the scheduler is the one code path that runs
-   * without a request — no middleware upstream of it to check that.
+   * Which companies have the module is decided by the SERVICE
+   * (`CoreClient.companyIdsWithModuleEnabled`, T8/D-1) before any tenant is
+   * acquired: this DAO runs once per company, inside that company's own
+   * `withTenant` scope, and filters on `companyId` even though, on a shared
+   * physical target (C1, D-31), more than one company's rows live in the same
+   * database — `= ?` rather than `= any(...)` is what keeps a query issued
+   * inside company A's scope from ever returning company B's rows.
    *
    * `today` is bound, never `current_date`: the host sets no session timezone, so
    * the database's day is UTC and would flip three hours before the customer's.
    * One definition of "today" (`todayInBuenosAires`) for the claim and the work.
-   *
-   * The query stays global across companies — it is the scheduler, there is no
-   * request scope to inherit. The tenant check (L-009) is on the pairing, in the
-   * service: a recipient is only ever shown documents of their own company.
    */
-  async findDue(today: string): Promise<ICountdownDueDocumentRow[]> {
-    const companyIds =
-      await CoreClient.companyIdsWithModuleEnabled("countdown");
-    if (companyIds.length === 0) return [];
-
+  async findDue(
+    companyId: number,
+    today: string,
+  ): Promise<ICountdownDueDocumentRow[]> {
     const knex = db("tenant");
     const result = await knex.raw<{ rows: ICountdownDueDocumentRow[] }>(
       `select d.id,
@@ -82,11 +79,11 @@ export class CountdownReminderDAO {
               d."uploadedBy",
               d."companyId"
          from countdown_documents d
-        where d."companyId" = any(?)
+        where d."companyId" = ?
           and d.status = 'pending'
           and (d."dueDate" - ?::date) <= d."reminderDays"
         order by d."dueDate" asc, d.title asc, d.id asc`,
-      [today, [...companyIds], today],
+      [today, companyId, today],
     );
     return result.rows;
   }
