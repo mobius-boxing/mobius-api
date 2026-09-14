@@ -263,8 +263,12 @@ describe("purgeCompany — one ledger delete per database (the hang, regressed)"
     await purgeCompany(COMPANY_ID);
 
     expect(ledgerDeletes()).toStrictEqual(["core", "tenant"]);
-    expect(sequenceOf("core").filter((op) => op === "delete audit_logs")).toHaveLength(1);
-    expect(sequenceOf("tenant").filter((op) => op === "delete audit_logs")).toHaveLength(1);
+    expect(
+      sequenceOf("core").filter((op) => op === "delete audit_logs"),
+    ).toHaveLength(1);
+    expect(
+      sequenceOf("tenant").filter((op) => op === "delete audit_logs"),
+    ).toHaveLength(1);
   });
 });
 
@@ -306,7 +310,9 @@ describe("purgeCompany — maintenance mode and statement order", () => {
     await purgeCompany(COMPANY_ID);
 
     const raws = log.filter((entry) => entry.op === "raw");
-    const settings = raws.filter((entry) => entry.sql !== NODE_FILES_DELETE_SQL);
+    const settings = raws.filter(
+      (entry) => entry.sql !== NODE_FILES_DELETE_SQL,
+    );
     // Every raw statement is a setting or a node-files delete — nothing else
     // may slip past the pattern below by not being counted as a setting.
     expect(raws.length - settings.length).toBe(NODE_FILES_PURGE_ORDER.length);
@@ -436,7 +442,9 @@ describe("purgeCompany — node-files rows (no FK to companies, F-1)", () => {
 
     const core = sequenceOf("core");
     const first = core.indexOf(NODE_FILES_DELETES[0]);
-    const last = core.indexOf(NODE_FILES_DELETES[NODE_FILES_DELETES.length - 1]);
+    const last = core.indexOf(
+      NODE_FILES_DELETES[NODE_FILES_DELETES.length - 1],
+    );
     expect(core.indexOf(`raw ${SKIP_SQL}`)).toBeLessThan(first);
     expect(last).toBeLessThan(core.indexOf("delete companies"));
     expect(core[core.length - 1]).toBe("commit");
@@ -577,11 +585,36 @@ describe("userReferences — each foreign key's own rule, plus the manifests", (
     declaredOverride = [];
 
     expect(await userReferences(facades.core)).toStrictEqual([
-      { table: "countdown_group_members", column: "userId", action: "delete", source: "foreign-key" },
-      { table: "files", column: "uploadedBy", action: "set-null", source: "foreign-key" },
-      { table: "countdown_documents", column: "uploadedBy", action: "refuse", source: "foreign-key" },
-      { table: "part_approval_events", column: "userId", action: "refuse", source: "foreign-key" },
-      { table: "zz_default", column: "userId", action: "refuse", source: "foreign-key" },
+      {
+        table: "countdown_group_members",
+        column: "userId",
+        action: "delete",
+        source: "foreign-key",
+      },
+      {
+        table: "files",
+        column: "uploadedBy",
+        action: "set-null",
+        source: "foreign-key",
+      },
+      {
+        table: "countdown_documents",
+        column: "uploadedBy",
+        action: "refuse",
+        source: "foreign-key",
+      },
+      {
+        table: "part_approval_events",
+        column: "userId",
+        action: "refuse",
+        source: "foreign-key",
+      },
+      {
+        table: "zz_default",
+        column: "userId",
+        action: "refuse",
+        source: "foreign-key",
+      },
     ]);
   });
 
@@ -592,26 +625,40 @@ describe("userReferences — each foreign key's own rule, plus the manifests", (
       (ref) => ref.source === "manifest",
     );
 
-    expect(fromManifests.map((ref) => `${ref.table}.${ref.column}`).sort()).toStrictEqual(
-      [...DECLARED_NODE_FILES_USER_COLUMNS].sort(),
-    );
+    expect(
+      fromManifests.map((ref) => `${ref.table}.${ref.column}`).sort(),
+    ).toStrictEqual([...DECLARED_NODE_FILES_USER_COLUMNS].sort());
     expect(fromManifests.every((ref) => ref.action === "set-null")).toBe(true);
   });
 
   it("refuses on a declared NOT NULL column", async () => {
-    declaredOverride = [{ table: "nf_runs", column: "reviewedByUserId", nullable: false }];
+    declaredOverride = [
+      { table: "nf_runs", column: "reviewedByUserId", nullable: false },
+    ];
 
     expect(await userReferences(facades.core)).toStrictEqual([
-      { table: "nf_runs", column: "reviewedByUserId", action: "refuse", source: "manifest" },
+      {
+        table: "nf_runs",
+        column: "reviewedByUserId",
+        action: "refuse",
+        source: "manifest",
+      },
     ]);
   });
 
   it("lets the foreign key's rule win when a column is both declared and constrained", async () => {
     crossPlaneRows = [fk("files", "uploadedBy", "SET NULL")];
-    declaredOverride = [{ table: "files", column: "uploadedBy", nullable: false }];
+    declaredOverride = [
+      { table: "files", column: "uploadedBy", nullable: false },
+    ];
 
     expect(await userReferences(facades.core)).toStrictEqual([
-      { table: "files", column: "uploadedBy", action: "set-null", source: "foreign-key" },
+      {
+        table: "files",
+        column: "uploadedBy",
+        action: "set-null",
+        source: "foreign-key",
+      },
     ]);
   });
 });
@@ -623,31 +670,44 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
       fk("files", "uploadedBy", "SET NULL"),
       fk("countdown_documents", "uploadedBy", "RESTRICT"),
     ];
-    declaredOverride = [{ table: "nf_workflows", column: "createdByUserId", nullable: true }];
+    declaredOverride = [
+      { table: "nf_workflows", column: "createdByUserId", nullable: true },
+    ];
     mocks.core.fixture("users").deleteCount = 1;
   });
 
   it("counts blockers first, then deletes, nulls and removes the user in one transaction while the planes share a database", async () => {
     answerRaw("core", {
-      affected: { "countdown_group_members.userId": 2, "files.uploadedBy": 3, "nf_workflows.createdByUserId": 1 },
+      affected: {
+        "countdown_group_members.userId": 2,
+        "files.uploadedBy": 3,
+        "nf_workflows.createdByUserId": 1,
+      },
     });
 
     await expect(purgeUser(USER_ID)).resolves.toStrictEqual({
       userDeleted: true,
       rowsDeleted: { "countdown_group_members.userId": 2 },
-      valuesNulled: { "files.uploadedBy": 3, "nf_workflows.createdByUserId": 1 },
+      valuesNulled: {
+        "files.uploadedBy": 3,
+        "nf_workflows.createdByUserId": 1,
+      },
     });
 
     expect(sequenceOf("core")).toStrictEqual([
       `raw ${COUNT_SQL} [countdown_documents,uploadedBy,${USER_ID}]`,
       "begin",
+      // T4/D-124: recounted again inside the transaction before any write.
+      `raw ${COUNT_SQL} [countdown_documents,uploadedBy,${USER_ID}]`,
       `raw ${USER_DELETE_SQL} [countdown_group_members,userId,${USER_ID}]`,
       `raw ${USER_NULL_SQL} [files,uploadedBy,uploadedBy,${USER_ID}]`,
       `raw ${USER_NULL_SQL} [nf_workflows,createdByUserId,createdByUserId,${USER_ID}]`,
       "delete users",
       "commit",
     ]);
-    expect(mocks.core.fixture("users").whereCalls).toStrictEqual([[{ id: USER_ID }]]);
+    expect(mocks.core.fixture("users").whereCalls).toStrictEqual([
+      [{ id: USER_ID }],
+    ]);
     expect(sequenceOf("tenant")).toStrictEqual([]);
   });
 
@@ -658,9 +718,15 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
 
     await purgeUser(USER_ID);
 
-    expect(log.map((entry) => entry.key === "core" ? `core ${entry.op}` : `tenant ${entry.op}`)).toStrictEqual([
+    expect(
+      log.map((entry) =>
+        entry.key === "core" ? `core ${entry.op}` : `tenant ${entry.op}`,
+      ),
+    ).toStrictEqual([
       "tenant raw",
       "tenant begin",
+      // T4/D-124: recounted again inside the transaction before any write.
+      "tenant raw",
       "tenant raw",
       "tenant raw",
       "tenant raw",
@@ -681,12 +747,16 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
       message: `user ${USER_ID} cannot be purged: still referenced by countdown_documents.uploadedBy (2 rows)`,
     });
 
-    expect(log.filter((entry) => entry.op !== "raw" || entry.sql !== COUNT_SQL)).toStrictEqual([]);
+    expect(
+      log.filter((entry) => entry.op !== "raw" || entry.sql !== COUNT_SQL),
+    ).toStrictEqual([]);
     expect(mocks.core.writeCounts("users").delete).toBe(0);
   });
 
   it("refuses on a declared NOT NULL column that still holds the user", async () => {
-    declaredOverride = [{ table: "nf_runs", column: "reviewedByUserId", nullable: false }];
+    declaredOverride = [
+      { table: "nf_runs", column: "reviewedByUserId", nullable: false },
+    ];
     answerRaw("core", { blocking: { "nf_runs.reviewedByUserId": 1 } });
 
     await expect(purgeUser(USER_ID)).rejects.toThrow(
@@ -699,7 +769,9 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
     answerRaw("core");
     mocks.core.fixture("users").deleteCount = 0;
 
-    await expect(purgeUser(USER_ID)).resolves.toMatchObject({ userDeleted: false });
+    await expect(purgeUser(USER_ID)).resolves.toMatchObject({
+      userDeleted: false,
+    });
   });
 });
 
@@ -711,8 +783,13 @@ describe("module hooks and manifests agree with the ownership metadata", () => {
       .sort();
 
   it("purges explicitly exactly the ledger plus every table of an explicit hook's module", () => {
-    expect(EXPLICITLY_PURGED_TABLES).toStrictEqual(["audit_logs", ...NODE_FILES_PURGE_ORDER]);
-    for (const hook of PURGE_HOOKS.filter((h) => h.companyRows === "explicit")) {
+    expect(EXPLICITLY_PURGED_TABLES).toStrictEqual([
+      "audit_logs",
+      ...NODE_FILES_PURGE_ORDER,
+    ]);
+    for (const hook of PURGE_HOOKS.filter(
+      (h) => h.companyRows === "explicit",
+    )) {
       expect([...hook.tables].sort()).toStrictEqual(tablesOfModule(hook.slug));
     }
   });
@@ -721,13 +798,17 @@ describe("module hooks and manifests agree with the ownership metadata", () => {
     const slugs = [...new Set(Object.values(TABLE_MODULE))].sort();
     expect(MODULE_MANIFESTS.map((m) => m.slug).sort()).toStrictEqual(slugs);
     expect(PURGE_HOOKS.map((h) => h.slug).sort()).toStrictEqual(slugs);
-    for (const manifest of MODULE_MANIFESTS) expect(manifest.plane).toBe("tenant");
+    for (const manifest of MODULE_MANIFESTS)
+      expect(manifest.plane).toBe("tenant");
   });
 
   it("declares user references only on tables of the declaring module", () => {
     for (const manifest of MODULE_MANIFESTS) {
       for (const ref of manifest.userReferences) {
-        expect([ref.table, TABLE_MODULE[ref.table]]).toStrictEqual([ref.table, manifest.slug]);
+        expect([ref.table, TABLE_MODULE[ref.table]]).toStrictEqual([
+          ref.table,
+          manifest.slug,
+        ]);
       }
     }
   });

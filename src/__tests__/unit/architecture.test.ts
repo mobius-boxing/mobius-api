@@ -321,6 +321,11 @@ describe("AC-10 (db-per-company T2) — central tables are read only by the cent
     // to find what no foreign key across planes can reject.
     "scripts/modules-sync.ts",
     "scripts/db-check-integrity.ts",
+    // T9: the fleet migration step, run as a one-off process, never imported
+    // by the app — `--company <uuid>` resolves a company uuid to id with its
+    // own raw join rather than initializing the registry/CoreClient for one
+    // lookup in a script that otherwise owns its own connection lifecycle.
+    "scripts/migrate-all.ts",
   ];
 
   const isCentral = (file: string): boolean =>
