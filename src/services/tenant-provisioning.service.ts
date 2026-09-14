@@ -1,10 +1,11 @@
 import { randomBytes } from "crypto";
 import fs from "fs";
-import { knex as createKnex } from "knex";
+import { knex as createKnex, type Knex } from "knex";
 import { Client } from "pg";
 import { v4 as uuidv4 } from "uuid";
-import { db } from "../database/registry";
+import { db, guardedForTenant, rawCoreInstance } from "../database/registry";
 import { connectionFor, connectionForTenant } from "../database/env";
+import { evictTenant, invalidateTenantCache } from "../database/tenant-pools";
 import {
   resolveCredential,
   sealCredential,
@@ -13,6 +14,13 @@ import {
   migrationConfigFor,
   migrationsDirectory,
 } from "../database/migration-sets";
+import {
+  TENANT_SCOPE,
+  describeTenantScope,
+  loadTenantForeignKeyEdges,
+  tenantScopeWhere,
+  topologicalOrder,
+} from "../database/tenant-scope";
 import { CompanyDAO } from "../dao/company/company.dao";
 import { DbServerDAO } from "../dao/db-server/db-server.dao";
 import { TenantDatabaseDAO } from "../dao/tenant-database/tenant-database.dao";
@@ -370,12 +378,19 @@ async function runAdminSteps(
   }
 }
 
-/** Steps 5…6 (migrate, seed) — against the new database itself, as its owner. */
+/**
+ * Steps 5…6 (migrate, seed) — against the new database itself, as its owner.
+ * `seed: false` (T11's `move`, model C2 step 2) skips the reference-data
+ * seed: a move's target is an EXISTING company, and the row-copy step (C2
+ * step 3) populates `app_config`/`code_sequences`/`*_types` from the source
+ * instead — seeding fresh defaults first would leave duplicate rows behind.
+ */
 async function runTenantSteps(
   row: ITenantDatabase,
   server: IDbServer,
   password: string,
   hooks: ProvisionHooks,
+  seed = true,
 ): Promise<string> {
   const tenantKnex = createKnex({
     ...migrationConfigFor("tenant", connectionForTenant(row, server, password)),
@@ -385,7 +400,9 @@ async function runTenantSteps(
     await tenantKnex.migrate.latest();
     maybeFail(hooks, "migrate");
 
-    await tenantKnex.seed.run();
+    if (seed) {
+      await tenantKnex.seed.run();
+    }
     maybeFail(hooks, "seed");
 
     const head = await tenantKnex("knex_migrations")
@@ -755,4 +772,489 @@ export async function decommissionTenantDatabase(
     decommissioningTenantDatabaseId: row.id,
   });
   return { ok: true, companyDeleted: purgeResult.companyDeleted };
+}
+
+/**
+ * `tenant:move` — state C2 (model, brief T11, D-52/D-53). Copies one
+ * company's rows out of `sourceRow`'s database into a freshly provisioned
+ * database on `options.serverUuid`, under that company's own suspension
+ * (D-52: "no global freeze"), then flips the registry row in one central
+ * transaction. Rollback before the flip is a row-flip back; after it,
+ * forward-only (model).
+ */
+
+/** `is_local = true` (company-purge.service.ts's convention) — never `false`. */
+const MOVE_MAINTENANCE_ON =
+  "select set_config('mobius.audit_maintenance', 'on', true)";
+const MOVE_SKIP_ON = "select set_config('mobius.audit_skip', 'on', true)";
+
+const MOVE_COPY_BATCH = 1000;
+
+export type MoveTableStep = {
+  table: string;
+  predicate: string;
+  rows: number;
+};
+
+export type MoveOptions = {
+  serverUuid: string;
+  dryRun?: boolean;
+  /** D-53: required, and must equal `companyUuid`, under NODE_ENV=production. */
+  confirmCompanyUuid?: string;
+};
+
+export type MoveHooks = {
+  /** Test seam (AC-69): throws right after the named step durably commits,
+   * to prove a crash there resumes without repeating destructive work or
+   * duplicating rows on a rerun. */
+  failAfter?: "suspend" | "provision" | "copy";
+  /** Test seam (AC-69): runs after the copy and the sequence advance, before
+   * the count comparison — the only way to make that comparison fail without
+   * a real concurrent writer (the source is suspended by this point). */
+  corruptBeforeVerify?: (target: Knex, companyId: number) => Promise<void>;
+};
+
+export type MoveResult =
+  | { ok: true; dryRun: boolean; steps: MoveTableStep[] }
+  | { ok: false; reason: string; steps: MoveTableStep[] };
+
+const moveTables = (): string[] => Object.keys(TENANT_SCOPE);
+
+const isSharedTargetRow = (row: ITenantDatabase): boolean =>
+  row.databaseName === connectionFor("core").database;
+
+/** A read-only connection to `row`'s current database — `db("core")` itself
+ * for a shared-target row (never destroyed), a fresh one otherwise. */
+async function openRowKnex(
+  row: ITenantDatabase,
+  server: IDbServer,
+): Promise<{ knex: Knex; close: () => Promise<void> }> {
+  if (isSharedTargetRow(row)) {
+    // `db("core")` would reject a tenant-owned table name (the wrong-database
+    // guard); C1's dedupe reads the same physical connection through the
+    // "tenant" guard instead — the same instance `acquireTenant` hands back
+    // for a shared-target row.
+    return {
+      knex: guardedForTenant(rawCoreInstance()),
+      close: async () => undefined,
+    };
+  }
+  const password = await resolveCredential(
+    row.credentialRef,
+    row.credentialCiphertext,
+  );
+  const knex = createKnex({
+    client: "pg",
+    connection: connectionForTenant(row, server, password),
+    pool: { min: 0, max: 2 },
+  });
+  return { knex, close: () => knex.destroy() };
+}
+
+async function orderedMoveTables(sourceKnex: Knex): Promise<string[]> {
+  const tables = moveTables();
+  const edges = await loadTenantForeignKeyEdges(sourceKnex, tables);
+  return topologicalOrder(tables, edges);
+}
+
+/** Every sequence-backed table gets `setval`'d to its own `max(id)` (D-52 step 4). */
+async function advanceSequence(knex: Knex, table: string): Promise<void> {
+  // `pg_get_serial_sequence` itself raises if the column doesn't exist (it
+  // does not just return NULL), so `paper_class_papers` — the one tenant
+  // table with no `id` — is skipped before ever calling it.
+  if (!(await tableHasIdColumn(knex, table))) return;
+  // A `DO` block is an anonymous, unparameterized statement (Postgres rejects
+  // a bind message against it), so the identifier is inlined here rather than
+  // bound — safe because `table` only ever comes from `TENANT_SCOPE`'s own
+  // keys, and `assertSafeIdentifier` still refuses anything else.
+  assertSafeIdentifier(table);
+  const ident = quoteIdent(table);
+  await knex.raw(`do $$
+    declare seq text;
+    begin
+      seq := pg_get_serial_sequence('${table}', 'id');
+      if seq is not null then
+        perform setval(seq, coalesce((select max(id) from ${ident}), 1), (select max(id) from ${ident}) is not null);
+      end if;
+    end $$;`);
+}
+
+/**
+ * `paper_class_papers` is the one tenant table with no `id` (a pure join row
+ * on `paperClassId`+`paperSupplyId`, model D-16's "keep the original serial
+ * id" does not apply to it) — too small to need cursor pagination, so it is
+ * fetched in one shot instead of batched by `id`.
+ */
+async function tableHasIdColumn(knex: Knex, table: string): Promise<boolean> {
+  const info = await knex(table).columnInfo();
+  return Object.prototype.hasOwnProperty.call(info, "id");
+}
+
+/**
+ * Wipes `table` on the target and re-copies the rows `predicate` selects from
+ * the source, batched by `id` (D-52), in one target transaction. The wipe
+ * (rather than a plain append) is what makes a rerun after a crash
+ * duplicate-free (AC-69, T11/D-2): the target belongs to this one company
+ * alone, so clearing it first is always safe, and the caller wipes every
+ * table in reverse topological order before any table is re-copied, so a
+ * leftover child row from an earlier attempt never blocks a parent's wipe
+ * here.
+ */
+async function copyTable(
+  source: Knex,
+  target: Knex,
+  table: string,
+  predicate: { sql: string; bindings: unknown[] },
+): Promise<number> {
+  const hasId = await tableHasIdColumn(source, table);
+  let total = 0;
+  await target.transaction(async (trx) => {
+    await trx.raw(table === "audit_logs" ? MOVE_MAINTENANCE_ON : MOVE_SKIP_ON);
+    if (!hasId) {
+      const rows = (await source(`${table} as t`)
+        .select("*")
+        .whereRaw(predicate.sql, predicate.bindings)) as Array<
+        Record<string, unknown>
+      >;
+      if (rows.length > 0) await trx(table).insert(rows);
+      total = rows.length;
+      return;
+    }
+    let lastId = 0;
+    for (;;) {
+      const rows = (await source(`${table} as t`)
+        .select("*")
+        .whereRaw(predicate.sql, predicate.bindings)
+        .andWhere("id", ">", lastId)
+        .orderBy("id", "asc")
+        .limit(MOVE_COPY_BATCH)) as Array<
+        Record<string, unknown> & { id: number }
+      >;
+      if (rows.length === 0) break;
+      await trx(table).insert(rows);
+      total += rows.length;
+      lastId = rows[rows.length - 1]?.id ?? lastId;
+      if (rows.length < MOVE_COPY_BATCH) break;
+    }
+  });
+  return total;
+}
+
+async function countPredicate(
+  knex: Knex,
+  table: string,
+  predicate: { sql: string; bindings: unknown[] },
+): Promise<number> {
+  const [row] = await knex(`${table} as t`)
+    .whereRaw(predicate.sql, predicate.bindings)
+    .count<{ n: string }[]>({ n: "*" });
+  return Number(row?.n ?? 0);
+}
+
+/** D-53: agents never move a company against a live production database. */
+function productionGuardFailure(
+  companyUuid: string,
+  options: MoveOptions,
+): string | null {
+  if (process.env.NODE_ENV !== "production") return null;
+  if (options.confirmCompanyUuid === companyUuid) return null;
+  return (
+    "NODE_ENV=production refuses tenant:move without --confirm matching " +
+    "--company (D-53)"
+  );
+}
+
+/** `--dry-run` (AC-67): source counts only, no row is ever written. */
+async function dryRunMove(
+  sourceRow: ITenantDatabase,
+  sourceServer: IDbServer,
+): Promise<MoveResult> {
+  const { knex: sourceKnex, close } = await openRowKnex(
+    sourceRow,
+    sourceServer,
+  );
+  try {
+    const tables = await orderedMoveTables(sourceKnex);
+    const steps: MoveTableStep[] = [];
+    for (const table of tables) {
+      const entry = TENANT_SCOPE[table];
+      const predicate = tenantScopeWhere(table, sourceRow.companyId);
+      const rows =
+        entry?.kind === "empty"
+          ? 0
+          : await countPredicate(sourceKnex, table, predicate);
+      steps.push({ table, predicate: describeTenantScope(table), rows });
+    }
+    return { ok: true, dryRun: true, steps };
+  } finally {
+    await close();
+  }
+}
+
+export async function move(
+  companyUuid: string,
+  options: MoveOptions,
+  hooks: MoveHooks = {},
+): Promise<MoveResult> {
+  const guardFailure = productionGuardFailure(companyUuid, options);
+  if (guardFailure) return { ok: false, reason: guardFailure, steps: [] };
+
+  const companyDAO = new CompanyDAO();
+  const company = await companyDAO.getByUuid(companyUuid);
+  if (!company || company.id === undefined) {
+    return {
+      ok: false,
+      reason: "no such company (COMPANY_NOT_FOUND)",
+      steps: [],
+    };
+  }
+  const companyId = company.id;
+
+  const tenantDAO = new TenantDatabaseDAO();
+  const dbServerDAO = new DbServerDAO();
+
+  const sourceRow = await tenantDAO.getLiveByCompanyId(companyId);
+  if (!sourceRow) {
+    return {
+      ok: false,
+      reason: "no live tenant_databases row for this company",
+      steps: [],
+    };
+  }
+  if (sourceRow.status !== "active" && sourceRow.status !== "suspended") {
+    return {
+      ok: false,
+      reason: `source row is "${sourceRow.status}", expected "active" or "suspended" (a resumed move)`,
+      steps: [],
+    };
+  }
+  const sourceServer = await dbServerDAO.getById(sourceRow.serverId);
+  if (!sourceServer) {
+    return {
+      ok: false,
+      reason: `db_servers #${sourceRow.serverId} not found`,
+      steps: [],
+    };
+  }
+
+  if (options.dryRun) return dryRunMove(sourceRow, sourceServer);
+
+  const targetServer = await dbServerDAO.getByUuid(options.serverUuid);
+  if (!targetServer) {
+    return {
+      ok: false,
+      reason: "no such db_servers row (SERVER_NOT_FOUND)",
+      steps: [],
+    };
+  }
+  if (targetServer.status !== "active") {
+    return {
+      ok: false,
+      reason: `db_servers "${targetServer.name}" is ${targetServer.status} (SERVER_NOT_ACCEPTING)`,
+      steps: [],
+    };
+  }
+  if (!targetServer.adminUser) {
+    return {
+      ok: false,
+      reason: `db_servers "${targetServer.name}" has no adminUser (SERVER_NOT_PROVISIONABLE)`,
+      steps: [],
+    };
+  }
+
+  if (sourceRow.status === "active") {
+    const changed = await tenantDAO.transition(
+      sourceRow.id,
+      "active",
+      "suspended",
+      {
+        suspendReason: "tenant:move",
+      },
+    );
+    if (changed === 0) {
+      return {
+        ok: false,
+        reason: "source row changed concurrently before it could be suspended",
+        steps: [],
+      };
+    }
+  }
+  if (hooks.failAfter === "suspend") {
+    throw new Error('injected fault after move step "suspend"');
+  }
+
+  const company_ = await companyDAO.getById(companyId);
+  const companySlug = company_?.slug ?? String(companyId);
+
+  let targetRow = await tenantDAO.getBuildingByCompanyId(companyId);
+  if (targetRow && targetRow.serverId !== targetServer.id) {
+    // Resume before flip only supports one in-flight target at a time.
+    return {
+      ok: false,
+      reason: `a different in-flight target already exists for this company (tenant_databases #${targetRow.id}, server #${targetRow.serverId})`,
+      steps: [],
+    };
+  }
+  if (!targetRow) {
+    const naming = computeTenantNaming(companyId, companySlug);
+    const collision = await findNameCollision(
+      targetServer,
+      naming.databaseName,
+      naming.dbUser,
+    );
+    if (collision) {
+      await tenantDAO.transition(sourceRow.id, "suspended", "active");
+      return { ok: false, reason: collision, steps: [] };
+    }
+    const password = randomBytes(24).toString("base64url");
+    const sealed = sealCredential(password);
+    targetRow = await tenantDAO.create({
+      uuid: uuidv4(),
+      companyId,
+      serverId: targetServer.id,
+      databaseName: naming.databaseName,
+      dbUser: naming.dbUser,
+      credentialRef: sealed.ref,
+      credentialCiphertext: sealed.ciphertext,
+    });
+  } else if (targetRow.status === "failed") {
+    await tenantDAO.transition(targetRow.id, "failed", "provisioning");
+  }
+
+  let schemaVersion: string;
+  try {
+    const password = await resolveCredential(
+      targetRow.credentialRef,
+      targetRow.credentialCiphertext,
+    );
+    await runAdminSteps(targetRow, targetServer, password, companyUuid, {});
+    schemaVersion = await runTenantSteps(
+      targetRow,
+      targetServer,
+      password,
+      {},
+      false, // no seed (T11/D-2): the copy step populates reference data
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await tenantDAO.transition(targetRow.id, "provisioning", "failed", {
+      lastMigrationError: message,
+    });
+    await tenantDAO.transition(sourceRow.id, "suspended", "active");
+    return { ok: false, reason: message, steps: [] };
+  }
+  if (hooks.failAfter === "provision") {
+    throw new Error('injected fault after move step "provision"');
+  }
+
+  const { knex: sourceKnex, close: closeSource } = await openRowKnex(
+    sourceRow,
+    sourceServer,
+  );
+  const targetKnex = createKnex({
+    client: "pg",
+    connection: connectionForTenant(
+      targetRow,
+      targetServer,
+      await resolveCredential(
+        targetRow.credentialRef,
+        targetRow.credentialCiphertext,
+      ),
+    ),
+    pool: { min: 0, max: 2 },
+  });
+
+  const steps: MoveTableStep[] = [];
+  try {
+    const tables = await orderedMoveTables(sourceKnex);
+
+    // Wipe child-to-parent FIRST (whole pass), so a rerun after a crash
+    // mid-copy never trips a leftover child's FK against a freshly emptied
+    // parent (T11/D-2) — see `copyTable`'s comment. `audit_maintenance` lets
+    // a retry's wipe of `audit_logs` (append-only otherwise) through;
+    // `audit_skip` on every other table stops the wipe itself from writing a
+    // synthetic "Baja" row for each deleted business row.
+    for (const table of [...tables].reverse()) {
+      if (TENANT_SCOPE[table]?.kind === "empty") continue;
+      await targetKnex.transaction(async (trx) => {
+        await trx.raw(
+          table === "audit_logs" ? MOVE_MAINTENANCE_ON : MOVE_SKIP_ON,
+        );
+        await trx(table).del();
+      });
+    }
+
+    for (const table of tables) {
+      const entry = TENANT_SCOPE[table];
+      const predicate = tenantScopeWhere(table, companyId);
+      const rows =
+        entry?.kind === "empty"
+          ? 0
+          : await copyTable(sourceKnex, targetKnex, table, predicate);
+      steps.push({ table, predicate: describeTenantScope(table), rows });
+    }
+    for (const table of tables) {
+      if (TENANT_SCOPE[table]?.kind === "empty") continue;
+      await advanceSequence(targetKnex, table);
+    }
+    if (hooks.failAfter === "copy") {
+      throw new Error('injected fault after move step "copy"');
+    }
+
+    if (hooks.corruptBeforeVerify) {
+      await hooks.corruptBeforeVerify(targetKnex, companyId);
+    }
+
+    for (const table of tables) {
+      const entry = TENANT_SCOPE[table];
+      if (entry?.kind === "empty") continue;
+      const predicate = tenantScopeWhere(table, companyId);
+      const expected = await countPredicate(sourceKnex, table, predicate);
+      const actual = Number(
+        (await targetKnex(table).count<{ n: string }[]>({ n: "*" }))[0]?.n ?? 0,
+      );
+      if (expected !== actual) {
+        await tenantDAO.transition(targetRow.id, "provisioning", "failed", {
+          lastMigrationError: `count mismatch on "${table}": source ${expected}, target ${actual}`,
+        });
+        await tenantDAO.transition(sourceRow.id, "suspended", "active");
+        return {
+          ok: false,
+          reason: `count mismatch on "${table}": source ${expected}, target ${actual}`,
+          steps,
+        };
+      }
+    }
+  } finally {
+    await closeSource();
+    await targetKnex.destroy();
+  }
+
+  await db("core").transaction(async (trx) => {
+    const retired = await trx("tenant_databases")
+      .where({ id: sourceRow.id, status: "suspended" })
+      .update({
+        status: "retired",
+        suspendedAt: null, // the suspendedAt ⇔ status='suspended' CHECK
+        updatedAt: trx.fn.now(),
+      });
+    const activated = await trx("tenant_databases")
+      .where({ id: targetRow!.id, status: "provisioning" })
+      .update({
+        status: "active",
+        schemaVersion,
+        migrationState: "current",
+        provisionedAt: trx.fn.now(),
+        updatedAt: trx.fn.now(),
+      });
+    if (retired !== 1 || activated !== 1) {
+      throw new Error(
+        `flip: expected exactly one row each side, got retired=${retired} active=${activated}`,
+      );
+    }
+  });
+  invalidateTenantCache(companyId);
+  await evictTenant(sourceRow.id);
+
+  return { ok: true, dryRun: false, steps };
 }

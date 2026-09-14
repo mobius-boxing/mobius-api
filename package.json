@@ -21,6 +21,7 @@
     "db:snapshot-counts": "ts-node src/scripts/db-snapshot-counts.ts",
     "modules:sync": "ts-node src/scripts/modules-sync.ts",
     "tenant:register-shared": "ts-node src/scripts/tenant-register-shared.ts",
+    "tenant:move": "ts-node src/scripts/tenant-move.ts",
     "deploy": "bash ../debug/deploy-backend.sh"
   },
   "dependencies": {
