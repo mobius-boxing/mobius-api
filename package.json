@@ -19,6 +19,7 @@
     "db:bootstrap": "ts-node src/scripts/db-bootstrap.ts",
     "db:check-integrity": "ts-node src/scripts/db-check-integrity.ts",
     "modules:sync": "ts-node src/scripts/modules-sync.ts",
+    "tenant:register-shared": "ts-node src/scripts/tenant-register-shared.ts",
     "deploy": "bash ../debug/deploy-backend.sh"
   },
   "dependencies": {

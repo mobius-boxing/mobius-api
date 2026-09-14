@@ -1,6 +1,12 @@
 import { NextFunction, Response, Request } from "express";
 import { ValidationError } from "../../dto/input/shared/ValidationError";
 import { CoreUnavailableError } from "../../services/core-client.service";
+import {
+  COMPANY_REQUIRED_BODY,
+  TENANT_ERROR_RESPONSES,
+  TenantNotResolvedError,
+  TenantUnavailableError,
+} from "../../database/tenant-pools";
 
 // SECURITY (M2): verbose error detail is gated on an EXPLICIT opt-in flag, not on NODE_ENV.
 // When off (the default), responses are generic and never leak DB column/constraint names,
@@ -34,6 +40,28 @@ export const errorMiddleware = (
     return res.status(503).json({
       success: false,
       message: "Core database unavailable",
+    });
+  }
+
+  // db-per-company T7 (D-45): `tenant-context.middleware` answers these
+  // directly on `tenant`/`mixed` routes before the handler runs; this is the
+  // fallback for a `mixed` route's first `db("tenant")` call (no company
+  // selected) and for any deeper, non-middleware caller (e.g. a job's
+  // `withTenant`). Same bodies, same shared `TENANT_ERROR_RESPONSES` map —
+  // never a second copy of the model's exact strings (D-23).
+  if (err instanceof TenantNotResolvedError) {
+    return res.status(400).json(COMPANY_REQUIRED_BODY);
+  }
+
+  if (err instanceof TenantUnavailableError) {
+    const mapped = TENANT_ERROR_RESPONSES[err.resolution.kind];
+    if (mapped.retryAfter !== undefined) {
+      res.set("Retry-After", String(mapped.retryAfter));
+    }
+    return res.status(mapped.status).json({
+      success: false,
+      code: mapped.code,
+      message: mapped.message,
     });
   }
 

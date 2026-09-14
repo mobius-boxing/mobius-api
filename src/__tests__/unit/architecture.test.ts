@@ -191,6 +191,14 @@ describe("AC-56 — the registry is the only door", () => {
     // which reads both planes and the catalogue, owned by no entity DAO.
     "scripts/modules-sync.ts",
     "scripts/db-check-integrity.ts",
+    // db-per-company T7: C1 registration (`tenant:register-shared`) writes
+    // `tenant_databases`/`db_servers` directly (neither is a DAO-owned table
+    // with a write method yet — `db-server.dao.ts` is read-only until T9/T10)
+    // and reads `pg_roles` to decide the server's admin identity (D-32), which
+    // belongs to no entity DAO. Run as a one-off process, never imported by
+    // the app.
+    "services/tenant-provisioning.service.ts",
+    "scripts/tenant-register-shared.ts",
   ];
 
   const NON_DAO_CONNECTION_HOLDERS = [
@@ -225,7 +233,7 @@ describe("AC-56 — the registry is the only door", () => {
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
     expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(3);
-    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(16);
+    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(18);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(
       NON_DAO_CONNECTION_HOLDERS.length,
@@ -364,5 +372,51 @@ describe("AC-10 (db-per-company T2) — central tables are read only by the cent
     ];
     expect(hits.filter((line) => !readsCentralTable(line))).toEqual([]);
     expect(misses.filter(readsCentralTable)).toEqual([]);
+  });
+});
+
+describe("AC-42 (db-per-company T7) — every route folder has a plane", () => {
+  const ROUTES = path.join(SRC, "routes");
+
+  const routeFolders = (): string[] =>
+    fs
+      .readdirSync(ROUTES, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+
+  it("classifies every src/routes/* folder in ROUTE_PLANE", async () => {
+    const { ROUTE_PLANE } =
+      await import("../../middlewares/tenant-context.middleware");
+    const unclassified = routeFolders().filter(
+      (folder) => !(folder in ROUTE_PLANE),
+    );
+    expect(unclassified).toEqual([]);
+  });
+
+  it("has no stale ROUTE_PLANE entry for a folder that no longer exists", async () => {
+    const { ROUTE_PLANE } =
+      await import("../../middlewares/tenant-context.middleware");
+    const folders = new Set(routeFolders());
+    const stale = Object.keys(ROUTE_PLANE).filter(
+      (folder) => !folders.has(folder),
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it("keeps the model's exact central-route enumeration central (D-14, D-61)", async () => {
+    const { ROUTE_PLANE } =
+      await import("../../middlewares/tenant-context.middleware");
+    const modelCentral = [
+      "auth",
+      "companies",
+      "users",
+      "invitations",
+      "modules",
+      "public",
+    ];
+    for (const folder of modelCentral) {
+      expect(ROUTE_PLANE[folder]).toBe("central");
+    }
+    expect(ROUTE_PLANE["audit-logs"]).toBe("mixed");
   });
 });

@@ -219,6 +219,18 @@ const makeFakeKnex = (config: unknown): FakeKnex => {
 
 jest.mock("knex", () => ({ __esModule: true, knex: jest.fn() }));
 
+/** Only `acquireTenant` is faked; every constant/class stays the real one (AC-41). */
+const acquireTenantMock =
+  jest.fn<
+    (
+      companyId: number,
+    ) => Promise<import("../../../database/tenant-pools").TenantResolution>
+  >();
+jest.mock("../../../database/tenant-pools", () => {
+  const actual = jest.requireActual("../../../database/tenant-pools") as object;
+  return { ...actual, acquireTenant: (id: number) => acquireTenantMock(id) };
+});
+
 import { knex } from "knex";
 import {
   db,
@@ -230,6 +242,7 @@ import {
   WrongDatabaseError,
   physicalKeyOf,
   withTenantTarget,
+  withTenant,
 } from "../../../database/registry";
 import { MissingDatabaseNameError } from "../../../database/env";
 import { DB_KEYS, DbKey } from "../../../database/keys";
@@ -255,7 +268,10 @@ const DB_ENV_VARS = [
 ];
 
 /** A second physical database, as a tenant target of its own would be. */
-const ownTenantTarget = (): { physicalKey: "tenant:1"; instance: FakeKnex } => ({
+const ownTenantTarget = (): {
+  physicalKey: "tenant:1";
+  instance: FakeKnex;
+} => ({
   physicalKey: "tenant:1",
   instance: makeFakeKnex({ connection: { database: "tenant_one" } }),
 });
@@ -573,7 +589,9 @@ describe("connection registry", () => {
         );
         expect(() => db("core")("products")).not.toThrow();
         expect(consoleError).toHaveBeenCalledWith(
-          expect.stringContaining('"products" is owned by the "tenant" database'),
+          expect.stringContaining(
+            '"products" is owned by the "tenant" database',
+          ),
         );
       } finally {
         process.env.NODE_ENV = previous;
@@ -894,7 +912,9 @@ describe("connection registry", () => {
           // `production-route.dao.ts:655`: read-only introspection, deliberately
           // exempt (see registry.ts). It must not drag a transaction open.
           expect(db("tenant").schema as unknown).toBe(tenant.schema);
-          await expect(db("tenant").schema.hasTable("parts")).resolves.toBe(true);
+          await expect(db("tenant").schema.hasTable("parts")).resolves.toBe(
+            true,
+          );
 
           expect(tenant.opened).toHaveLength(0);
           expect(tenant.transaction).not.toHaveBeenCalled();
@@ -954,5 +974,83 @@ describe("connection registry", () => {
         });
       });
     });
+  });
+});
+
+describe("withTenant — jobs/scripts scope (db-per-company T7, model D-12, AC-41)", () => {
+  const HANDLE_A = {
+    physicalKey: "tenant:1" as const,
+    tenantDatabaseId: 1,
+    companyId: 1,
+    companyUuid: "a",
+    serverId: 1,
+    instance: makeFakeKnex({ connection: { database: "tenant_a" } }),
+    guarded: {} as unknown,
+    openedAt: 0,
+    lastUsedAt: 0,
+  };
+  const HANDLE_B = {
+    ...HANDLE_A,
+    physicalKey: "tenant:2" as const,
+    tenantDatabaseId: 2,
+    companyId: 2,
+    companyUuid: "b",
+    instance: makeFakeKnex({ connection: { database: "tenant_b" } }),
+  };
+
+  it('resolves companyId through acquireTenant and scopes db("tenant") to it', async () => {
+    acquireTenantMock.mockResolvedValue({
+      kind: "ok",
+      handle: HANDLE_A as never,
+    });
+
+    await withTenant(1, async () => {
+      expect(physicalKeyOf("tenant")).toBe("tenant:1");
+    });
+
+    expect(acquireTenantMock).toHaveBeenCalledWith(1);
+  });
+
+  it("throws TenantUnavailableError when the resolution is not 'ok'", async () => {
+    acquireTenantMock.mockResolvedValue({ kind: "suspended", row: null });
+
+    await expect(withTenant(1, async () => undefined)).rejects.toThrow(
+      "Tenant database unavailable: suspended",
+    );
+  });
+
+  it("I-3: withTenant(B) nested inside a scope for A throws — a request/scope touches at most one tenant", async () => {
+    acquireTenantMock
+      .mockResolvedValueOnce({ kind: "ok", handle: HANDLE_A as never })
+      .mockResolvedValueOnce({ kind: "ok", handle: HANDLE_B as never });
+
+    let innerRejected: unknown;
+    await withTenant(1, async () => {
+      expect(physicalKeyOf("tenant")).toBe("tenant:1");
+      try {
+        await withTenant(2, async () => undefined);
+      } catch (error) {
+        innerRejected = error;
+      }
+      // The outer scope for A is untouched by the failed nested attempt.
+      expect(physicalKeyOf("tenant")).toBe("tenant:1");
+    });
+
+    expect(innerRejected).toBeInstanceOf(Error);
+    expect((innerRejected as Error).name).toBe("NestedTenantScopeError");
+  });
+
+  it("mutation check: withTenantTarget itself refuses to nest, not just withTenant's wrapper", () => {
+    withTenantTarget(
+      { physicalKey: "tenant:1", instance: HANDLE_A.instance as never },
+      () => {
+        expect(() =>
+          withTenantTarget(
+            { physicalKey: "tenant:2", instance: HANDLE_B.instance as never },
+            () => undefined,
+          ),
+        ).toThrow("db-per-company I-3");
+      },
+    );
   });
 });
