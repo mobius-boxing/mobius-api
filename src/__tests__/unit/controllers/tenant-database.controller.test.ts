@@ -275,6 +275,23 @@ describe("TenantDatabaseController", () => {
       );
     });
 
+    it("409s SERVER_MISMATCH when a retry names a server different from the row's pinned one (F2)", async () => {
+      mockCompanyDAO.getIdByUuid.mockResolvedValue(3);
+      mockBeginProvisioning.mockResolvedValue({
+        ok: false,
+        code: "SERVER_MISMATCH",
+        reason: "pinned to a different server",
+        row: ROW,
+      });
+
+      await controller.provision(reqFor(), res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "SERVER_MISMATCH" }),
+      );
+    });
+
     it("202s with the row's real 'provisioning' status and fires the rest without awaiting it", async () => {
       mockCompanyDAO.getIdByUuid.mockResolvedValue(3);
       const provisioningRow = { ...ROW, status: "provisioning" };

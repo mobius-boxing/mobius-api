@@ -27,11 +27,18 @@
 import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import { randomUUID } from "node:crypto";
 import type { Knex } from "knex";
-import { connectAll, disconnectAll, db } from "../../database/registry";
+import {
+  connectAll,
+  disconnectAll,
+  db,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../../database/registry";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import {
   EXPLICITLY_PURGED_TABLES,
   NODE_FILES_PURGE_ORDER,
+  NON_LIVE_TENANT_DATABASES_TABLE,
   purgeCompany,
 } from "../../services/company-purge.service";
 import {
@@ -189,6 +196,38 @@ describeIfLocalDb(
     const eachNodeFilesTable = (n: number): Record<string, number> =>
       Object.fromEntries(NODE_FILES_PURGE_ORDER.map((t) => [t, n]));
 
+    let serverId = 0;
+
+    /**
+     * T12b/D-orch-1: a `failed` row per fixture company, so the mutation this
+     * suite must catch (removing `deleteNonLiveTenantDatabaseRows` from
+     * `purgeCompany`) is observable here, not only in
+     * `purge-non-live-tenant-db.db.test.ts` — this suite already exercises
+     * `purgeCompany` end to end alongside node-files, and should not go green
+     * if that codepath regresses.
+     */
+    const seedNonLiveTenantDatabaseRow = async (
+      companyId: number,
+    ): Promise<void> => {
+      await rows(
+        `insert into tenant_databases (uuid, "companyId", "serverId", "databaseName", "dbUser", "credentialRef", status)
+         values (?, ?, ?, ?, ?, 'env:SQL_PASSWORD', 'failed')`,
+        [
+          newUuid(),
+          companyId,
+          serverId,
+          `tenant_${companyId}_zzjestnf`,
+          `tenant_${companyId}_zzjestnf_user`,
+        ],
+      );
+    };
+
+    const tenantDatabaseCount = (companyId: number): Promise<number> =>
+      countOf(
+        `select count(*)::int as n from tenant_databases where "companyId" = ?`,
+        [companyId],
+      );
+
     beforeAll(async () => {
       await connectAll();
       startCounts = await countAllTables();
@@ -196,6 +235,14 @@ describeIfLocalDb(
       kept = await createCompany(`zz-jest-nf-kept-${RUN}`);
       await seedNodeFiles(purged.id);
       await seedNodeFiles(kept.id);
+      const [server] = await rows<{ id: number }>(
+        `insert into db_servers (name, kind, "sslMode", "connectionBudget", status)
+         values (?, 'external', 'disable', 5, 'active') returning id`,
+        [`zz-jest-nf-server-${RUN}`],
+      );
+      serverId = server!.id;
+      await seedNonLiveTenantDatabaseRow(purged.id);
+      await seedNonLiveTenantDatabaseRow(kept.id);
     });
 
     afterAll(async () => {
@@ -204,6 +251,19 @@ describeIfLocalDb(
       );
       try {
         const failures = await runAllSteps([
+          [
+            "tenant_databases",
+            () =>
+              inMaintenance(
+                `delete from tenant_databases where "companyId" = any(?)`,
+                [companyIds],
+              ),
+          ],
+          [
+            "db_servers",
+            () =>
+              inMaintenance(`delete from db_servers where id = ?`, [serverId]),
+          ],
           ...TEARDOWN_NODE_FILES_ORDER.map(
             (table): [string, () => Promise<unknown>] => [
               table,
@@ -225,8 +285,10 @@ describeIfLocalDb(
             "audit_logs",
             () =>
               inMaintenance(
-                `delete from audit_logs where "companyId" = any(?) or "entityUuid" = any(?)`,
-                [companyIds, fixtureUuids],
+                `delete from audit_logs where "companyId" = any(?) or "entityUuid" = any(?)
+                   or ("entityName" = 'db_servers' and "entityId" = ?)
+                   or ("entityName" = 'tenant_databases' and "companyId" = any(?))`,
+                [companyIds, fixtureUuids, serverId, companyIds],
               ),
           ],
         ]);
@@ -265,24 +327,43 @@ describeIfLocalDb(
     });
 
     it("names exactly the company tables no ON DELETE CASCADE reaches as explicitly purged", async () => {
+      // T12b/D-orch-1: `tenant_databases.companyId` is ON DELETE RESTRICT, not
+      // CASCADE, so it shows up here too — `purgeCompany` reaches it via
+      // `deleteNonLiveTenantDatabaseRows` (T12a), a real explicit delete just
+      // not driven by `PURGE_HOOKS`. The expected set is built from the
+      // service's own tables, not a second hardcoded copy of this one.
+      const explicitlyReached = [
+        ...EXPLICITLY_PURGED_TABLES,
+        NON_LIVE_TENANT_DATABASES_TABLE,
+      ];
       const tables = await discoverScopedTables(db("core"));
       const uncovered = await findTablesNotPurged(db("core"), tables, []);
       expect(uncovered.map((c) => c.split(".")[0]).sort()).toEqual(
-        [...EXPLICITLY_PURGED_TABLES].sort(),
+        [...explicitlyReached].sort(),
       );
       expect(
-        await findTablesNotPurged(db("core"), tables, EXPLICITLY_PURGED_TABLES),
+        await findTablesNotPurged(db("core"), tables, explicitlyReached),
       ).toEqual([]);
     });
 
     it("leaves 0 node-files and 0 ledger rows of the purged company, and touches nothing of the kept one", async () => {
       if (!purged || !kept) throw new Error("fixtures were not created");
+      const purgedCompany = purged;
       expect(await nodeFilesCounts(purged.id)).toEqual(eachNodeFilesTable(1));
       expect(await nodeFilesCounts(kept.id)).toEqual(eachNodeFilesTable(1));
       expect(await ledgerCount(purged.id)).toBeGreaterThan(0);
       const keptLedger = await ledgerCount(kept.id);
+      expect(await tenantDatabaseCount(purged.id)).toBe(1);
+      expect(await tenantDatabaseCount(kept.id)).toBe(1);
 
-      const result = await purgeCompany(purged.id);
+      // db-per-company T8/AC-49: `db("tenant")` outside a request throws —
+      // `purgeCompany`'s "tenant" plane target resolves through the shared
+      // core instance here, matching every other purge suite's
+      // `runAsCoreTenant` (see purge.db.test.ts).
+      const result = await withTenantTarget(
+        { physicalKey: "core", instance: rawCoreInstance() },
+        () => purgeCompany(purgedCompany.id),
+      );
 
       expect(result.companyDeleted).toBe(true);
       expect(await nodeFilesCounts(purged.id)).toEqual(eachNodeFilesTable(0));
@@ -294,6 +375,11 @@ describeIfLocalDb(
       ).toBe(0);
       expect(await nodeFilesCounts(kept.id)).toEqual(eachNodeFilesTable(1));
       expect(await ledgerCount(kept.id)).toBe(keptLedger);
+      // T12b/D-orch-1: the non-live tenant_databases row leaves with the
+      // purged company but not with the kept one — the mutation check for
+      // `deleteNonLiveTenantDatabaseRows` (D-orch-1's fix) is this pair.
+      expect(await tenantDatabaseCount(purged.id)).toBe(0);
+      expect(await tenantDatabaseCount(kept.id)).toBe(1);
     });
   },
 );

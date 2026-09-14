@@ -442,15 +442,29 @@ export type ProvisionFailureCode =
   | "SERVER_NOT_FOUND"
   | "SERVER_NOT_ACCEPTING"
   | "SERVER_NOT_PROVISIONABLE"
-  | "TENANT_DB_ALREADY_PROVISIONED";
+  | "TENANT_DB_ALREADY_PROVISIONED"
+  | "SERVER_MISMATCH";
 
+/**
+ * F2 fix (T12b): a `failed`/in-flight row is pinned to the server it was
+ * created against — the model's transition table has `failed -> provisioning`
+ * "resume at the first incomplete step" with no server change, and `move()`
+ * (this file, below) already refuses a second in-flight target on a
+ * different server rather than repointing one. `pinnedServerId`, when given,
+ * looks the server up by id instead of by `options.serverUuid`/default
+ * placement, so a resume always runs against the row's own server.
+ */
 async function resolveProvisioningServer(
   options: ProvisionOptions,
+  pinnedServerId?: number,
 ): Promise<IDbServer | { failure: string; code: ProvisionFailureCode }> {
   const dbServerDAO = new DbServerDAO();
-  const server = options.serverUuid
-    ? await dbServerDAO.getByUuid(options.serverUuid)
-    : await dbServerDAO.getDefaultPlacement();
+  const server =
+    pinnedServerId !== undefined
+      ? await dbServerDAO.getById(pinnedServerId)
+      : options.serverUuid
+        ? await dbServerDAO.getByUuid(options.serverUuid)
+        : await dbServerDAO.getDefaultPlacement();
   if (!server)
     return {
       failure: "no such db_servers row (SERVER_NOT_FOUND)",
@@ -505,6 +519,7 @@ export async function beginProvisioning(
 ): Promise<BeginProvisioningResult> {
   const tenantDAO = new TenantDatabaseDAO();
   const companyDAO = new CompanyDAO();
+  const dbServerDAO = new DbServerDAO();
 
   const live = await tenantDAO.getLiveByCompanyId(companyId);
   if (live) {
@@ -516,7 +531,36 @@ export async function beginProvisioning(
     };
   }
 
-  const server = await resolveProvisioningServer(options);
+  const existingBuilding = await tenantDAO.getBuildingByCompanyId(companyId);
+
+  // F2: refuse rather than silently repoint the registry row (see
+  // `resolveProvisioningServer`'s comment above).
+  if (existingBuilding && options.serverUuid) {
+    const requested = await dbServerDAO.getByUuid(options.serverUuid);
+    if (!requested) {
+      return {
+        ok: false,
+        code: "SERVER_NOT_FOUND",
+        reason: "no such db_servers row (SERVER_NOT_FOUND)",
+        row: null,
+      };
+    }
+    if (requested.id !== existingBuilding.serverId) {
+      return {
+        ok: false,
+        code: "SERVER_MISMATCH",
+        reason:
+          `tenant_databases #${existingBuilding.id} is pinned to server #${existingBuilding.serverId}; ` +
+          `retry requested server "${requested.name}" (#${requested.id}) — SERVER_MISMATCH`,
+        row: existingBuilding,
+      };
+    }
+  }
+
+  const server = await resolveProvisioningServer(
+    options,
+    existingBuilding?.serverId,
+  );
   if ("failure" in server)
     return { ok: false, code: server.code, reason: server.failure, row: null };
 
@@ -531,7 +575,7 @@ export async function beginProvisioning(
   }
   const companyUuid = company.uuid ?? "";
 
-  let row = await tenantDAO.getBuildingByCompanyId(companyId);
+  let row = existingBuilding;
   if (!row) {
     const naming = computeTenantNaming(
       companyId,

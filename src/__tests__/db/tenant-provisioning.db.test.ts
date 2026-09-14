@@ -22,6 +22,7 @@ import { Client } from "pg";
 import { knex as createKnex, type Knex } from "knex";
 import { connectAll, disconnectAll, db } from "../../database/registry";
 import {
+  beginProvisioning,
   computeTenantNaming,
   decommissionTenantDatabase,
   provisionTenantDatabase,
@@ -65,6 +66,8 @@ describeIfReady(
     let admin: Client;
     let serverId = 0;
     let serverUuid = "";
+    let server2Id = 0;
+    let server2Uuid = "";
     const companyIds: number[] = [];
     const plantedDatabases: string[] = [];
     const plantedRoles: string[] = [];
@@ -120,6 +123,25 @@ describeIfReady(
         .returning(["id", "uuid"]);
       serverId = server.id as number;
       serverUuid = server.uuid as string;
+
+      // F2: a second server on the same host so a cross-server retry has
+      // somewhere real (if wrongly permitted) to run its admin steps against.
+      const [server2] = await db("core")("db_servers")
+        .insert({
+          name: mark("server2"),
+          kind: "external",
+          host: process.env.SQL_HOST ?? "localhost",
+          port: Number(process.env.SQL_PORT) || 5432,
+          sslMode: "disable",
+          adminUser: process.env.SQL_ADMIN_USER,
+          adminCredentialRef: "env:SQL_ADMIN_PASSWORD",
+          connectionBudget: 5,
+          isDefaultPlacement: false,
+          status: "active",
+        })
+        .returning(["id", "uuid"]);
+      server2Id = server2.id as number;
+      server2Uuid = server2.uuid as string;
     });
 
     afterAll(async () => {
@@ -140,12 +162,14 @@ describeIfReady(
           [companyIds],
         );
         await trx.raw(`delete from companies where id = any(?)`, [companyIds]);
-        await trx.raw(`delete from db_servers where id = ?`, [serverId]);
+        await trx.raw(`delete from db_servers where id = any(?)`, [
+          [serverId, server2Id],
+        ]);
         await trx.raw(
           `delete from audit_logs where ("entityName" = 'tenant_databases' and "companyId" = any(?))
-              or ("entityName" = 'db_servers' and "entityId" = ?)
+              or ("entityName" = 'db_servers' and "entityId" = any(?))
               or ("entityName" = 'companies' and "entityId" = any(?))`,
-          [companyIds, serverId, companyIds],
+          [companyIds, [serverId, server2Id], companyIds],
         );
       });
       await admin.end();
@@ -224,6 +248,75 @@ describeIfReady(
       expect(roleCreates).toBe(1);
       expect(databaseCreates).toBe(1);
     }, 60000);
+
+    it("F2: retrying a failed row with a different serverUuid refuses SERVER_MISMATCH and never touches the other server", async () => {
+      const company = await makeCompany("cross-server-retry");
+      const naming = computeTenantNaming(company.id, company.slug);
+      plantedDatabases.push(naming.databaseName);
+      plantedRoles.push(naming.dbUser);
+
+      const failed = await provisionTenantDatabase(
+        company.id,
+        { serverUuid },
+        { failAfter: "role" },
+      );
+      expect(failed.ok).toBe(false);
+      if (failed.ok) return;
+      expect(failed.row?.status).toBe("failed");
+      expect(failed.row?.serverId).toBe(serverId);
+
+      const mismatch = await beginProvisioning(company.id, {
+        serverUuid: server2Uuid,
+      });
+      expect(mismatch).toMatchObject({
+        ok: false,
+        code: "SERVER_MISMATCH",
+      });
+      if (mismatch.ok) return;
+      expect(mismatch.row?.serverId).toBe(serverId);
+
+      const rowAfter = await db("core")("tenant_databases")
+        .where("companyId", company.id)
+        .first();
+      expect(rowAfter.serverId).toBe(serverId);
+      expect(rowAfter.databaseName).toBe(naming.databaseName);
+      expect(rowAfter.dbUser).toBe(naming.dbUser);
+      expect(rowAfter.status).toBe("failed");
+
+      // The role from the injected `failAfter: "role"` fault above exists
+      // (creation happens before the fault fires); the database step never
+      // ran. The refused mismatch call must not have created either.
+      const roleHit = await admin.query(
+        "select 1 from pg_roles where rolname = $1",
+        [naming.dbUser],
+      );
+      expect(roleHit.rowCount).toBe(1);
+      const dbHit = await admin.query(
+        "select 1 from pg_database where datname = $1",
+        [naming.databaseName],
+      );
+      expect(dbHit.rowCount).toBe(0);
+
+      let roleCreates = 0;
+      let databaseCreates = 0;
+      const onCreate = (step: "role" | "database"): void => {
+        if (step === "role") roleCreates += 1;
+        else databaseCreates += 1;
+      };
+      const resumed = await provisionTenantDatabase(
+        company.id,
+        { serverUuid },
+        { onCreate },
+      );
+      expect(resumed.ok).toBe(true);
+      if (!resumed.ok) return;
+      expect(resumed.row.status).toBe("active");
+      expect(resumed.row.serverId).toBe(serverId);
+      // Resuming resumes the FIRST incomplete step (database) — the role,
+      // already created before the mismatch attempt, is never recreated.
+      expect(roleCreates).toBe(0);
+      expect(databaseCreates).toBe(1);
+    }, 30000);
 
     describe("AC-52: naming and collision refusal", () => {
       it("refuses when the target database name already exists, marks the row failed, and issues no CREATE", async () => {
