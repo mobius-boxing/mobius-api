@@ -30,6 +30,8 @@ const RUNBOOK_PATH = path.resolve(
 const MARKERS = ["[HUMAN-RUN]", "[AGENT-RUN: local only]"] as const;
 const STEP_LINE = /^\s*\d+\.\s+(\[[^\]]+\])/;
 const PROD_TOUCHING = /ssh|docker |aws |s3:\/\/|deploy/;
+/** The cutover state machine's own sections — `## Not covered` (T12c/AC-74) is prose, not a state, and carries none of these subsections. */
+const STATE_SECTION = /^## (P-pre|P —|C1|C2|C3|C4)/;
 
 describe("tenant-cutover-runbook.md (AC-70, AC-87, AC-88)", () => {
   let text: string;
@@ -65,7 +67,7 @@ describe("tenant-cutover-runbook.md (AC-70, AC-87, AC-88)", () => {
   it("AC-70: each section has Preconditions, Commands, Evidence and Rollback", () => {
     const sectionHeadingIndices = lines
       .map((line, index) => ({ line, index }))
-      .filter(({ line }) => line.startsWith("## "));
+      .filter(({ line }) => STATE_SECTION.test(line));
     for (let i = 0; i < sectionHeadingIndices.length; i += 1) {
       const start = sectionHeadingIndices[i]!.index;
       const end = sectionHeadingIndices[i + 1]?.index ?? lines.length;
@@ -220,5 +222,16 @@ describe("tenant-cutover-runbook.md (AC-70, AC-87, AC-88)", () => {
     expect(registerIndex).toBeGreaterThan(integrityIndex);
     // "starts with" (AC-88): only a local dry-run rehearsal may precede them.
     expect(integrityIndex).toBeLessThanOrEqual(1);
+  });
+
+  it("AC-74: a 'Not covered' section names the U-8 mobius-api-branding fork and its file list", () => {
+    const notCoveredIndex = lines.findIndex((line) =>
+      line.startsWith("## Not covered"),
+    );
+    expect(notCoveredIndex).toBeGreaterThanOrEqual(0);
+    const body = lines.slice(notCoveredIndex).join("\n");
+    expect(body).toMatch(/mobius-api-branding/);
+    expect(body).toMatch(/U-8/);
+    expect(body).toMatch(/brief\.md/);
   });
 });
