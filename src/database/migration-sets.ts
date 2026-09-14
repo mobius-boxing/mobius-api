@@ -19,11 +19,42 @@ export const TENANT_BASELINE_FILE = "00000000000000_baseline.ts";
 // Two levels up is the API root from src/database (ts-node) and dist/database.
 const API_ROOT = path.resolve(__dirname, "..", "..");
 
-export const migrationsDirectory = (set: MigrationSet): string =>
-  path.join(API_ROOT, "migrations", set);
+/**
+ * F3 (T12b): `migrations/tenant/*.ts` and `seeds/tenant/*.ts` are outside
+ * `tsconfig.json`'s `rootDir` (`./src`) and excluded from its main build, so
+ * `npm run build`'s `dist/` never contained them — `tenantKnex.migrate.latest()`
+ * inside a live `node dist/server.js` process (no ts-node registered) could
+ * never load a `.ts` migration file. `npm run build` now also runs
+ * `tsc -p tsconfig.tenant-migrations.json` (a second, tiny compile: rootDir is
+ * the repo root, so `migrations/tenant/00000000000000_baseline.ts`'s
+ * `../../src/database/audit-triggers` import lands, unedited, at
+ * `dist/src/database/audit-triggers.js` — a second compiled copy of that
+ * *inert* module (SQL-string builders only, no shared connection state), not
+ * the app's own `dist/database/audit-triggers.js`).
+ *
+ * `isRunningCompiled` tells `.ts` (ts-node — CLI scripts, `migrate:deploy`,
+ * jest) from `.js` (this module already went through `tsc`) apart by its own
+ * `__filename`; every migration-set caller keeps working unmodified because
+ * this only changes behaviour for a process that is itself compiled.
+ */
+export const isRunningCompiled = (filename: string = __filename): boolean =>
+  filename.endsWith(".js");
 
-export const seedsDirectory = (set: MigrationSet): string =>
-  path.join(API_ROOT, "seeds", set);
+export const migrationsDirectory = (
+  set: MigrationSet,
+  compiled: boolean = isRunningCompiled(),
+): string =>
+  compiled
+    ? path.join(API_ROOT, "dist", "migrations", set)
+    : path.join(API_ROOT, "migrations", set);
+
+export const seedsDirectory = (
+  set: MigrationSet,
+  compiled: boolean = isRunningCompiled(),
+): string =>
+  compiled
+    ? path.join(API_ROOT, "dist", "seeds", set)
+    : path.join(API_ROOT, "seeds", set);
 
 const LOCAL_HOSTS: readonly string[] = ["localhost", "127.0.0.1"];
 
@@ -54,16 +85,17 @@ export function coreMigrationConnection(): MigrationConnection {
 export function migrationConfigFor(
   set: MigrationSet,
   connection: Knex.Config["connection"],
+  compiled: boolean = isRunningCompiled(),
 ): Knex.Config {
   return {
     client: "postgresql",
     connection,
     migrations: {
-      directory: migrationsDirectory(set),
+      directory: migrationsDirectory(set, compiled),
       tableName: MIGRATIONS_TABLE,
-      extension: "ts",
+      extension: compiled ? "js" : "ts",
     },
-    seeds: { directory: seedsDirectory(set) },
+    seeds: { directory: seedsDirectory(set, compiled) },
   };
 }
 

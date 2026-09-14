@@ -1,0 +1,24 @@
+{
+  // F3 (T12b): compiles `migrations/tenant/*.ts` and `seeds/tenant/*.ts` into
+  // `dist/` so a live compiled server (`node dist/server.js`, no ts-node) can
+  // load them at runtime provisioning time — see the comment on
+  // `isRunningCompiled` in `src/database/migration-sets.ts`. `rootDir` is the
+  // repo root (not `./src`, unlike `tsconfig.json`) so the tenant baseline's
+  // `../../src/database/audit-triggers` import lands at the matching relative
+  // path under `dist/`, unedited; run as a second, separate `tsc` invocation
+  // (not merged into the main build) so `tsconfig.json`'s `rootDir: "./src"`
+  // and the rest of `dist/`'s layout stay exactly as they are today.
+  "compilerOptions": {
+    "target": "ES2016",
+    "module": "commonjs",
+    "rootDir": ".",
+    "outDir": "./dist",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "downlevelIteration": true
+  },
+  "include": ["migrations/tenant/**/*.ts", "seeds/tenant/**/*.ts"]
+}

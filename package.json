@@ -6,7 +6,8 @@
   "scripts": {
     "test": "jest",
     "start": "node dist/server.js",
-    "build": "tsc --skipLibCheck",
+    "build": "tsc --skipLibCheck && tsc -p tsconfig.tenant-migrations.json",
+    "build:tenant-migrations": "tsc -p tsconfig.tenant-migrations.json",
     "start:dev": "nodemon src/server.ts",
     "format": "prettier --write .",
     "create:controller": "sundaysf --create-controller",
