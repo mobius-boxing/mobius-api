@@ -22,11 +22,24 @@ import { FakeS3 } from "../../mocks/s3.mock";
 
 const mockGetIdByUuid = jest.fn<(uuid: string) => Promise<number | null>>();
 const mockPurgeCompany = jest.fn();
+let mockActiveTarget: string | null = null;
 
 jest.mock("../../../database/registry", () => ({
   __esModule: true,
   db: () => {
     throw new Error("unit tests never reach the registry");
+  },
+  rawCoreInstance: () => ({}),
+  withTenantTarget: async (
+    target: { physicalKey: string },
+    fn: () => unknown,
+  ) => {
+    mockActiveTarget = target.physicalKey;
+    try {
+      return await fn();
+    } finally {
+      mockActiveTarget = null;
+    }
   },
   connectAll: async () => undefined,
   disconnectAll: async () => undefined,
@@ -97,6 +110,7 @@ let rawCalls: string[];
 let backends: object[];
 let stamp: string | null;
 let production: boolean;
+let offShared: string[];
 
 const knex = (): Knex =>
   ({
@@ -121,6 +135,7 @@ const deps = (): PurgeCliDeps => ({
   commitSources: commitSources(),
   companyIdByUuid: (uuid) => mockGetIdByUuid(uuid),
   purge: (id) => mockPurgeCompany(id) as ReturnType<PurgeCliDeps["purge"]>,
+  companiesOffSharedTarget: async () => offShared,
   explicitlyPurgedTables: [],
   out: (line) => out.push(line),
   err: (line) => err.push(line),
@@ -149,6 +164,7 @@ const purgeArgs = (
 ): string[] => ["--snapshot", snapshotFile, "--dump", dump, ...targets];
 
 beforeEach(() => {
+  offShared = [];
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "purge-scripts-"));
   s3 = new FakeS3();
   out = [];
@@ -272,6 +288,17 @@ describe("AC-78 — purge-companies", () => {
     expect(mockPurgeCompany).toHaveBeenCalledTimes(4);
   });
 
+  it("refuses a target that already lives in a dedicated database, reaching no purge", async () => {
+    offShared = ["company 4 (tenant_4_corrunor)"];
+    const code = await runPurgeCompanies(
+      purgeArgs(writeSnapshot("s.json"), pairedDump()),
+      deps(),
+    );
+    expect(code).toBe(1);
+    expect(err.join("\n")).toContain("company 4 (tenant_4_corrunor)");
+    expect(mockPurgeCompany).not.toHaveBeenCalled();
+  });
+
   it("refuses before any other read when another backend is connected", async () => {
     backends = [
       {
@@ -318,12 +345,16 @@ describe("AC-78 — purge-companies", () => {
     expect(mockPurgeCompany).toHaveBeenCalledTimes(1);
   });
 
-  it("wires CompanyDAO.getIdByUuid and the unchanged purgeCompany", async () => {
+  it("wires CompanyDAO.getIdByUuid and purgeCompany inside the shared core tenant target", async () => {
+    mockPurgeCompany.mockImplementationOnce(() => ({
+      inTarget: mockActiveTarget,
+    }));
     const wired = purgeCompaniesDeps(new PurgeObjectStore(s3.send, FILES));
     await wired.companyIdByUuid("u-6");
-    await wired.purge(6);
+    const result = await wired.purge(6);
     expect(mockGetIdByUuid).toHaveBeenCalledWith("u-6");
     expect(mockPurgeCompany).toHaveBeenCalledWith(6);
+    expect(result).toEqual({ inTarget: "core" });
   });
 });
 

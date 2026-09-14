@@ -1,5 +1,13 @@
 import type { Knex } from "knex";
-import { connectAll, disconnectAll, db } from "../database/registry";
+import {
+  connectAll,
+  disconnectAll,
+  db,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../database/registry";
+import { connectionFor } from "../database/env";
+import { TenantDatabaseDAO } from "../dao/tenant-database/tenant-database.dao";
 import { CompanyDAO } from "../dao/company/company.dao";
 import {
   EXPLICITLY_PURGED_TABLES,
@@ -43,6 +51,7 @@ export type PurgeCliDeps = {
   commitSources: CommitSources;
   companyIdByUuid: (uuid: string) => Promise<number | null>;
   purge: (companyId: number) => Promise<CompanyPurgeResult>;
+  companiesOffSharedTarget: (companyIds: readonly number[]) => Promise<string[]>;
   explicitlyPurgedTables: readonly string[];
   out: (line: string) => void;
   err: (line: string) => void;
@@ -130,6 +139,15 @@ async function purge(
       );
     }
     resolved.push({ uuid, id });
+  }
+
+  const moved = await deps.companiesOffSharedTarget(
+    resolved.map((r) => r.id),
+  );
+  if (moved.length > 0) {
+    return refused(
+      `${moved.join(", ")} already live in a dedicated database, which purgeCompany on the shared one would not reach; decommission instead`,
+    );
   }
 
   for (const { uuid, id } of resolved) {
@@ -252,7 +270,24 @@ export const purgeCompaniesDeps = (
   store,
   commitSources: defaultCommitSources(buildInfoPathFor(__dirname)),
   companyIdByUuid: (uuid) => new CompanyDAO().getIdByUuid(uuid),
-  purge: purgeCompany,
+  // State P runs before C1, so every company still lives in the core
+  // database; `companiesOffSharedTarget` refuses one that has already moved.
+  purge: (id) =>
+    withTenantTarget({ physicalKey: "core", instance: rawCoreInstance() }, () =>
+      purgeCompany(id),
+    ),
+  companiesOffSharedTarget: async (companyIds) => {
+    const dao = new TenantDatabaseDAO();
+    const shared = connectionFor("core").database;
+    const moved: string[] = [];
+    for (const id of companyIds) {
+      const row = await dao.getLiveByCompanyId(id);
+      if (row && row.databaseName !== shared) {
+        moved.push(`company ${id} (${row.databaseName})`);
+      }
+    }
+    return moved;
+  },
   explicitlyPurgedTables: EXPLICITLY_PURGED_TABLES,
 });
 
