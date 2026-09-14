@@ -1,17 +1,17 @@
 import type { Knex } from "knex";
-import { DB_KEYS } from "../src/database/keys";
+import { DB_KEYS } from "../../src/database/keys";
 import {
   AUDIT_PARENT,
   AUDIT_REDACT,
   auditedTablesOf,
-} from "../src/database/audit-coverage";
+} from "../../src/database/audit-coverage";
 import {
   AUDIT_FUNCTION_SQL,
   PROTECTION_FUNCTION_SQL,
   attachAudit,
   createAuditLogsV2,
   ensureAuditPartitions,
-} from "../src/database/audit-triggers";
+} from "../../src/database/audit-triggers";
 
 /**
  * Audit P2 / track T4a — the cutover: `audit_logs` v2 plus the row triggers

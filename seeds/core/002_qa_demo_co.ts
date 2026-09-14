@@ -1,7 +1,7 @@
 import { Knex } from "knex";
 import bcrypt from "bcryptjs";
-import { RbacService } from "../src/services/rbac.service";
-import { ADMIN_ROLE_NAME } from "../src/common/constants/permissions-catalog";
+import { RbacService } from "../../src/services/rbac.service";
+import { ADMIN_ROLE_NAME } from "../../src/common/constants/permissions-catalog";
 
 /**
  * "QA Demo CO" — a full main-module demo tenant.
@@ -15,7 +15,7 @@ import { ADMIN_ROLE_NAME } from "../src/common/constants/permissions-catalog";
  * Run:
  *   cd repos/mobius-api
  *   SQL_HOST=localhost NODE_ENV=development SEED_QA_DEMO=1 \
- *     npx knex seed:run --specific=002_qa_demo_co.ts --knexfile knexfile.ts
+ *     npx knex seed:run --specific=002_qa_demo_co.ts --knexfile knexfile.ts --env core
  *
  * The `SEED_QA_DEMO` gate is deliberate: `npm run seed:run` runs every file in
  * this directory, and a demo tenant must never appear in a real database by

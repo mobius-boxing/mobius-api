@@ -1,6 +1,6 @@
 import type { Knex } from "knex";
-import { RbacService } from "../src/services/rbac.service";
-import { ADMIN_ROLE_NAME } from "../src/common/constants/permissions-catalog";
+import { RbacService } from "../../src/services/rbac.service";
+import { ADMIN_ROLE_NAME } from "../../src/common/constants/permissions-catalog";
 
 /**
  * Backfill: clone the permission catalogue + Admin role + Procusto profile
