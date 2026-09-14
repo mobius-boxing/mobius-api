@@ -259,6 +259,13 @@ describeIfLocalDb(
       const code = await runDbCheckIntegrity(argv, {
         core: () => db("core"),
         tenant: () => db("tenant"),
+        now: () => new Date(),
+        // No tenant_databases rows in this suite's fixture (T4 predates T9's
+        // dedicated tenants) — the pre-T9 shared-target check above already
+        // covers this suite's whole scenario.
+        listDedicatedTenants: async () => [],
+        openTenant: async () => db("tenant"),
+        closeTenant: async () => undefined,
         out: (line) => out.push(line),
         err: (line) => err.push(line),
       });

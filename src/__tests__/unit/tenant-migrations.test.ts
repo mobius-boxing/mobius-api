@@ -486,32 +486,87 @@ describe("migrate:rollback refuses anything but a local database (AC-28, L-003)"
   });
 });
 
-describe("migrate:deploy runs the core set and refuses fleet flags (AC-24, D-40)", () => {
+describe("migrate:deploy runs core, modules:sync, then the fleet (AC-24, T9 AC-54, D-40)", () => {
   const deps = () => ({
     migrateCore: jest.fn(async (): Promise<readonly string[]> => []),
+    syncModules: jest.fn(async (): Promise<readonly string[]> => []),
+    migrateFleet: jest.fn(
+      async (_filter: {
+        companyUuid?: string;
+      }): Promise<{
+        attempted: number;
+        skippedCurrent: number;
+        failed: string[];
+      }> => ({
+        attempted: 0,
+        skippedCurrent: 0,
+        failed: [],
+      }),
+    ),
     out: jest.fn(),
     err: jest.fn(),
   });
 
-  it.each([[[]], [["--core-only"]]])("migrates core for %j", async (argv) => {
+  it("no flags: core, then modules:sync, then the fleet", async () => {
     const d = deps();
-    expect(await runMigrateAll(argv, d)).toBe(0);
+    expect(await runMigrateAll([], d)).toBe(0);
     expect(d.migrateCore).toHaveBeenCalledTimes(1);
+    expect(d.syncModules).toHaveBeenCalledTimes(1);
+    expect(d.migrateFleet).toHaveBeenCalledWith({});
     expect(d.out).toHaveBeenCalledWith("[migrate] core: already up to date");
   });
 
+  it("--core-only: core alone, no modules:sync, no fleet", async () => {
+    const d = deps();
+    expect(await runMigrateAll(["--core-only"], d)).toBe(0);
+    expect(d.migrateCore).toHaveBeenCalledTimes(1);
+    expect(d.syncModules).not.toHaveBeenCalled();
+    expect(d.migrateFleet).not.toHaveBeenCalled();
+  });
+
+  it("--fleet-only: modules:sync and the fleet, no core", async () => {
+    const d = deps();
+    expect(await runMigrateAll(["--fleet-only"], d)).toBe(0);
+    expect(d.migrateCore).not.toHaveBeenCalled();
+    expect(d.syncModules).toHaveBeenCalledTimes(1);
+    expect(d.migrateFleet).toHaveBeenCalledWith({});
+  });
+
+  it("--company <uuid>: only that tenant, no core, no modules:sync", async () => {
+    const d = deps();
+    const companyUuid = "3f0c2c52-8a7e-4f39-a0c1-1e8e2d7c4b10";
+    expect(await runMigrateAll(["--company", companyUuid], d)).toBe(0);
+    expect(d.migrateCore).not.toHaveBeenCalled();
+    expect(d.syncModules).toHaveBeenCalledTimes(1);
+    expect(d.migrateFleet).toHaveBeenCalledWith({ companyUuid });
+  });
+
+  it("exits 1 and reports failed tenants when the fleet has any", async () => {
+    const d = deps();
+    d.migrateFleet.mockResolvedValueOnce({
+      attempted: 3,
+      skippedCurrent: 0,
+      failed: ["tenant_9_broken_co"],
+    });
+    expect(await runMigrateAll([], d)).toBe(1);
+    expect(d.out).toHaveBeenCalledWith(
+      "[migrate] fleet: attempted 3, skipped 0 (already current), failed 1: tenant_9_broken_co",
+    );
+  });
+
   it.each([
-    [["--fleet-only"]],
-    [["--company", "3f0c2c52-8a7e-4f39-a0c1-1e8e2d7c4b10"]],
     [["--core-only", "--company", "3f0c2c52-8a7e-4f39-a0c1-1e8e2d7c4b10"]],
     [["--everything"]],
+    [["--company", "not-a-uuid"]],
   ])("refuses %j without migrating anything", async (argv) => {
     const d = deps();
     expect(await runMigrateAll(argv, d)).toBe(2);
     expect(d.migrateCore).not.toHaveBeenCalled();
+    expect(d.syncModules).not.toHaveBeenCalled();
+    expect(d.migrateFleet).not.toHaveBeenCalled();
   });
 
-  it("exits 1 with the reason when the core set fails", async () => {
+  it("exits 1 with the reason when the core set fails, and never reaches modules:sync", async () => {
     const d = deps();
     d.migrateCore.mockRejectedValueOnce(
       new Error("migration directory is corrupt"),
@@ -520,6 +575,19 @@ describe("migrate:deploy runs the core set and refuses fleet flags (AC-24, D-40)
     expect(d.err).toHaveBeenCalledWith(
       "[migrate] core failed: migration directory is corrupt",
     );
+    expect(d.syncModules).not.toHaveBeenCalled();
+  });
+
+  it("exits 1 with the reason when modules:sync fails, and never reaches the fleet", async () => {
+    const d = deps();
+    d.syncModules.mockRejectedValueOnce(
+      new Error("two manifests declare the slug foo"),
+    );
+    expect(await runMigrateAll([], d)).toBe(1);
+    expect(d.err).toHaveBeenCalledWith(
+      "[migrate] modules:sync failed: two manifests declare the slug foo",
+    );
+    expect(d.migrateFleet).not.toHaveBeenCalled();
   });
 });
 

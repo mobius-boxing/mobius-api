@@ -23,6 +23,14 @@ jest.mock("../../../database/registry", () => ({
   db: () => mockKnex,
 }));
 
+const invalidateTenantCache = jest.fn();
+const evictTenant = jest.fn(async () => undefined);
+jest.mock("../../../database/tenant-pools", () => ({
+  __esModule: true,
+  invalidateTenantCache: (...args: unknown[]) => invalidateTenantCache(...args),
+  evictTenant: (...args: unknown[]) => evictTenant(...args),
+}));
+
 import {
   InvalidTenantDatabaseTransitionError,
   TENANT_DATABASE_TRANSITIONS,
@@ -38,7 +46,11 @@ beforeEach(() => {
   mockKnex = mock.knexMock;
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  invalidateTenantCache.mockClear();
+  evictTenant.mockClear();
+});
 
 const isAllowed = (from: string, to: string) =>
   TENANT_DATABASE_TRANSITIONS.some(([f, t]) => f === from && t === to);
@@ -126,6 +138,37 @@ describe("transition() — the model's table, exactly (AC-32)", () => {
     await expect(dao.transition(1, "active", "active", {})).rejects.toThrow(
       InvalidTenantDatabaseTransitionError,
     );
+  });
+});
+
+describe("transition() — cache/pool wiring (T9, T7 later-track note)", () => {
+  it("invalidates the registry cache on every successful transition, keyed by the row's companyId", async () => {
+    mock.fixture(TABLE).returningQueue = [[{ id: 1, companyId: 42 }]];
+    const dao = new TenantDatabaseDAO();
+    await dao.transition(1, "provisioning", "active", {});
+    expect(invalidateTenantCache).toHaveBeenCalledTimes(1);
+    expect(invalidateTenantCache).toHaveBeenCalledWith(42);
+  });
+
+  it("never invalidates the cache when the compare-and-set matched no row (stale `from`)", async () => {
+    mock.fixture(TABLE).returningQueue = [[]];
+    const dao = new TenantDatabaseDAO();
+    await dao.transition(1, "provisioning", "active", {});
+    expect(invalidateTenantCache).not.toHaveBeenCalled();
+  });
+
+  it("evicts the tenant's open pool entering suspended or decommissioning", async () => {
+    mock.fixture(TABLE).returningQueue = [[{ id: 7, companyId: 1 }]];
+    const dao = new TenantDatabaseDAO();
+    await dao.transition(7, "active", "suspended", {});
+    expect(evictTenant).toHaveBeenCalledWith(7);
+  });
+
+  it("does not evict the pool entering active, provisioning or failed", async () => {
+    mock.fixture(TABLE).returningQueue = [[{ id: 7, companyId: 1 }]];
+    const dao = new TenantDatabaseDAO();
+    await dao.transition(7, "provisioning", "active", {});
+    expect(evictTenant).not.toHaveBeenCalled();
   });
 });
 

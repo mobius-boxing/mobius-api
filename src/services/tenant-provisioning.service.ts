@@ -1,10 +1,27 @@
+import { randomBytes } from "crypto";
+import fs from "fs";
+import { knex as createKnex } from "knex";
+import { Client } from "pg";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "../database/registry";
-import { connectionFor } from "../database/env";
+import { connectionFor, connectionForTenant } from "../database/env";
+import {
+  resolveCredential,
+  sealCredential,
+} from "../database/credential-resolver";
+import {
+  migrationConfigFor,
+  migrationsDirectory,
+} from "../database/migration-sets";
 import { CompanyDAO } from "../dao/company/company.dao";
 import { DbServerDAO } from "../dao/db-server/db-server.dao";
 import { TenantDatabaseDAO } from "../dao/tenant-database/tenant-database.dao";
-import { TENANT_DATABASE_LIVE_STATUSES } from "../interfaces/tenant/tenant.interfaces";
+import {
+  TENANT_DATABASE_LIVE_STATUSES,
+  type IDbServer,
+  type ITenantDatabase,
+} from "../interfaces/tenant/tenant.interfaces";
+import { purgeCompany, purgeCompanyCentralOnly } from "./company-purge.service";
 import { readSnapshotFile, type Checked } from "./purge-snapshot.service";
 
 /**
@@ -143,4 +160,497 @@ export async function registerShared(
     ok: true,
     value: { registered, alreadyRegistered: alreadyRegistered.size },
   };
+}
+
+/**
+ * Provisioning (model D-19, D-25, D-70; brief AC-50…52). `provisionTenantDatabase`
+ * is the whole flow — create-or-resume the row, then run the six steps below —
+ * so a fresh call and a retry of a `failed` row are the same function.
+ */
+
+/** D-70 CHECK regex, shared by `databaseName` and `dbUser`. */
+const IDENTIFIER_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
+
+export const TENANT_SLUG_MAX_LENGTH = 40;
+
+export type TenantNaming = { databaseName: string; dbUser: string };
+
+/**
+ * D-25: `tenant_<id>_<slug>` / `<databaseName>_user`, the slug's hyphens
+ * turned to underscores and cut to 40 chars (brief AC-52) — a trailing cut
+ * mid-word can leave a dangling underscore, stripped the same way
+ * `toDnsSlug` strips a dangling hyphen.
+ */
+export function computeTenantNaming(
+  companyId: number,
+  companySlug: string,
+): TenantNaming {
+  const converted = companySlug
+    .toLowerCase()
+    .replace(/-/g, "_")
+    .slice(0, TENANT_SLUG_MAX_LENGTH)
+    .replace(/_+$/, "");
+  const databaseName = `tenant_${companyId}_${converted}`;
+  return { databaseName, dbUser: `${databaseName}_user` };
+}
+
+function assertSafeIdentifier(name: string): void {
+  if (!IDENTIFIER_PATTERN.test(name)) {
+    throw new Error(`refusing to interpolate unsafe identifier "${name}"`);
+  }
+}
+
+const quoteIdent = (name: string): string => {
+  assertSafeIdentifier(name);
+  return `"${name}"`;
+};
+
+function sslFor(server: IDbServer): false | { rejectUnauthorized: true } {
+  return server.sslMode === "disable" ? false : { rejectUnauthorized: true };
+}
+
+async function openAdminClient(
+  server: IDbServer,
+): Promise<InstanceType<typeof Client>> {
+  if (!server.adminUser || !server.adminCredentialRef) {
+    throw new Error(
+      `db_servers "${server.name}": not provisionable (no adminUser) — SERVER_NOT_PROVISIONABLE`,
+    );
+  }
+  const password = await resolveCredential(
+    server.adminCredentialRef,
+    server.adminCredentialCiphertext,
+  );
+  const client = new Client({
+    host: server.host ?? process.env.SQL_HOST,
+    port: server.port ?? (Number(process.env.SQL_PORT) || 5432),
+    user: server.adminUser,
+    password,
+    database: "postgres",
+    ssl: sslFor(server),
+  });
+  await client.connect();
+  return client;
+}
+
+/** D-70: refuses before any `CREATE` is ever issued for this pair. */
+async function findNameCollision(
+  server: IDbServer,
+  databaseName: string,
+  dbUser: string,
+): Promise<string | null> {
+  const admin = await openAdminClient(server);
+  try {
+    const [dbHit, roleHit] = await Promise.all([
+      admin.query("select 1 from pg_database where datname = $1", [
+        databaseName,
+      ]),
+      admin.query("select 1 from pg_roles where rolname = $1", [dbUser]),
+    ]);
+    if ((dbHit.rowCount ?? 0) > 0) {
+      return `database "${databaseName}" already exists on server "${server.name}" (D-70 collision guard)`;
+    }
+    if ((roleHit.rowCount ?? 0) > 0) {
+      return `role "${dbUser}" already exists on server "${server.name}" (D-70 collision guard)`;
+    }
+    return null;
+  } finally {
+    await admin.end();
+  }
+}
+
+/** The newest tenant migration filename shipped in this image (model, I-7). */
+export const latestTenantMigrationFile = (): string => {
+  const files = fs
+    .readdirSync(migrationsDirectory("tenant"))
+    .filter((file) => file.endsWith(".ts") || file.endsWith(".js"))
+    .sort();
+  const latest = files[files.length - 1];
+  if (!latest) {
+    throw new Error("No tenant migration files found in migrations/tenant/");
+  }
+  return latest;
+};
+
+export type ProvisioningStep =
+  | "role"
+  | "database"
+  | "revoke"
+  | "pins"
+  | "migrate"
+  | "seed";
+
+export type ProvisionHooks = {
+  /** Test seam (AC-51): fires only when a CREATE is actually about to run —
+   * never on a step whose existence check found the object already there. */
+  onCreate?: (step: "role" | "database") => void;
+  /** Test seam (AC-51): throws right after a step's real effect completed, to
+   * prove a crash mid-provisioning resumes without repeating destructive work. */
+  failAfter?: ProvisioningStep;
+};
+
+const maybeFail = (hooks: ProvisionHooks, step: ProvisioningStep): void => {
+  if (hooks.failAfter === step) {
+    throw new Error(`injected fault after provisioning step "${step}"`);
+  }
+};
+
+async function ensureRole(
+  admin: InstanceType<typeof Client>,
+  roleName: string,
+  password: string,
+  hooks: ProvisionHooks,
+): Promise<void> {
+  assertSafeIdentifier(roleName);
+  const exists = await admin.query(
+    "select 1 from pg_roles where rolname = $1",
+    [roleName],
+  );
+  if ((exists.rowCount ?? 0) > 0) return;
+  hooks.onCreate?.("role");
+  // `password` is generated by this file (`randomBytes(...).toString("base64url")`),
+  // never user input, and base64url's alphabet has no quote/backslash to escape —
+  // CREATE ROLE is a utility statement that node-pg cannot bind parameters into.
+  await admin.query(
+    `CREATE ROLE ${quoteIdent(roleName)} LOGIN PASSWORD '${password}'`,
+  );
+}
+
+async function ensureDatabase(
+  admin: InstanceType<typeof Client>,
+  databaseName: string,
+  owner: string,
+  hooks: ProvisionHooks,
+): Promise<void> {
+  assertSafeIdentifier(databaseName);
+  assertSafeIdentifier(owner);
+  const exists = await admin.query(
+    "select 1 from pg_database where datname = $1",
+    [databaseName],
+  );
+  if ((exists.rowCount ?? 0) > 0) return;
+  hooks.onCreate?.("database");
+  await admin.query(
+    `CREATE DATABASE ${quoteIdent(databaseName)} OWNER ${quoteIdent(owner)}`,
+  );
+}
+
+/** Steps 1…4 (role, database, revoke, pins) — all against the admin connection. */
+async function runAdminSteps(
+  row: ITenantDatabase,
+  server: IDbServer,
+  password: string,
+  companyUuid: string,
+  hooks: ProvisionHooks,
+): Promise<void> {
+  const admin = await openAdminClient(server);
+  try {
+    await ensureRole(admin, row.dbUser, password, hooks);
+    maybeFail(hooks, "role");
+
+    await ensureDatabase(admin, row.databaseName, row.dbUser, hooks);
+    maybeFail(hooks, "database");
+
+    // REVOKE and ALTER DATABASE SET are idempotent to reissue — no existence
+    // check needed for the retry path to stay a single CREATE overall.
+    await admin.query(
+      `REVOKE CONNECT ON DATABASE ${quoteIdent(row.databaseName)} FROM PUBLIC`,
+    );
+    maybeFail(hooks, "revoke");
+
+    await admin.query(
+      `ALTER DATABASE ${quoteIdent(row.databaseName)} SET mobius.company_id = '${row.companyId}'`,
+    );
+    await admin.query(
+      `ALTER DATABASE ${quoteIdent(row.databaseName)} SET mobius.company_uuid = '${companyUuid}'`,
+    );
+    maybeFail(hooks, "pins");
+  } finally {
+    await admin.end();
+  }
+}
+
+/** Steps 5…6 (migrate, seed) — against the new database itself, as its owner. */
+async function runTenantSteps(
+  row: ITenantDatabase,
+  server: IDbServer,
+  password: string,
+  hooks: ProvisionHooks,
+): Promise<string> {
+  const tenantKnex = createKnex({
+    ...migrationConfigFor("tenant", connectionForTenant(row, server, password)),
+    pool: { min: 0, max: 2 },
+  });
+  try {
+    await tenantKnex.migrate.latest();
+    maybeFail(hooks, "migrate");
+
+    await tenantKnex.seed.run();
+    maybeFail(hooks, "seed");
+
+    const head = await tenantKnex("knex_migrations")
+      .orderBy("id", "desc")
+      .first("name");
+    return (head?.name as string | undefined) ?? latestTenantMigrationFile();
+  } finally {
+    await tenantKnex.destroy();
+  }
+}
+
+export type ProvisionOptions = { serverUuid?: string };
+
+export type ProvisionResult =
+  | { ok: true; row: ITenantDatabase }
+  | { ok: false; reason: string; row: ITenantDatabase | null };
+
+async function resolveProvisioningServer(
+  options: ProvisionOptions,
+): Promise<IDbServer | { failure: string }> {
+  const dbServerDAO = new DbServerDAO();
+  const server = options.serverUuid
+    ? await dbServerDAO.getByUuid(options.serverUuid)
+    : await dbServerDAO.getDefaultPlacement();
+  if (!server) return { failure: "no such db_servers row (SERVER_NOT_FOUND)" };
+  if (server.status !== "active") {
+    return {
+      failure: `db_servers "${server.name}" is ${server.status} (SERVER_NOT_ACCEPTING)`,
+    };
+  }
+  if (!server.adminUser) {
+    return {
+      failure: `db_servers "${server.name}" has no adminUser (SERVER_NOT_PROVISIONABLE)`,
+    };
+  }
+  return server;
+}
+
+/**
+ * Provision (or retry-provision) a dedicated tenant database for `companyId`
+ * (model D-19; brief AC-50…52). Idempotent (I-11): a fresh call creates the
+ * row and both the role and database exactly once; a retry of a `failed` row
+ * resumes at the first incomplete step, never repeating a completed CREATE.
+ */
+export async function provisionTenantDatabase(
+  companyId: number,
+  options: ProvisionOptions = {},
+  hooks: ProvisionHooks = {},
+): Promise<ProvisionResult> {
+  const tenantDAO = new TenantDatabaseDAO();
+  const companyDAO = new CompanyDAO();
+
+  const live = await tenantDAO.getLiveByCompanyId(companyId);
+  if (live) {
+    return {
+      ok: false,
+      reason: `tenant_databases already has a live row (status "${live.status}") — TENANT_DB_ALREADY_PROVISIONED`,
+      row: live,
+    };
+  }
+
+  const server = await resolveProvisioningServer(options);
+  if ("failure" in server)
+    return { ok: false, reason: server.failure, row: null };
+
+  const company = await companyDAO.getById(companyId);
+  if (!company || company.id === undefined) {
+    return {
+      ok: false,
+      reason: "no such company (COMPANY_NOT_FOUND)",
+      row: null,
+    };
+  }
+  const companyUuid = company.uuid ?? "";
+
+  let row = await tenantDAO.getBuildingByCompanyId(companyId);
+  if (!row) {
+    const naming = computeTenantNaming(
+      companyId,
+      company.slug ?? String(companyId),
+    );
+    const collision = await findNameCollision(
+      server,
+      naming.databaseName,
+      naming.dbUser,
+    );
+    if (collision) {
+      const created = await tenantDAO.create({
+        uuid: uuidv4(),
+        companyId,
+        serverId: server.id,
+        databaseName: naming.databaseName,
+        dbUser: naming.dbUser,
+        credentialRef: "env:SQL_PASSWORD", // placeholder — no role/credential was ever created
+        credentialCiphertext: null,
+      });
+      await tenantDAO.transition(created.id, "provisioning", "failed", {
+        lastMigrationError: collision,
+      });
+      return {
+        ok: false,
+        reason: collision,
+        row: await tenantDAO.getById(created.id),
+      };
+    }
+    const password = randomBytes(24).toString("base64url");
+    const sealed = sealCredential(password);
+    row = await tenantDAO.create({
+      uuid: uuidv4(),
+      companyId,
+      serverId: server.id,
+      databaseName: naming.databaseName,
+      dbUser: naming.dbUser,
+      credentialRef: sealed.ref,
+      credentialCiphertext: sealed.ciphertext,
+    });
+  } else if (row.status === "failed") {
+    await tenantDAO.transition(row.id, "failed", "provisioning");
+  }
+
+  try {
+    const password = await resolveCredential(
+      row.credentialRef,
+      row.credentialCiphertext,
+    );
+    await runAdminSteps(row, server, password, companyUuid, hooks);
+    const schemaVersion = await runTenantSteps(row, server, password, hooks);
+    await tenantDAO.transition(row.id, "provisioning", "active", {
+      schemaVersion,
+      migrationState: "current",
+      provisionedAt: new Date(),
+    });
+    return {
+      ok: true,
+      row: (await tenantDAO.getById(row.id)) as ITenantDatabase,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await tenantDAO.transition(row.id, "provisioning", "failed", {
+      lastMigrationError: message,
+    });
+    return { ok: false, reason: message, row: await tenantDAO.getById(row.id) };
+  }
+}
+
+/**
+ * Decommission (model D-20, D-38, I-14; brief AC-55). Exactly one path per
+ * tenant: a shared-target row (C1/C2) gets the existing hook-based
+ * `purgeCompany` (its "tenant" plane IS core), a dedicated row gets parked
+ * (renamed, role NOLOGIN — never dropped) plus `purgeCompanyCentralOnly`,
+ * since its business rows leave with the whole parked database, not one by
+ * one. The row is deleted last, after park/purge succeed (I-14): a fault
+ * before that leaves `decommissioning`, and a rerun completes.
+ */
+
+export type DecommissionHooks = {
+  /** Park+revoke are separate statements; the purge-and-row-delete step that
+   * follows is one transaction (I-14), so there is no "after purge, before
+   * the row delete" state left to inject a fault into. */
+  failAfter?: "park" | "roleNoLogin";
+};
+
+export type DecommissionResult =
+  | { ok: true; companyDeleted: boolean }
+  | { ok: false; reason: string };
+
+const PARKED_PREFIX = "zz_decommissioned_";
+/** Room for `_<yyyymmdd>` (9 chars) under the 63-char identifier ceiling. */
+const PARKED_NAME_MAX = 63 - "_yyyymmdd".length;
+
+const parkedDatabaseName = (databaseName: string, today: string): string => {
+  const budget = PARKED_NAME_MAX - PARKED_PREFIX.length;
+  const body = databaseName.slice(0, Math.max(0, budget));
+  return `${PARKED_PREFIX}${body}_${today}`;
+};
+
+const todayStamp = (): string => {
+  const now = new Date();
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}`;
+};
+
+async function parkDedicatedDatabase(
+  row: ITenantDatabase,
+  server: IDbServer,
+): Promise<void> {
+  const admin = await openAdminClient(server);
+  try {
+    const stillLive = await admin.query(
+      "select 1 from pg_database where datname = $1",
+      [row.databaseName],
+    );
+    if ((stillLive.rowCount ?? 0) === 0) return; // I-11: already parked by an earlier attempt
+    const parked = parkedDatabaseName(row.databaseName, todayStamp());
+    assertSafeIdentifier(row.databaseName);
+    await admin.query(
+      `ALTER DATABASE ${quoteIdent(row.databaseName)} RENAME TO ${quoteIdent(parked)}`,
+    );
+  } finally {
+    await admin.end();
+  }
+}
+
+async function revokeDedicatedLogin(
+  row: ITenantDatabase,
+  server: IDbServer,
+): Promise<void> {
+  const admin = await openAdminClient(server);
+  try {
+    await admin.query(`ALTER ROLE ${quoteIdent(row.dbUser)} NOLOGIN`);
+  } finally {
+    await admin.end();
+  }
+}
+
+export async function decommissionTenantDatabase(
+  companyId: number,
+  hooks: DecommissionHooks = {},
+): Promise<DecommissionResult> {
+  const tenantDAO = new TenantDatabaseDAO();
+  const dbServerDAO = new DbServerDAO();
+
+  let row = await tenantDAO.getLiveByCompanyId(companyId);
+  if (!row) {
+    return {
+      ok: false,
+      reason: "no live tenant_databases row for this company",
+    };
+  }
+
+  const coreDatabase = connectionFor("core").database;
+  const isSharedTarget = row.databaseName === coreDatabase;
+
+  if (row.status !== "decommissioning") {
+    const from = row.status as "active" | "suspended";
+    await tenantDAO.transition(row.id, from, "decommissioning");
+    row = { ...row, status: "decommissioning" };
+  }
+
+  if (isSharedTarget) {
+    // I-14: the row is RESTRICT-referenced by companies until it is gone —
+    // purgeCompany deletes it inside the same transaction as `companies`.
+    const purgeResult = await purgeCompany(companyId, {
+      decommissioningTenantDatabaseId: row.id,
+    });
+    return { ok: true, companyDeleted: purgeResult.companyDeleted };
+  }
+
+  const server = await dbServerDAO.getById(row.serverId);
+  if (!server) {
+    return { ok: false, reason: `db_servers #${row.serverId} not found` };
+  }
+
+  await parkDedicatedDatabase(row, server);
+  if (hooks.failAfter === "park") {
+    throw new Error('injected fault after decommission step "park"');
+  }
+
+  await revokeDedicatedLogin(row, server);
+  if (hooks.failAfter === "roleNoLogin") {
+    throw new Error('injected fault after decommission step "roleNoLogin"');
+  }
+
+  const purgeResult = await purgeCompanyCentralOnly(companyId, {
+    decommissioningTenantDatabaseId: row.id,
+  });
+  return { ok: true, companyDeleted: purgeResult.companyDeleted };
 }

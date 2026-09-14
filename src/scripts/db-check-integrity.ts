@@ -1,7 +1,17 @@
-import type { Knex } from "knex";
-import { connectAll, disconnectAll, db } from "../database/registry";
+import { knex as createKnex, type Knex } from "knex";
+import {
+  connectAll,
+  disconnectAll,
+  db,
+  rawCoreInstance,
+  withTenantTarget,
+} from "../database/registry";
+import { connectionFor, connectionForTenant } from "../database/env";
+import { resolveCredential } from "../database/credential-resolver";
 import { crossPlaneRefs } from "../database/cross-plane-refs";
 import { userReferences } from "../services/company-purge.service";
+import { TenantDatabaseDAO } from "../dao/tenant-database/tenant-database.dao";
+import { DbServerDAO } from "../dao/db-server/db-server.dao";
 import {
   discoverScopedTables,
   discoverSetNullUserColumns,
@@ -10,6 +20,10 @@ import {
   readSnapshotFile,
   type PurgeSnapshot,
 } from "../services/purge-snapshot.service";
+import type {
+  IDbServer,
+  ITenantDatabase,
+} from "../interfaces/tenant/tenant.interfaces";
 
 /**
  * Referential integrity across the plane boundary, where no foreign key can
@@ -192,17 +206,132 @@ export async function checkPreC1(
   return failures;
 }
 
+/**
+ * Every dedicated tenant's own GUC pin (model I-15, mirrored here as a
+ * belt-and-braces check independent of the pool layer's own check at
+ * connection-open time).
+ */
+export async function checkDedicatedTenantPin(
+  tenantKnex: Knex,
+  row: Pick<ITenantDatabase, "id" | "companyId" | "databaseName">,
+): Promise<string | null> {
+  const result = (await tenantKnex.raw(
+    "select current_setting('mobius.company_id', true) as pin",
+  )) as { rows: { pin: string | null }[] };
+  const raw = result.rows[0]?.pin ?? null;
+  const actual = raw === null || raw === "" ? null : Number(raw);
+  if (actual !== row.companyId) {
+    return (
+      `pin: tenant_databases #${row.id} (${row.databaseName}) expects ` +
+      `companyId ${row.companyId}, database reports ${actual === null ? "no pin" : actual}`
+    );
+  }
+  return null;
+}
+
+/**
+ * I-2: every tenant table with a company column holds only this tenant's own
+ * rows. AC-56 — an injected row with a foreign `companyId` names its table.
+ */
+export async function checkDedicatedTenantRows(
+  tenantKnex: Knex,
+  row: Pick<ITenantDatabase, "companyId" | "databaseName">,
+): Promise<string[]> {
+  const tables = await discoverScopedTables(tenantKnex);
+  const foreign = await findNonKeeperRows(tenantKnex, tables, [row.companyId]);
+  return foreign.map(
+    (f) =>
+      `pin: ${row.databaseName} (companyId ${row.companyId}) — ${f.table} has ${f.rows} row(s) with a foreign companyId`,
+  );
+}
+
+const FLEET_LIVE_STATUSES: readonly string[] = [
+  "active",
+  "suspended",
+  "decommissioning",
+];
+/** I-18's grace window for a company still `provisioning`. */
+export const FLEET_COVERAGE_GRACE_MS = 15 * 60 * 1000;
+
+/**
+ * I-18 (AC-86): from C1 onward every `companies` row has exactly one live
+ * `tenant_databases` row. A `failed` building row always fails; a
+ * `provisioning` one within the grace window is a warning, not a failure.
+ */
+export async function checkFleetCoverage(
+  core: Knex,
+  now: Date,
+): Promise<{ failures: string[]; warnings: string[] }> {
+  const companies = await core("companies").select<
+    { id: number; uuid: string }[]
+  >("id", "uuid");
+  const rows = await core("tenant_databases").select<
+    { companyId: number; status: string; createdAt: Date }[]
+  >("companyId", "status", "createdAt");
+  const byCompany = new Map<number, typeof rows>();
+  for (const row of rows) {
+    byCompany.set(row.companyId, [
+      ...(byCompany.get(row.companyId) ?? []),
+      row,
+    ]);
+  }
+
+  const failures: string[] = [];
+  const warnings: string[] = [];
+  for (const company of companies) {
+    const companyRows = byCompany.get(company.id) ?? [];
+    if (companyRows.some((r) => FLEET_LIVE_STATUSES.includes(r.status)))
+      continue;
+
+    if (companyRows.some((r) => r.status === "failed")) {
+      failures.push(
+        `fleet coverage: company ${company.uuid} has no live tenant_databases row (a "failed" row always counts as a failure)`,
+      );
+      continue;
+    }
+    const provisioning = companyRows.find((r) => r.status === "provisioning");
+    if (
+      provisioning &&
+      now.getTime() - new Date(provisioning.createdAt).getTime() <=
+        FLEET_COVERAGE_GRACE_MS
+    ) {
+      warnings.push(
+        `fleet coverage: company ${company.uuid} is still "provisioning" (within the 15-minute grace, I-18)`,
+      );
+      continue;
+    }
+    failures.push(
+      `fleet coverage: company ${company.uuid} has no live tenant_databases row`,
+    );
+  }
+  return { failures, warnings };
+}
+
+export type DedicatedTenantTarget = {
+  row: ITenantDatabase;
+  server: IDbServer;
+};
+
 export type IntegrityCliDeps = {
   core: () => Knex;
+  /** The shared/legacy target — pre-cutover, where "tenant" IS core (C0/C1). */
   tenant: () => Knex;
+  now: () => Date;
+  listDedicatedTenants: () => Promise<DedicatedTenantTarget[]>;
+  openTenant: (target: DedicatedTenantTarget) => Promise<Knex>;
+  closeTenant: (knex: Knex) => Promise<void>;
   out: (line: string) => void;
   err: (line: string) => void;
   batchSize?: number;
 };
 
-const FLAGS = { "pre-c1": "boolean", snapshot: "single" } as const;
+const FLAGS = {
+  "pre-c1": "boolean",
+  snapshot: "single",
+  "fleet-coverage": "boolean",
+} as const;
 const USAGE =
-  "usage: db-check-integrity [--pre-c1 --snapshot <purge-snapshot.json>]";
+  "usage: db-check-integrity [--pre-c1 --snapshot <purge-snapshot.json>] [--fleet-coverage]";
 
 export async function runDbCheckIntegrity(
   argv: readonly string[],
@@ -214,8 +343,9 @@ export async function runDbCheckIntegrity(
     return 2;
   }
   const preC1 = parsed.value.flags.has("pre-c1");
+  const fleetCoverage = parsed.value.flags.has("fleet-coverage");
   const snapshotFile = parsed.value.flags.get("snapshot")?.[0];
-  if (preC1 !== (snapshotFile !== undefined)) {
+  if (preC1 !== (snapshotFile !== undefined) || (preC1 && fleetCoverage)) {
     deps.err(USAGE);
     return 2;
   }
@@ -230,39 +360,134 @@ export async function runDbCheckIntegrity(
   }
 
   const findings: string[] = [];
+  const warnings: string[] = [];
   const references = await integrityReferences(deps.core());
-  for (const ref of references) {
-    const orphans = await findOrphans(
-      deps.tenant(),
-      deps.core(),
-      ref,
-      deps.batchSize,
-    );
-    if (orphans) {
-      findings.push(
-        `orphans: ${ref.table}.${ref.column} has ${orphans.orphanValues} value(s) missing from ${ref.referencedTable}.${ref.referencedColumn} (e.g. ${orphans.sample.join(", ")})`,
+  let dedicatedCount = 0;
+
+  if (snapshot) {
+    // I-18 applies "from C1 onward"; pre-C1 has no dedicated tenant yet.
+    findings.push(...(await checkPreC1(deps.core(), snapshot)));
+  } else {
+    // The shared/legacy target — unchanged since before T9 (C0/C1: "tenant"
+    // resolves to core, so this already covers every shared-target company).
+    for (const ref of references) {
+      const orphans = await findOrphans(
+        deps.tenant(),
+        deps.core(),
+        ref,
+        deps.batchSize,
       );
+      if (orphans) {
+        findings.push(
+          `orphans: ${ref.table}.${ref.column} has ${orphans.orphanValues} value(s) missing from ${ref.referencedTable}.${ref.referencedColumn} (e.g. ${orphans.sample.join(", ")})`,
+        );
+      }
+    }
+
+    // T9 AC-56: every DEDICATED tenant, each its own physical database, gets
+    // the same orphan check plus the I-2 pin/foreign-companyId check.
+    const dedicated = await deps.listDedicatedTenants();
+    dedicatedCount = dedicated.length;
+    for (const target of dedicated) {
+      const tenantKnex = await deps.openTenant(target);
+      try {
+        for (const ref of references) {
+          const orphans = await findOrphans(
+            tenantKnex,
+            deps.core(),
+            ref,
+            deps.batchSize,
+          );
+          if (orphans) {
+            findings.push(
+              `orphans: ${target.row.databaseName} — ${ref.table}.${ref.column} has ${orphans.orphanValues} value(s) missing from ${ref.referencedTable}.${ref.referencedColumn} (e.g. ${orphans.sample.join(", ")})`,
+            );
+          }
+        }
+        const pinFinding = await checkDedicatedTenantPin(
+          tenantKnex,
+          target.row,
+        );
+        if (pinFinding) findings.push(pinFinding);
+        findings.push(
+          ...(await checkDedicatedTenantRows(tenantKnex, target.row)),
+        );
+      } finally {
+        await deps.closeTenant(tenantKnex);
+      }
+    }
+    if (fleetCoverage) {
+      // I-18 holds only "from C1 onward" — opt-in so a database that never
+      // ran `tenant:register-shared` (every local/CI fixture pre-C1) does not
+      // get a false failure per company with no tenant_databases row at all.
+      const coverage = await checkFleetCoverage(deps.core(), deps.now());
+      findings.push(...coverage.failures);
+      warnings.push(...coverage.warnings);
     }
   }
-  if (snapshot) findings.push(...(await checkPreC1(deps.core(), snapshot)));
 
+  for (const warning of warnings)
+    deps.out(`db-check-integrity: WARNING: ${warning}`);
   for (const finding of findings) deps.err(`db-check-integrity: ${finding}`);
+  const dedicatedSuffix =
+    dedicatedCount > 0 ? ` across ${dedicatedCount} dedicated tenant(s)` : "";
   deps.out(
-    `db-check-integrity: ${findings.length === 0 ? "CLEAN" : `${findings.length} finding(s)`}; ${references.length} cross-plane references checked${snapshot ? `; pre-c1 against keepers [${snapshot.keeperIds.join(", ")}]` : ""}`,
+    `db-check-integrity: ${findings.length === 0 ? "CLEAN" : `${findings.length} finding(s)`}; ${references.length} cross-plane references checked${dedicatedSuffix}${snapshot ? `; pre-c1 against keepers [${snapshot.keeperIds.join(", ")}]` : ""}`,
   );
   return findings.length === 0 ? 0 : 1;
+}
+
+async function realListDedicatedTenants(): Promise<DedicatedTenantTarget[]> {
+  const coreDatabase = connectionFor("core").database;
+  const tenantDAO = new TenantDatabaseDAO();
+  const dbServerDAO = new DbServerDAO();
+  const rows = (await tenantDAO.listForFleetMigration()).filter(
+    (row) => row.databaseName !== coreDatabase,
+  );
+  const targets: DedicatedTenantTarget[] = [];
+  for (const row of rows) {
+    const server = await dbServerDAO.getById(row.serverId);
+    if (server) targets.push({ row, server });
+  }
+  return targets;
+}
+
+async function realOpenTenant(target: DedicatedTenantTarget): Promise<Knex> {
+  const password = await resolveCredential(
+    target.row.credentialRef,
+    target.row.credentialCiphertext,
+  );
+  return createKnex({
+    client: "pg",
+    connection: connectionForTenant(target.row, target.server, password),
+    pool: { min: 0, max: 1 },
+  });
 }
 
 if (require.main === module) {
   void (async () => {
     try {
       await connectAll();
-      process.exitCode = await runDbCheckIntegrity(process.argv.slice(2), {
-        core: () => db("core"),
-        tenant: () => db("tenant"),
-        out: (line) => console.log(line),
-        err: (line) => console.error(line),
-      });
+      // db-per-company (T8, AC-49): `tenant: () => db("tenant")` answers the
+      // shared-placement check (a C1 company's target IS the core database,
+      // D-31's dedupe) — outside a request that needs an explicit scope now
+      // that the fallback is gone. `openTenant`/`closeTenant` are unaffected:
+      // they open their own dedicated connection per tenant and never call
+      // `db()` at all.
+      process.exitCode = await withTenantTarget(
+        { physicalKey: "core", instance: rawCoreInstance() },
+        () =>
+          runDbCheckIntegrity(process.argv.slice(2), {
+            core: () => db("core"),
+            tenant: () => db("tenant"),
+            now: () => new Date(),
+            listDedicatedTenants: realListDedicatedTenants,
+            openTenant: realOpenTenant,
+            closeTenant: (knex) => knex.destroy(),
+            out: (line) => console.log(line),
+            err: (line) => console.error(line),
+          }),
+      );
     } catch (error) {
       console.error(error);
       process.exitCode = 1;
