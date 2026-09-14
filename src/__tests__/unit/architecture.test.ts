@@ -186,6 +186,11 @@ describe("AC-56 — the registry is the only door", () => {
     // The door itself (db-per-company T2): every read module code makes of
     // `companies`/`users`/`company_modules`/`modules` is a query here.
     "services/core-client.service.ts",
+    // One-off processes (db-per-company T4) that open the connection lifecycle
+    // themselves: the catalogue writer and the cross-plane integrity checker,
+    // which reads both planes and the catalogue, owned by no entity DAO.
+    "scripts/modules-sync.ts",
+    "scripts/db-check-integrity.ts",
   ];
 
   const NON_DAO_CONNECTION_HOLDERS = [
@@ -220,7 +225,7 @@ describe("AC-56 — the registry is the only door", () => {
 
   it("counts the two blocks, so a permanent exemption cannot hide among the temporary ones", () => {
     expect(MOVES_TO_CORE_CLIENT_IN_T2B).toHaveLength(3);
-    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(14);
+    expect(PERMANENT_NON_DAO_HOLDERS).toHaveLength(16);
     // No file may sit in both blocks.
     expect(new Set(NON_DAO_CONNECTION_HOLDERS).size).toBe(
       NON_DAO_CONNECTION_HOLDERS.length,
@@ -302,6 +307,12 @@ describe("AC-10 (db-per-company T2) — central tables are read only by the cent
     // Developer smoke script, never imported by the app: it seeds and removes
     // its own company, role and users directly.
     "scripts/review-fix-smoke.ts",
+    // T4 scripts, run as one-off processes, never imported by the app: the
+    // catalogue writer IS the `modules` table's registration path (T2d), and
+    // the integrity checker must read `users`/`companies` next to tenant rows
+    // to find what no foreign key across planes can reject.
+    "scripts/modules-sync.ts",
+    "scripts/db-check-integrity.ts",
   ];
 
   const isCentral = (file: string): boolean =>
