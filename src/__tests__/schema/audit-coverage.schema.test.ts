@@ -52,8 +52,13 @@ const AUDITED_COUNTS: Record<DbKey, number> = {
 const ATTACH_CALLS = 79;
 const AUDITED_TABLES = 78;
 
-/** R-1: 43 of the 74 pre-T6 tables, plus T6's 3 superAdmin-only ones (D-46). */
-const ADMIN_ONLY_ENTITIES = 46;
+/**
+ * R-1, corrected post-T2 router sweep (2026-09-14): only entities no company
+ * route reaches with any code at all — `companies`/`company_modules`/`modules`
+ * (superAdmin-only) plus T6's `db_servers`/`tenant_databases`/
+ * `tenant_migration_runs` (superAdmin-only, D-46).
+ */
+const ADMIN_ONLY_ENTITIES = 6;
 
 /**
  * Column names the live schema points at two different tables (R-4). They must

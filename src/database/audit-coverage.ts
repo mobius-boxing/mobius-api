@@ -149,81 +149,73 @@ export const auditedTablesOf = (key: DbKey): string[] =>
   tablesOf(key).filter((table) => !AUDIT_EXCLUDED.has(table));
 
 /**
- * The catalogue code that governs an audited table, or `null` for no
- * dedicated per-entity code (R-1, 2026-09-02).
+ * The catalogue code that governs an audited table, or `null` when no
+ * company route reaches it with a code at all (R-1).
  *
  * **Not** "the code the entity's `GET /` enforces" — the handbook's recipe.
- * Exactly three routers gate their list with `requirePermission` (`roles`,
- * `permissions`, `sales-orders`); the other ~70 call sites sit on the
- * **mutating** routes, so the value here is the code the entity's routes
- * enforce *anywhere*. `requireEntityHistoryAccess` opens a `null` entry to
- * `audit.read` only — no other fallback.
+ * Most routers gate only their **mutating** routes with `requirePermission`
+ * and leave `GET` open to any authenticated user, so the value here is the
+ * code the entity's routes enforce *anywhere*. `requireEntityHistoryAccess`
+ * opens a `null` entry to `audit.read` only — no other fallback — and opens
+ * a coded entry to `audit.read` OR that code (with its `.readonly` variant),
+ * so history follows exactly where the entity itself is readable.
  *
- * Snapshot taken 2026-09-02, before the role-management project's T2 router
- * sweep replaced every `requireAdmin()` call with a catalogue code (2026-09-14):
- * most of the `null` entries below now understate their entity's real gate —
- * their router enforces a code today (see `docs/dev/role-management/
- * model.md`'s route mapping) that this manifest was never updated to name.
- * Re-deriving it from the current routers, not from this comment, is the T2
- * report's own recommendation; not done here because it changes audit-history
- * *reach*, which is this file's allowlist owner's call, not a router-sweep's.
- *
- * Derived by reading every `src/routes/<entity>/<entity>.router.ts` on
- * 2026-09-02, not from the catalogue: a code that no router enforces would
- * invent a gate (R-1 option (c)) and is never used here. Child tables take
- * their `AUDIT_PARENT` parent's code, because a child is only ever written
- * through the parent's routes.
+ * Derived by reading every `src/routes/<entity>/<entity>.router.ts`: a code
+ * that no router enforces would invent a gate (R-1 option (c)) and is never
+ * used here. Child tables take their `AUDIT_PARENT` parent's code, because a
+ * child is only ever written through the parent's routes.
  *
  * Every key is an audited table and every non-null value is a real code in
  * `PERMISSION_CONCEPTS`/`MOBIUS_ADDED_PERMISSIONS`; both are asserted by
- * `audit-coverage.schema.test.ts`. 43 of the 75 entries are `null`.
+ * `audit-coverage.schema.test.ts`.
  */
 export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
-  // ── No dedicated code in this manifest (stale since the T2 router sweep —
-  //    see the block comment above) ──────────────────────────────────────
-  app_config: null,
-  box_types: null,
-  color_types: null,
-  colors: null,
+  app_config: "settings.edit",
+  box_types: "box-types.edit",
+  color_types: "color-types.edit",
+  colors: "colors.edit",
+  // ── No company route reaches these at all — every route is superAdmin-only
+  //    (platform/ops entities) or, for `companies`' one non-superAdmin read,
+  //    `authenticate` with no code ──────────────────────────────────────────
   companies: null,
-  company_modules: null, // written by `modules.router.ts`, admin-gated
-  complements: null,
-  consumable_stock: null,
-  consumable_supplies: null,
-  consumable_types: null,
-  corrugation_classes: null,
-  corrugation_layers: null, // child of `corrugations`, admin-gated
-  corrugations: null,
-  customer_categories: null,
-  customers: null,
-  delivery_locations: null,
-  delivery_schedules: null, // child of `customers`, admin-gated
-  delivery_zones: null,
-  files: null, // uploads are `authenticate` only (P1's `detachAudit`)
-  finished_goods: null,
-  flap_types: null,
-  flute_types: null,
-  fsc_types: null,
-  glue_types: null,
-  invitations: null,
-  manufacturers: null,
-  modules: null,
-  paper_class_papers: null, // child of `paper_classes`, admin-gated
-  paper_classes: null,
-  paper_sheets: null,
-  paper_stock: null,
-  paper_supplies: null,
-  paper_types: null,
-  product_types: null,
-  sheet_stock: null,
-  strapping_types: null,
-  suppliers: null,
-  tooling_stock: null,
-  tooling_types: null,
-  toolings: null,
-  trace_types: null,
-  warehouse_locations: null,
-  warehouses: null,
+  company_modules: null, // companies.router.ts's nested endpoints, superAdmin-only
+  complements: "complements.edit",
+  consumable_stock: "consumable-stock.edit",
+  consumable_supplies: "consumable-supplies.edit",
+  consumable_types: "consumable-types.edit",
+  corrugation_classes: "corrugated.classes",
+  corrugation_layers: "corrugated.edit", // child of `corrugations`
+  corrugations: "corrugated.edit",
+  customer_categories: "customer-categories.edit",
+  customers: "customers.edit",
+  delivery_locations: "delivery-zones.edit",
+  delivery_schedules: "customers.edit", // child of `customers`
+  delivery_zones: "delivery-zones.edit",
+  files: "files.manage", // the one admin-gated method (`GET /`, the list)
+  finished_goods: "finished-goods.edit",
+  flap_types: "flap-types.edit",
+  flute_types: "flute-types.edit",
+  fsc_types: "fsc-types.edit",
+  glue_types: "glue-types.edit",
+  invitations: "users.edit",
+  manufacturers: "manufacturers.edit",
+  modules: null, // modules.router.ts, superAdmin-only
+  paper_class_papers: "paper.classes", // child of `paper_classes`
+  paper_classes: "paper.classes",
+  paper_sheets: "papers.edit",
+  paper_stock: "paper-stock.edit",
+  paper_supplies: "supplies.edit",
+  paper_types: "paper-types.edit",
+  product_types: "product-types.edit",
+  sheet_stock: "sheet-stock.edit",
+  strapping_types: "strapping-types.edit",
+  suppliers: "suppliers.edit",
+  tooling_stock: "tooling-stock.edit",
+  tooling_types: "tooling-types.edit",
+  toolings: "tooling.edit",
+  trace_types: "score-types.edit",
+  warehouse_locations: "warehouses.edit",
+  warehouses: "warehouses.edit",
   // ── Countdown (`countdown.router.ts`): one code for the whole module ──────
   countdown_categories: "countdown.manage",
   countdown_document_assignments: "countdown.manage",
@@ -254,11 +246,10 @@ export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   production_route_stage_supplies: "routes.edit",
   production_route_stages: "routes.edit",
   production_routes: "routes.edit", // `routes.delete` gates deletion only
-  // Stale since the T2 router sweep: product CRUD now enforces `products.edit`
-  // (`products.delete` on DELETE); this value predates that and still names
-  // only the technical-approval PATCH (the `parts.edit` call site on that
-  // router belongs to the nested `/parts` collection).
-  products: "products.approve.technical",
+  // The base resource code, matching every other entity here — not the
+  // narrower `products.approve.technical` (one PATCH) or `products.delete`
+  // (DELETE only), and not `parts.edit` (the nested `/parts` collection).
+  products: "products.edit",
   role_permissions: "roles.edit", // child of `roles`
   roles: "roles.edit",
   sales_order_approval_events: "orders.edit", // child of `sales_orders`

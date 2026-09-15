@@ -33,8 +33,13 @@ import {
 
 /** An entity whose own routes enforce a code (`parts.edit`). */
 const CODED_ENTITY = "parts";
-/** An entity with no dedicated code in `ENTITY_READ_PERMISSION` — a `null` entry. */
-const ADMIN_ONLY_ENTITY = "customers";
+/** An entity with no dedicated code in `ENTITY_READ_PERMISSION` — no company
+ * route reaches it at all (`companies` is superAdmin-gated end to end,
+ * except one `authenticate`-only read with no code). */
+const ADMIN_ONLY_ENTITY = "companies";
+/** A second coded entity, to prove the `.readonly` pairing generalizes past
+ * `parts` — reached only through `box-type.router.ts`'s writes. */
+const READONLY_ENTITY = "box_types";
 
 type Role = "member" | "admin" | "superAdmin";
 
@@ -86,10 +91,11 @@ beforeEach(() => {
 });
 
 describe("requireEntityHistoryAccess — the fixtures it depends on", () => {
-  it("reads the two entity kinds from the manifest, not from an assumption", () => {
-    // If R-1's map is ever re-derived, these two cases must still be one of
-    // each kind — otherwise the null-branch tests below prove nothing.
+  it("reads the entity kinds from the manifest, not from an assumption", () => {
+    // If R-1's map is ever re-derived, these cases must still be one of each
+    // kind — otherwise the branch tests below prove nothing.
     expect(ENTITY_READ_PERMISSION[CODED_ENTITY]).toBe("parts.edit");
+    expect(ENTITY_READ_PERMISSION[READONLY_ENTITY]).toBe("box-types.edit");
     expect(ENTITY_READ_PERMISSION[ADMIN_ONLY_ENTITY]).toBeNull();
   });
 });
@@ -133,6 +139,14 @@ describe("requireEntityHistoryAccess — who passes", () => {
       await run("member", ADMIN_ONLY_ENTITY, { codes: ["audit.read"] }),
     );
   });
+
+  it("passes a member holding only box-types.edit.readonly on box_types history — history follows exactly where the entity is readable", async () => {
+    expectPassed(
+      await run("member", READONLY_ENTITY, {
+        codes: ["box-types.edit.readonly"],
+      }),
+    );
+  });
 });
 
 describe("requireEntityHistoryAccess — who is refused", () => {
@@ -159,6 +173,18 @@ describe("requireEntityHistoryAccess — who is refused", () => {
     expect(result.res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         message: expect.stringContaining("audit.read") as unknown as string,
+      }),
+    );
+  });
+
+  it("refuses a member holding box-types.edit.readonly on an entity it doesn't cover (parts)", async () => {
+    const result = await run("member", CODED_ENTITY, {
+      codes: ["box-types.edit.readonly"],
+    });
+    expectStatus(result, 403);
+    expect(result.res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("parts.edit") as unknown as string,
       }),
     );
   });
