@@ -2,7 +2,7 @@ import { Router } from "express";
 import { InvitationsController } from "../../controllers/invitations/invitations.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -37,7 +37,7 @@ export class InvitationsRouter {
     this.router.get(
       "/stats",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit", { allowReadOnly: true }),
       apiRateLimiter,
       this.invitationsController.getStats.bind(this.invitationsController),
     );
@@ -45,7 +45,7 @@ export class InvitationsRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.invitationsController.getAll.bind(this.invitationsController),
@@ -53,7 +53,7 @@ export class InvitationsRouter {
     this.router.get(
       "/company/:companyId/active",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit", { allowReadOnly: true }),
       apiRateLimiter,
       this.invitationsController.getActiveInvitations.bind(
         this.invitationsController,
@@ -62,7 +62,7 @@ export class InvitationsRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.invitationsController.getByUuid.bind(this.invitationsController),
@@ -70,14 +70,14 @@ export class InvitationsRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit"),
       apiRateLimiter,
       this.invitationsController.create.bind(this.invitationsController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit"),
       validateUUID(),
       apiRateLimiter,
       this.invitationsController.update.bind(this.invitationsController),
@@ -85,7 +85,7 @@ export class InvitationsRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.invitationsController.delete.bind(this.invitationsController),

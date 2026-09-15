@@ -250,11 +250,11 @@ export const requirePermission = (
       return;
     }
 
-    try {
-      // Cache per request — several gates may run on one request.
-      let codes: string[] | undefined = req.permissionCodes;
-      let hasRole: boolean | undefined = req.permissionHasRole;
-      if (codes === undefined || hasRole === undefined) {
+    // Cache per request — several gates may run on one request.
+    let codes: string[] | undefined = req.permissionCodes;
+    let hasRole: boolean | undefined = req.permissionHasRole;
+    if (codes === undefined || hasRole === undefined) {
+      try {
         const { RbacService } = await import("../services/rbac.service");
         // NOTE: UserDAO.getByUuid must not be used here — its mapToInterface
         // drops roleId, which would silently disable the whole grid.
@@ -263,12 +263,28 @@ export const requirePermission = (
         codes = authz.codes;
         req.permissionCodes = codes;
         req.permissionHasRole = hasRole;
+      } catch (err) {
+        // An authz lookup failure never allows — 503, not a 500 that
+        // some upstream client could retry into an accidental 4xx-swallow.
+        res.status(503).json({
+          success: false,
+          code: "AUTHZ_UNAVAILABLE",
+          message: "Authorization lookup is temporarily unavailable.",
+        });
+        return;
       }
+    }
 
+    try {
       // Decision semantics live in ONE place (RbacService.isAllowed) — the
       // superAdmin bypass above is only a fetch-skipping fast path.
       const { RbacService } = await import("../services/rbac.service");
-      if (!RbacService.isAllowed(user.role, hasRole, codes, code, options)) {
+      if (
+        !RbacService.isAllowed(user.role, hasRole, codes, code, options, {
+          userUuid: user.userId,
+          path: `${req.baseUrl}${req.path}`,
+        })
+      ) {
         res.status(403).json({
           success: false,
           message: `Insufficient permissions. Required: ${code}`,

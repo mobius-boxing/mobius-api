@@ -3,18 +3,22 @@ import { db } from "../database/registry";
 import {
   PERMISSION_CONCEPTS,
   MOBIUS_ADDED_PERMISSIONS,
-  PROCUSTO_PROFILE_TEMPLATES,
+  MEMBER_BASELINE_CODES,
   ADMIN_ROLE_NAME,
+  MEMBER_ROLE_NAME,
+  type IPermissionConcept,
 } from "../common/constants/permissions-catalog";
 
 /**
  * RBAC seeding + permission resolution.
  *
  * Model B (decided, 02/07-mobius-mapping.md §5): the permission catalogue is
- * cloned per company at provisioning. Seeded per company:
- *  - 136 concepts × 2 rows (RW + `.readonly`) + 5 Mobius-added action gates
- *  - a protected `Admin` role granted every RW permission
- *  - the 15 live Procusto profiles as starter roles (grants come from ETL later)
+ * cloned per company at provisioning. Each company is seeded with exactly:
+ *  - the pruned catalogue (RW + `.readonly` rows where the concept says so);
+ *  - a protected `Admin` role (`systemKey='admin'`) granted every RW code;
+ *  - a `Member` role (`systemKey='member'`) granted the baseline codes.
+ * No Procusto starter roles are seeded — a company that wants a named,
+ * scoped-down role creates one after the fact via the roles API.
  *
  * Also the runtime lookup used by requirePermission: users.roleId →
  * role_permissions → permissions.code.
@@ -25,9 +29,19 @@ export class RbacService {
    * Call inside company provisioning and from the backfill migration.
    */
   static async seedCompanyRbac(knex: Knex, companyId: number): Promise<void> {
-    // 1. Permission catalogue (RW + RO variants, then Mobius-added RW-only).
+    const concepts: Array<IPermissionConcept & { defaultReadonly: boolean }> = [
+      ...PERMISSION_CONCEPTS.map((c) => ({ ...c, defaultReadonly: true })),
+      ...MOBIUS_ADDED_PERMISSIONS.map((c) => ({
+        ...c,
+        defaultReadonly: false,
+      })),
+    ];
+
+    // 1. Permission catalogue: one RW row per concept, plus a `.readonly`
+    //    sibling when the concept calls for one.
     const permissionRows: any[] = [];
-    for (const concept of PERMISSION_CONCEPTS) {
+    const rwCodes: string[] = [];
+    for (const concept of concepts) {
       permissionRows.push({
         companyId,
         code: concept.code,
@@ -38,40 +52,34 @@ export class RbacService {
         area: concept.area,
         deprecated: concept.deprecated ?? false,
       });
-      permissionRows.push({
-        companyId,
-        code: `${concept.code}.readonly`,
-        name: concept.name,
-        description: `${concept.description} (sólo lectura)`,
-        readOnly: true,
-        associatedForms: concept.forms ?? null,
-        area: concept.area,
-        deprecated: concept.deprecated ?? false,
-      });
-    }
-    for (const added of MOBIUS_ADDED_PERMISSIONS) {
-      permissionRows.push({
-        companyId,
-        code: added.code,
-        name: added.name,
-        description: added.description,
-        readOnly: false,
-        associatedForms: null,
-        area: added.area,
-        deprecated: false,
-      });
+      rwCodes.push(concept.code);
+      const seedsReadonly = concept.readonly ?? concept.defaultReadonly;
+      if (seedsReadonly) {
+        permissionRows.push({
+          companyId,
+          code: `${concept.code}.readonly`,
+          name: concept.name,
+          description: `${concept.description} (sólo lectura)`,
+          readOnly: true,
+          associatedForms: concept.forms ?? null,
+          area: concept.area,
+          deprecated: concept.deprecated ?? false,
+        });
+      }
     }
     await knex("permissions")
       .insert(permissionRows)
       .onConflict(["companyId", "code"])
       .ignore();
 
-    // 2. Protected Admin role with every RW permission (mirrors Procusto's
-    //    "new permission auto-granted to all profiles" for the admin case).
+    // 2. Protected Admin role — granted every RW code in the catalogue above
+    //    (selecting by code, not "every readOnly=false row for this company",
+    //    so a not-yet-pruned leftover row is never granted).
     await knex("roles")
       .insert({
         companyId,
         name: ADMIN_ROLE_NAME,
+        systemKey: "admin",
         profileType: "general",
         hasAccessToAllMachines: true,
         isProtected: true,
@@ -81,38 +89,65 @@ export class RbacService {
     const adminRole = await knex("roles")
       .where({ companyId, name: ADMIN_ROLE_NAME })
       .first();
-
-    const rwPermissions = await knex("permissions")
-      .where({ companyId, readOnly: false })
-      .select("id");
-    if (adminRole && rwPermissions.length) {
-      await knex("role_permissions")
-        .insert(
-          rwPermissions.map((p: any) => ({
-            roleId: adminRole.id,
-            permissionId: p.id,
-            companyId,
-          })),
-        )
-        .onConflict(["roleId", "permissionId"])
-        .ignore();
+    if (adminRole && !adminRole.systemKey) {
+      // Existing protected Admin row from before this migration — stamp it.
+      await knex("roles")
+        .where({ id: adminRole.id })
+        .update({ systemKey: "admin" });
     }
 
-    // 3. The 15 live Procusto profiles as starter roles (empty grants — the
-    //    real PerfilPermiso rows arrive with ETL; admins can grant meanwhile).
+    if (adminRole) {
+      const rwPermissionRows = await knex("permissions")
+        .where({ companyId, readOnly: false })
+        .whereIn("code", rwCodes)
+        .select("id");
+      if (rwPermissionRows.length) {
+        await knex("role_permissions")
+          .insert(
+            rwPermissionRows.map((p: any) => ({
+              roleId: adminRole.id,
+              permissionId: p.id,
+              companyId,
+            })),
+          )
+          .onConflict(["roleId", "permissionId"])
+          .ignore();
+      }
+    }
+
+    // 3. Member role — baseline grants only.
     await knex("roles")
-      .insert(
-        PROCUSTO_PROFILE_TEMPLATES.map((p) => ({
-          companyId,
-          name: p.name,
-          profileType: p.profileType,
-          hasAccessToAllMachines: true,
-          isProtected: false,
-          legacyId: p.legacyId,
-        })),
-      )
+      .insert({
+        companyId,
+        name: MEMBER_ROLE_NAME,
+        systemKey: "member",
+        profileType: "general",
+        hasAccessToAllMachines: true,
+        isProtected: false,
+      })
       .onConflict(["companyId", "name"])
       .ignore();
+    const memberRole = await knex("roles")
+      .where({ companyId, name: MEMBER_ROLE_NAME })
+      .first();
+    if (memberRole) {
+      const baselinePermissionRows = await knex("permissions")
+        .where({ companyId })
+        .whereIn("code", MEMBER_BASELINE_CODES as unknown as string[])
+        .select("id");
+      if (baselinePermissionRows.length) {
+        await knex("role_permissions")
+          .insert(
+            baselinePermissionRows.map((p: any) => ({
+              roleId: memberRole.id,
+              permissionId: p.id,
+              companyId,
+            })),
+          )
+          .onConflict(["roleId", "permissionId"])
+          .ignore();
+      }
+    }
   }
 
   /**
@@ -142,6 +177,12 @@ export class RbacService {
    * legacy roleless-admin fallback, and the `.readonly` variant. Both the
    * requirePermission middleware and any controller-level check MUST route
    * through here; never inline these semantics elsewhere.
+   *
+   * The legacy fallback stays live but every allow it grants is logged at
+   * warn (`rbac.legacy_fallback_allow`) so its eventual removal can be timed
+   * against zero hits. `context` is optional so existing call sites that
+   * predate this parameter keep compiling; omitting it only omits the
+   * uuid/path from the log line, it never skips the log.
    */
   static isAllowed(
     role: string | undefined,
@@ -149,9 +190,18 @@ export class RbacService {
     codes: string[],
     code: string,
     options?: { allowReadOnly?: boolean },
+    context?: { userUuid?: string; path?: string },
   ): boolean {
     if (role === "superAdmin") return true;
-    if (!hasRole) return role === "admin"; // transition fallback (02/08-migration)
+    if (!hasRole) {
+      const allowed = role === "admin";
+      if (allowed) {
+        console.warn(
+          `[rbac.legacy_fallback_allow] userUuid=${context?.userUuid ?? "unknown"} code=${code} path=${context?.path ?? "unknown"}`,
+        );
+      }
+      return allowed;
+    }
     return (
       codes.includes(code) ||
       (options?.allowReadOnly === true && codes.includes(`${code}.readonly`))
@@ -167,7 +217,9 @@ export class RbacService {
   ): Promise<boolean> {
     if (role === "superAdmin") return true;
     const authz = await this.authzForUserUuid(userUuid);
-    return this.isAllowed(role, authz.hasRole, authz.codes, code, options);
+    return this.isAllowed(role, authz.hasRole, authz.codes, code, options, {
+      userUuid,
+    });
   }
 
   /** Permission codes for a user (by users.id). Empty when the user has no role. */
@@ -190,5 +242,46 @@ export class RbacService {
       .where("users.uuid", userUuid)
       .select("permissions.code");
     return rows.map((r: any) => r.code);
+  }
+
+  /** `roles.uuid`/`roles.name` for a user's assigned role — null when unassigned. */
+  static async roleForUserUuid(
+    userUuid: string,
+  ): Promise<{ roleUuid: string; roleName: string } | null> {
+    const knex = db("core");
+    const row = await knex("users")
+      .join("roles", "users.roleId", "roles.id")
+      .where("users.uuid", userUuid)
+      .select("roles.uuid as roleUuid", "roles.name as roleName")
+      .first();
+    return row ?? null;
+  }
+
+  /** `roles.systemKey` for a numeric role id — null for a custom role or a missing one. */
+  static async roleSystemKey(roleId: number): Promise<string | null> {
+    const knex = db("core");
+    const row = await knex("roles")
+      .where("id", roleId)
+      .select("systemKey")
+      .first();
+    return row?.systemKey ?? null;
+  }
+
+  /** The company's Admin/Member row id, by systemKey. */
+  static async systemRoleId(
+    companyId: number,
+    systemKey: "admin" | "member",
+  ): Promise<number | null> {
+    const knex = db("core");
+    const row = await knex("roles")
+      .where({ companyId, systemKey })
+      .select("id")
+      .first();
+    return row?.id ?? null;
+  }
+
+  /** `users.role` mirror derived from a role's systemKey — the JWT claim and device-gate exemption still read the enum. */
+  static mirrorRoleFor(systemKey: string | null): "admin" | "member" {
+    return systemKey === "admin" ? "admin" : "member";
   }
 }

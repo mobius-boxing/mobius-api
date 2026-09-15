@@ -9,6 +9,10 @@
 import { describe, it, expect } from "@jest/globals";
 import fs from "fs";
 import path from "path";
+import {
+  PERMISSION_CONCEPTS,
+  MOBIUS_ADDED_PERMISSIONS,
+} from "../../common/constants/permissions-catalog";
 
 const SRC = path.join(__dirname, "..", "..");
 const SELF = "__tests__/unit/architecture.test.ts";
@@ -313,7 +317,7 @@ describe("AC-10 (db-per-company T2) — central tables are read only by the cent
     // (model D-10), joined to `users` on the same `db("core")` connection —
     // never cross-plane.
     /^dao\/(company|user|company-module|invitation|role|permission|module|email-token|user-device)\//,
-    /^services\/(core-client|rbac|auth[^/]*|company-purge)\.service\.ts$/,
+    /^services\/(core-client|rbac|role-policy|auth[^/]*|company-purge)\.service\.ts$/,
     /^middlewares\/(auth|audit-context)\.middleware\.ts$/,
     /^controllers\/(auth|companies|users|invitations|modules|public)\//,
     /^database\//,
@@ -438,5 +442,194 @@ describe("AC-42 (db-per-company T7) — every route folder has a plane", () => {
       expect(ROUTE_PLANE[folder]).toBe("central");
     }
     expect(ROUTE_PLANE["audit-logs"]).toBe("mixed");
+  });
+});
+
+describe("AC-3 — every requirePermission/userHasPermission code literal is in the catalogue", () => {
+  /**
+   * Every code the catalogue seeds (RW + `.readonly` sibling where the
+   * concept has one). Mirrors `RbacService.seedCompanyRbac`'s own rule:
+   * `PERMISSION_CONCEPTS` defaults to readonly=true, `MOBIUS_ADDED_PERMISSIONS`
+   * to false, both overridable per concept.
+   */
+  const CATALOGUE_CODES: string[] = [
+    ...PERMISSION_CONCEPTS.flatMap((c) =>
+      (c.readonly ?? true) ? [c.code, `${c.code}.readonly`] : [c.code],
+    ),
+    ...MOBIUS_ADDED_PERMISSIONS.flatMap((c) =>
+      (c.readonly ?? false) ? [c.code, `${c.code}.readonly`] : [c.code],
+    ),
+  ];
+  const CATALOGUE_SET = new Set(CATALOGUE_CODES);
+
+  /**
+   * Codes referenced from a `requirePermission(...)`/`userHasPermission(...)`/
+   * `this.can(...)` call site, resolving a bare identifier against a
+   * same-file `const NAME = "code"` (the `EDIT`/`GENERATE`/`EDIT_PRICES`-style
+   * constants several routers already use). `{ allowReadOnly: true }` on the
+   * SAME call also counts the `.readonly` sibling as referenced.
+   *
+   * Deliberately best-effort, like the rest of this file's regex checks: a
+   * code built from a template literal (`` `orders.approve.${machine}` ``,
+   * `sales-order-approval.interfaces.ts`) cannot be seen this way, so that one
+   * case is special-cased below rather than silently under-counted.
+   */
+  const referencedCodesIn = (contents: string): Set<string> => {
+    const referenced = new Set<string>();
+    const constMap = new Map<string, string>();
+    const constRe =
+      /const\s+(\w+)\s*(?::\s*string)?\s*=\s*["'`]([\w.-]+)["'`]/g;
+    let m: RegExpExecArray | null;
+    while ((m = constRe.exec(contents))) constMap.set(m[1], m[2]);
+
+    const resolve = (token: string): string | null =>
+      /^["'`]/.test(token) ? token.slice(1, -1) : (constMap.get(token) ?? null);
+
+    const CALL_RE =
+      /(?:requirePermission|\.can)\(\s*(?:[^,()]+,\s*)?(["'`][\w.-]+["'`]|\w+)\s*(,\s*\{([^}]*)\})?/g;
+    while ((m = CALL_RE.exec(contents))) {
+      const code = resolve(m[1]);
+      if (!code) continue;
+      referenced.add(code);
+      if (m[3] && /allowReadOnly\s*:\s*true/.test(m[3])) {
+        referenced.add(`${code}.readonly`);
+      }
+    }
+
+    const UHP_RE =
+      /userHasPermission\(\s*[^,]+,\s*[^,]+,\s*(["'`][\w.-]+["'`]|\w+)\s*(,\s*\{([^}]*)\})?/g;
+    while ((m = UHP_RE.exec(contents))) {
+      const code = resolve(m[1]);
+      if (!code) continue;
+      referenced.add(code);
+      if (m[3] && /allowReadOnly\s*:\s*true/.test(m[3])) {
+        referenced.add(`${code}.readonly`);
+      }
+    }
+
+    // `orderApprovalPermissionCode` (sales-order-approval.interfaces.ts):
+    // `orders.approve.${machine}` over ORDER_APPROVAL_MACHINES.
+    if (contents.includes("`orders.approve.${")) {
+      referenced.add("orders.approve.commercial");
+      referenced.add("orders.approve.financial");
+    }
+
+    return referenced;
+  };
+
+  const allReferencedCodes = (): Set<string> => {
+    const referenced = new Set<string>();
+    for (const file of sourceFiles()) {
+      for (const code of referencedCodesIn(read(file))) referenced.add(code);
+    }
+    return referenced;
+  };
+
+  it("has no requirePermission/userHasPermission/`.can()` code literal outside the catalogue", () => {
+    const referenced = allReferencedCodes();
+    const offenders = [...referenced].filter(
+      (code) => !CATALOGUE_SET.has(code),
+    );
+    expect(offenders.sort()).toEqual([]);
+  });
+
+  /**
+   * "Every catalogue code is referenced" only holds once the remaining
+   * routers are swept onto the catalogue. Until then, this is the exact,
+   * sorted set of catalogue codes no guard or controller check names yet;
+   * whoever wires a code must remove its entry here in the SAME change, so
+   * this list is empty once every code is enforced and this test starts
+   * asserting full coverage for real.
+   */
+  const CODES_NOT_YET_ENFORCED: string[] = [
+    "box-types.edit",
+    "box-types.edit.readonly",
+    "color-types.edit",
+    "color-types.edit.readonly",
+    "colors.edit",
+    "colors.edit.readonly",
+    "complements.edit",
+    "complements.edit.readonly",
+    "consumable-stock.edit",
+    "consumable-stock.edit.readonly",
+    "consumable-supplies.edit",
+    "consumable-supplies.edit.readonly",
+    "consumable-types.edit",
+    "consumable-types.edit.readonly",
+    "corrugated.classes",
+    "corrugated.classes.readonly",
+    "corrugated.edit",
+    "corrugated.edit.readonly",
+    "customer-categories.edit",
+    "customer-categories.edit.readonly",
+    "customers.edit",
+    "customers.edit.readonly",
+    "delivery-zones.edit",
+    "delivery-zones.edit.readonly",
+    "files.manage",
+    "finished-goods.edit",
+    "finished-goods.edit.readonly",
+    "flap-types.edit",
+    "flap-types.edit.readonly",
+    "flute-types.edit",
+    "flute-types.edit.readonly",
+    "fsc-types.edit",
+    "fsc-types.edit.readonly",
+    "glue-types.edit",
+    "glue-types.edit.readonly",
+    // Reads on these five routers stay `requireAdmin()`-gated by design —
+    // only their RW code is wired today.
+    "machines.edit.readonly",
+    "manufacturers.edit",
+    "manufacturers.edit.readonly",
+    "models.edit.readonly",
+    "palletizing.edit.readonly",
+    "paper-stock.edit",
+    "paper-stock.edit.readonly",
+    "paper-types.edit",
+    "paper-types.edit.readonly",
+    "paper.classes",
+    "paper.classes.readonly",
+    "papers.edit",
+    "papers.edit.readonly",
+    // parts.approve.{dimensions,sketch,technical}: no route/controller checks
+    // these three yet (only .bulk and, via product.controller, .part do).
+    "parts.approve.dimensions",
+    "parts.approve.sketch",
+    "parts.approve.technical",
+    "parts.edit.readonly",
+    "product-types.edit",
+    "product-types.edit.readonly",
+    "products.delete",
+    "products.edit",
+    "products.edit.readonly",
+    "routes.edit.readonly",
+    "score-types.edit",
+    "score-types.edit.readonly",
+    "settings.edit",
+    "sheet-stock.edit",
+    "sheet-stock.edit.readonly",
+    "strapping-types.edit",
+    "strapping-types.edit.readonly",
+    "suppliers.edit",
+    "suppliers.edit.readonly",
+    "supplies.edit",
+    "supplies.edit.readonly",
+    "tooling-stock.edit",
+    "tooling-stock.edit.readonly",
+    "tooling-types.edit",
+    "tooling-types.edit.readonly",
+    "tooling.edit",
+    "tooling.edit.readonly",
+    "warehouses.edit",
+    "warehouses.edit.readonly",
+  ].sort();
+
+  it("names every unenforced catalogue code, exactly — shrink this list as routes are gated", () => {
+    const referenced = allReferencedCodes();
+    const unreferenced = CATALOGUE_CODES.filter(
+      (code) => !referenced.has(code),
+    ).sort();
+    expect(unreferenced).toEqual(CODES_NOT_YET_ENFORCED);
   });
 });

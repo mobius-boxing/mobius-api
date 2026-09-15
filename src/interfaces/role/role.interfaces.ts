@@ -6,11 +6,15 @@ export interface IRole {
   profileType: string;
   hasAccessToAllMachines: boolean;
   isProtected: boolean;
+  /** `'admin' | 'member' | null` — set on the two per-company system roles. */
+  systemKey?: "admin" | "member" | null;
   legacyId?: number | null;
   createdAt?: Date;
   updatedAt?: Date;
-  /** Granted permission codes (populated on getByUuid). */
+  /** Granted permission codes (populated on getByUuid and the assignable list). */
   permissionCodes?: string[];
+  /** Users currently assigned this role (populated on list/getByUuid). */
+  userCount?: number;
 }
 
 export interface IPermission {

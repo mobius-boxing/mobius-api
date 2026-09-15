@@ -2,7 +2,7 @@ import { Router } from "express";
 import { UsersController } from "../../controllers/users/users.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   requireSuperAdmin,
   validateUUID,
   validatePagination,
@@ -23,7 +23,7 @@ export class UsersRouter {
     this.router.get(
       "/stats",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit", { allowReadOnly: true }),
       apiRateLimiter,
       this.usersController.getStats.bind(this.usersController),
     );
@@ -39,7 +39,7 @@ export class UsersRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.usersController.getAll.bind(this.usersController),
@@ -78,7 +78,7 @@ export class UsersRouter {
       // controller; requireSameCompany is intentionally NOT used here (it required a companyId in
       // the request, which the controller now forbids for admins).
       authenticate,
-      requireAdmin(),
+      requirePermission("users.edit"),
       validateUUID(),
       apiRateLimiter,
       this.usersController.update.bind(this.usersController),

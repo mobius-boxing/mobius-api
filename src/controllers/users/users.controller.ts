@@ -50,11 +50,19 @@ export class UsersController implements IBaseController {
           return;
         }
         const { page = 1, limit = 20 } = req.query;
-        result = await this._userDAO.getAllByCompany(
-          adminUser.companyId,
-          Number(page),
-          Number(limit),
-        );
+        const roleUuid = req.query.roleUuid as string | undefined;
+        result = roleUuid
+          ? await this._userDAO.getAllByCompany(
+              adminUser.companyId,
+              Number(page),
+              Number(limit),
+              roleUuid,
+            )
+          : await this._userDAO.getAllByCompany(
+              adminUser.companyId,
+              Number(page),
+              Number(limit),
+            );
       }
 
       // SECURITY: strip password hash before sending to client.
@@ -248,6 +256,9 @@ export class UsersController implements IBaseController {
       // - Profile fields (firstName, lastName, email): superAdmin and admin.
       // A regular user can never reach here (route requires admin), and can never set role.
       const updateData: any = {};
+      // Set when the isActive write already committed on its own (below), so
+      // it counts toward "something changed" without re-entering updateData.
+      let deactivationApplied = false;
 
       if (isSuperAdmin) {
         // Empty string from a superadmin "no company selected" UI clears the company.
@@ -290,9 +301,6 @@ export class UsersController implements IBaseController {
             data.companyId = undefined;
           }
         }
-        if (data.role !== undefined && data.role === existing.role) {
-          data.role = undefined;
-        }
         if (
           data.isActive !== undefined &&
           data.isActive === existing.isActive
@@ -306,20 +314,55 @@ export class UsersController implements IBaseController {
           data.emailVerified = undefined;
         }
 
-        // SECURITY (C3): admins may not elevate anyone to superAdmin, nor change role at all,
-        // nor reassign company / toggle active / verified. Reject explicit attempts.
-        if (
-          data.role !== undefined ||
-          data.isActive !== undefined ||
-          data.emailVerified !== undefined ||
-          data.companyId !== undefined
-        ) {
+        // Role assignment moves only through `/roles/assign`, so `role`/
+        // `roleId` in the body are ignored here — not rejected, so a form
+        // that echoes the whole record back still saves.
+        data.role = undefined;
+        data.roleId = undefined;
+
+        // SECURITY (C3): admins may not reassign company or verification status.
+        // isActive IS allowed for a company actor, guarded below by the
+        // last-Admin rule on deactivation.
+        if (data.emailVerified !== undefined || data.companyId !== undefined) {
           res.status(403).json({
             success: false,
-            message:
-              "You are not allowed to modify role, status, verification or company.",
+            message: "You are not allowed to modify verification or company.",
           });
           return;
+        }
+
+        if (data.isActive === false) {
+          // Row-locked check + write in one transaction — see
+          // UserDAO.setActiveChecked. Applied now, not folded into `updateData`
+          // below, so the lock covers exactly the write it protects.
+          try {
+            const deactivated = await this._userDAO.setActiveChecked(
+              existing.id,
+              existing.companyId!,
+              false,
+              existing.isActive === true && existing.role === "admin",
+            );
+            if (!deactivated) {
+              res.status(404).json({
+                success: false,
+                message: "Failed to update user",
+              });
+              return;
+            }
+            deactivationApplied = true;
+          } catch (err: any) {
+            if (err?.code === "LAST_ADMIN") {
+              res.status(err.status).json({
+                success: false,
+                code: err.code,
+                message: err.message,
+              });
+              return;
+            }
+            throw err;
+          }
+        } else if (data.isActive !== undefined) {
+          updateData.isActive = data.isActive;
         }
       }
 
@@ -348,7 +391,7 @@ export class UsersController implements IBaseController {
         updateData.password = await bcrypt.hash(data.password, BCRYPT_COST);
       }
 
-      if (Object.keys(updateData).length === 0) {
+      if (Object.keys(updateData).length === 0 && !deactivationApplied) {
         res.status(400).json({
           success: false,
           message: "No updatable fields provided.",
@@ -356,7 +399,13 @@ export class UsersController implements IBaseController {
         return;
       }
 
-      const result = await this._userDAO.update(existing.id, updateData);
+      // The deactivation, if any, already committed atomically above; a
+      // fields-only update still needs its own write, and re-reading here
+      // keeps the response consistent either way.
+      const result =
+        Object.keys(updateData).length > 0
+          ? await this._userDAO.update(existing.id, updateData)
+          : await this._userDAO.getByUuid(uuid);
 
       if (!result) {
         res.status(404).json({

@@ -9,6 +9,8 @@ export interface IUser {
   lastName: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: number;
+  /** FK to `roles.id`. Never read via `mapToInterface` in the auth gate (L-008). */
+  roleId?: number | null;
   isActive?: boolean;
   emailVerified?: boolean;
   createdAt?: Date;

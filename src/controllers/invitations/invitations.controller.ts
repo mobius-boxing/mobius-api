@@ -12,6 +12,12 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { InvitationCreateInputDTO } from "../../dto/input/invitation";
 import { CompanyDAO } from "../../dao/company/company.dao";
+import { RoleDAO } from "../../dao/role/role.dao";
+import { RbacService } from "../../services/rbac.service";
+import {
+  RolePolicyService,
+  RolePolicyError,
+} from "../../services/role-policy.service";
 import { getCompanyFilterUuid } from "../../utils/companyScope";
 import { companyFilterScope } from "../../utils/daoScope";
 import { db } from "../../database/registry";
@@ -26,6 +32,7 @@ const ROLE_RANK: Record<string, number> = {
 export class InvitationsController implements IBaseController {
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _companyDAO: CompanyDAO = new CompanyDAO();
+  private _roleDAO: RoleDAO = new RoleDAO();
 
   public async getStats(
     req: Request,
@@ -195,6 +202,35 @@ export class InvitationsController implements IBaseController {
         companyId = company.id;
       }
 
+      // A legacy client sending only `role` (no `roleUuid`) maps to the
+      // company's Admin/Member system role. Same ceiling rule as
+      // `/roles/assign` (superAdmin exempt).
+      let roleId: number | null = null;
+      if (companyId) {
+        const roleUuid = data.roleUuid as string | undefined;
+        if (roleUuid) {
+          const role = await this._roleDAO.getByUuid(roleUuid, companyId);
+          if (!role || !role.id) {
+            res.status(400).json({ success: false, message: "Invalid role" });
+            return;
+          }
+          if (actor?.role !== "superAdmin") {
+            const actorCodes = await RbacService.authzForUserUuid(actor.userId);
+            RolePolicyService.assertCeiling(
+              actor?.role,
+              actorCodes.codes,
+              role.permissionCodes ?? [],
+            );
+          }
+          roleId = role.id;
+        } else {
+          roleId = await RbacService.systemRoleId(
+            companyId,
+            inputDTO.role === "admin" ? "admin" : "member",
+          );
+        }
+      }
+
       const token = crypto.randomBytes(32).toString("hex");
 
       // Invitations expire 7 days after creation.
@@ -207,6 +243,7 @@ export class InvitationsController implements IBaseController {
         // Raw token here; the DAO hashes it at rest (M5).
         token: token,
         role: inputDTO.role as "member" | "admin",
+        roleId,
         companyId: companyId,
         invitedBy: inputDTO.invitedBy,
         expiresAt: expiresAt,
@@ -220,6 +257,12 @@ export class InvitationsController implements IBaseController {
         data: result,
       });
     } catch (err: any) {
+      if (err instanceof RolePolicyError) {
+        res
+          .status(err.status)
+          .json({ success: false, code: err.code, message: err.message });
+        return;
+      }
       next(err);
     }
   }

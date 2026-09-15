@@ -16,6 +16,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
         // SECURITY (M5): store only the hash; the raw token lives in the email link.
         token: item.token ? hashToken(item.token) : item.token,
         role: item.role,
+        roleId: item.roleId ?? null,
         companyId: item.companyId,
         invitedBy: item.invitedBy,
         expiresAt: item.expiresAt,
@@ -25,7 +26,23 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
       .returning("*");
 
     // Return the safe (token-less) shape on create; the caller already holds the raw token.
-    return this.mapToSafe(invitation);
+    const safe = this.mapToSafe(invitation);
+    return this.attachRole(safe);
+  }
+
+  /** Attaches the role's uuid/name so a response never has to leak the numeric roleId. */
+  private async attachRole(invitation: IInvitation): Promise<IInvitation> {
+    if (!invitation.roleId) return invitation;
+    const knex = db("core");
+    const role = await knex("roles")
+      .where("id", invitation.roleId)
+      .select("uuid", "name")
+      .first();
+    return {
+      ...invitation,
+      roleUuid: role?.uuid ?? null,
+      roleName: role?.name ?? null,
+    };
   }
 
   async getById(id: number): Promise<IInvitation | null> {
@@ -44,9 +61,10 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     const query = knex(this.tableName).where(`${this.tableName}.uuid`, uuid);
     applyCompanyScope(query, this.tableName, companyId);
     const invitation = await query.select(`${this.tableName}.*`).first();
+    if (!invitation) return null;
 
     // SECURITY (C4): never leak the (hashed) token in single-record responses.
-    return invitation ? this.mapToSafe(invitation) : null;
+    return this.attachRole(this.mapToSafe(invitation));
   }
 
   async update(
@@ -60,6 +78,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     // SECURITY (M5): if a token is ever rotated, store the hash, not the raw value.
     if (item.token !== undefined) updateData.token = hashToken(item.token);
     if (item.role !== undefined) updateData.role = item.role;
+    if (item.roleId !== undefined) updateData.roleId = item.roleId;
     if (item.companyId !== undefined) updateData.companyId = item.companyId;
     if (item.invitedBy !== undefined) updateData.invitedBy = item.invitedBy;
     if (item.expiresAt !== undefined) updateData.expiresAt = item.expiresAt;
@@ -111,7 +130,11 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
     return {
       success: true,
       // SECURITY (C4): list responses never include the token.
-      data: invitations.map((invitation) => this.mapToSafe(invitation)),
+      data: await Promise.all(
+        invitations.map((invitation) =>
+          this.attachRole(this.mapToSafe(invitation)),
+        ),
+      ),
       page,
       limit,
       count: invitations.length,
@@ -167,6 +190,7 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
       email: record.email,
       token: record.token,
       role: record.role,
+      roleId: record.roleId ?? null,
       companyId: record.companyId,
       invitedBy: record.invitedBy,
       expiresAt: record.expiresAt,

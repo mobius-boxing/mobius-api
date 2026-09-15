@@ -10,6 +10,8 @@ export interface IInvitation {
   token?: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: number;
+  /** FK to `roles.id` — nullable only for pre-migration historical rows. */
+  roleId?: number | null;
   invitedBy: number;
   expiresAt: Date;
   acceptedAt?: Date;
@@ -19,4 +21,7 @@ export interface IInvitation {
   // Joined data
   company?: ICompany;
   inviter?: IUser;
+  /** Populated by DAO reads that join `roles` (not persisted). */
+  roleUuid?: string | null;
+  roleName?: string | null;
 }

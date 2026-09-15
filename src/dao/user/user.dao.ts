@@ -13,6 +13,7 @@ import {
 } from "../../utils/queryBuilder";
 import { applyCompanyScope, companyFilterScope } from "../../utils/daoScope";
 import { Request } from "express";
+import { RolePolicyService } from "../../services/role-policy.service";
 
 // companyId is intentionally absent — getAllWithFilters scopes through
 // companyFilterScope(req); `filters.companyId` holds a uuid, not a column value.
@@ -127,6 +128,7 @@ export class UserDAO implements IBaseDAO<IUser> {
     if (item.firstName !== undefined) updateData.firstName = item.firstName;
     if (item.lastName !== undefined) updateData.lastName = item.lastName;
     if (item.role !== undefined) updateData.role = item.role;
+    if (item.roleId !== undefined) updateData.roleId = item.roleId;
     if (item.companyId !== undefined) updateData.companyId = item.companyId;
     if (item.isActive !== undefined) updateData.isActive = item.isActive;
     if (item.emailVerified !== undefined)
@@ -140,6 +142,38 @@ export class UserDAO implements IBaseDAO<IUser> {
       .returning("*");
 
     return user ? this.mapToInterface(user) : null;
+  }
+
+  /**
+   * Deactivating a user is only risky when they hold the company's Admin
+   * role and are the last active one — the row lock and the write have to be
+   * the SAME transaction, or two concurrent deactivations could both pass
+   * the count check before either writes. `isCurrentActiveAdmin` is
+   * `true` when the caller has already confirmed the target is active on the
+   * Admin role; passing `false` skips the lock entirely (member deactivation,
+   * or reactivation, never threatens the invariant).
+   */
+  async setActiveChecked(
+    id: number,
+    companyId: number,
+    isActive: boolean,
+    isCurrentActiveAdmin: boolean,
+  ): Promise<IUser | null> {
+    const knex = db("core");
+    return knex.transaction(async (trx) => {
+      if (!isActive) {
+        await RolePolicyService.assertNotLastAdmin(
+          trx,
+          companyId,
+          isCurrentActiveAdmin,
+        );
+      }
+      const [user] = await trx(this.tableName)
+        .where("id", id)
+        .update({ isActive, updatedAt: trx.fn.now() })
+        .returning("*");
+      return user ? this.mapToInterface(user) : null;
+    });
   }
 
   async delete(id: number): Promise<boolean> {
@@ -185,26 +219,52 @@ export class UserDAO implements IBaseDAO<IUser> {
 
   async getAllWithFilters(
     req: Request,
-  ): Promise<IDataPaginator<IUser & { companyName?: string }>> {
+  ): Promise<
+    IDataPaginator<
+      IUser & { companyName?: string; roleUuid?: string; roleName?: string }
+    >
+  > {
     const knex = db("core");
     const parsedQuery: ParsedQuery = parseQueryParams(req);
 
     const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
+    // roleUuid resolves against the joined `roles` table, which the shared
+    // filter config (scoped to this.tableName's own columns) cannot express
+    // (L-007: still wired, just not through FilterConfigs — see queryBuilder.ts
+    // `applyFilters`, which always qualifies with `${tableName}.${column}`).
+    const roleUuidFilter = parsedQuery.filters.roleUuid as string | undefined;
+    delete parsedQuery.filters.roleUuid;
+
     const dataQuery = knex(this.tableName)
-      .select(`${this.tableName}.*`, "companies.name as companyName")
-      .leftJoin("companies", `${this.tableName}.companyId`, "companies.id");
+      .select(
+        `${this.tableName}.*`,
+        "companies.name as companyName",
+        "roles.uuid as roleUuid",
+        "roles.name as roleName",
+      )
+      .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
+      .leftJoin("roles", `${this.tableName}.roleId`, "roles.id");
 
     applyCompanyScope(dataQuery, this.tableName, companyId);
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    const countQuery = knex(this.tableName);
+    const countQuery = knex(this.tableName).leftJoin(
+      "roles",
+      `${this.tableName}.roleId`,
+      "roles.id",
+    );
 
     applyCompanyScope(countQuery, this.tableName, companyId);
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
+
+    if (roleUuidFilter) {
+      dataQuery.where("roles.uuid", roleUuidFilter);
+      countQuery.where("roles.uuid", roleUuidFilter);
+    }
 
     const [users, totalResult] = await Promise.all([
       dataQuery,
@@ -228,26 +288,40 @@ export class UserDAO implements IBaseDAO<IUser> {
     companyId: number,
     page: number,
     limit: number,
+    roleUuid?: string,
   ): Promise<IDataPaginator<IUser>> {
     const knex = db("core");
     const offset = (page - 1) * limit;
 
+    const dataQuery = knex(this.tableName)
+      .select(
+        `${this.tableName}.*`,
+        "companies.name as companyName",
+        "companies.uuid as companyUuid",
+        "roles.uuid as roleUuid",
+        "roles.name as roleName",
+      )
+      .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
+      .leftJoin("roles", `${this.tableName}.roleId`, "roles.id")
+      .where(`${this.tableName}.companyId`, companyId)
+      .orderBy(`${this.tableName}.createdAt`, "desc")
+      .limit(limit)
+      .offset(offset);
+
+    const countQuery = knex(this.tableName)
+      .leftJoin("roles", `${this.tableName}.roleId`, "roles.id")
+      .where(`${this.tableName}.companyId`, companyId);
+
+    // L-007: `roleUuid` is wired here (not through FilterConfigs, which the
+    // company-scoped list path bypasses) rather than silently ignored.
+    if (roleUuid) {
+      dataQuery.where("roles.uuid", roleUuid);
+      countQuery.where("roles.uuid", roleUuid);
+    }
+
     const [users, totalResult] = await Promise.all([
-      knex(this.tableName)
-        .select(
-          `${this.tableName}.*`,
-          "companies.name as companyName",
-          "companies.uuid as companyUuid",
-        )
-        .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
-        .where(`${this.tableName}.companyId`, companyId)
-        .orderBy(`${this.tableName}.createdAt`, "desc")
-        .limit(limit)
-        .offset(offset),
-      knex(this.tableName)
-        .where("companyId", companyId)
-        .count("* as count")
-        .first(),
+      dataQuery,
+      countQuery.count("* as count").first(),
     ]);
 
     const totalCount = parseInt(totalResult?.count as string) || 0;
@@ -351,12 +425,14 @@ export class UserDAO implements IBaseDAO<IUser> {
 
   private mapToInterfaceWithCompanyName(
     record: any,
-  ): IUser & { companyName?: string } {
+  ): IUser & { companyName?: string; roleUuid?: string; roleName?: string } {
     return {
       ...this.mapToInterface(record),
       // SECURITY (M3): expose the company as its UUID, never the internal numeric id.
       companyId: record.companyUuid || undefined,
       companyName: record.companyName || undefined,
+      roleUuid: record.roleUuid || undefined,
+      roleName: record.roleName || undefined,
     };
   }
 }

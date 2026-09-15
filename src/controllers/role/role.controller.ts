@@ -2,12 +2,14 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { RoleDAO } from "../../dao/role/role.dao";
 import { UserDAO } from "../../dao/user/user.dao";
-import { setAuditAction } from "../../database/audit-context";
-import { companyFilterScope } from "../../utils/daoScope";
+import { RbacService } from "../../services/rbac.service";
 import {
-  RoleCreateInputDTO,
-  RoleUpdateInputDTO,
-} from "../../dto/input/role";
+  RolePolicyService,
+  RolePolicyError,
+} from "../../services/role-policy.service";
+import { setAuditAction } from "../../database/audit-context";
+import { companyFilterScope, UNRESOLVED_COMPANY } from "../../utils/daoScope";
+import { RoleCreateInputDTO, RoleUpdateInputDTO } from "../../dto/input/role";
 
 const PROFILE_TYPES = [
   "director",
@@ -18,27 +20,30 @@ const PROFILE_TYPES = [
 ];
 
 /**
- * Role (Perfil) management — module 02.
+ * Role (Perfil) management — module 02 + role-management T1.
  *
- * GET    /roles                 list
- * GET    /roles/:uuid           role + granted permission codes
+ * GET    /roles                 list (?assignable=true narrows to the actor's ceiling)
+ * GET    /roles/:uuid           role + granted permission codes + userCount
  * POST   /roles                 { name, profileType?, hasAccessToAllMachines? }
- * PUT    /roles/:uuid           same fields
+ * PUT    /roles/:uuid           same fields; 409 SYSTEM_ROLE renaming Admin/Member
  * PUT    /roles/:uuid/permissions { codes: string[] }   (grant matrix save)
- * PUT    /roles/assign          { userUuid, roleUuid|null }
- * DELETE /roles/:uuid           blocked for protected roles / roles in use
+ * PUT    /roles/assign          { userUuid, roleUuid }  (roleUuid required)
+ * DELETE /roles/:uuid           409 SYSTEM_ROLE / 409 ROLE_IN_USE
  */
 export class RoleController {
   private dao = new RoleDAO();
   private userDAO = new UserDAO();
 
-  private async callerCompanyId(req: Request, res: Response): Promise<number | null> {
+  private async callerCompanyId(
+    req: Request,
+    res: Response,
+  ): Promise<number | null> {
     // superAdmin operating-as: company comes from the body (getCompanyForCreate
     // semantics); regular users' company always comes from their JWT.
     const user = (req as any).user;
     const companyUuid =
       user?.role === "superAdmin"
-        ? (req.body?.companyId as string | undefined) ?? user?.companyId
+        ? ((req.body?.companyId as string | undefined) ?? user?.companyId)
         : user?.companyId;
     if (!companyUuid) {
       res.status(400).json({
@@ -58,8 +63,75 @@ export class RoleController {
     return id;
   }
 
-  public async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
+  /** Same resolution for reads, via the query/JWT scope rather than the body. */
+  private async callerCompanyIdForRead(
+    req: Request,
+    res: Response,
+  ): Promise<number | null> {
+    const scope = companyFilterScope(req);
+    if (scope === undefined || scope === UNRESOLVED_COMPANY) {
+      res.status(400).json({
+        success: false,
+        message: "companyId is required",
+      });
+      return null;
+    }
+    return scope;
+  }
+
+  private respondPolicyError(
+    err: unknown,
+    res: Response,
+    next: NextFunction,
+  ): void {
+    if (err instanceof RolePolicyError) {
+      res.status(err.status).json({
+        success: false,
+        code: err.code,
+        message: err.message,
+      });
+      return;
+    }
+    next(err);
+  }
+
+  /** The caller's own granted codes; `null` means "no ceiling" (superAdmin). */
+  private async actorCodes(actor: any): Promise<string[] | null> {
+    if (actor?.role === "superAdmin") return null;
+    const authz = await RbacService.authzForUserUuid(actor.userId);
+    return authz.codes;
+  }
+
+  public async getAll(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
+      if (req.query.assignable === "true") {
+        const companyId = await this.callerCompanyIdForRead(req, res);
+        if (companyId === null) return;
+        const actor = (req as any).user;
+        const actorCodes = await this.actorCodes(actor);
+        const roles = await this.dao.getAssignableRoles(companyId, actorCodes);
+
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+        const start = (page - 1) * limit;
+        const pageRows = roles.slice(start, start + limit);
+
+        res.status(200).json({
+          success: true,
+          data: pageRows,
+          page,
+          limit,
+          count: pageRows.length,
+          totalCount: roles.length,
+          totalPages: Math.ceil(roles.length / limit),
+        });
+        return;
+      }
+
       const result = await this.dao.getAllWithFilters(req);
       res.status(200).json(result);
     } catch (err: any) {
@@ -67,9 +139,16 @@ export class RoleController {
     }
   }
 
-  public async getByUuid(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async getByUuid(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
-      const role = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
+      const role = await this.dao.getByUuid(
+        req.params.uuid,
+        companyFilterScope(req),
+      );
       if (!role) {
         res.status(404).json({ success: false, message: "Role not found" });
         return;
@@ -80,7 +159,11 @@ export class RoleController {
     }
   }
 
-  public async create(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async create(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = await this.callerCompanyId(req, res);
       if (companyId === null) return;
@@ -108,6 +191,7 @@ export class RoleController {
         profileType: profileType || "general",
         hasAccessToAllMachines: hasAccessToAllMachines ?? true,
         isProtected: false,
+        systemKey: null,
       });
       res.status(201).json({ success: true, data: role });
     } catch (err: any) {
@@ -122,20 +206,30 @@ export class RoleController {
     }
   }
 
-  public async update(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async update(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
-      const existing = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
+      const existing = await this.dao.getByUuid(
+        req.params.uuid,
+        companyFilterScope(req),
+      );
       if (!existing || !existing.id) {
         res.status(404).json({ success: false, message: "Role not found" });
         return;
       }
       const inputDTO = new RoleUpdateInputDTO(req.body).build();
       const { name, profileType, hasAccessToAllMachines } = inputDTO;
-      if (existing.isProtected && name && name !== existing.name) {
-        res.status(400).json({
-          success: false,
-          message: "The protected Admin role cannot be renamed.",
-        });
+      // A system role's NAME is stable (Admin, Member); other fields
+      // on Member remain editable.
+      if (existing.systemKey && name !== undefined && name !== existing.name) {
+        this.respondPolicyError(
+          new RolePolicyError("SYSTEM_ROLE", "Cannot rename a system role."),
+          res,
+          next,
+        );
         return;
       }
       if (profileType && !PROFILE_TYPES.includes(profileType)) {
@@ -157,13 +251,21 @@ export class RoleController {
     }
   }
 
-  public async setPermissions(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async setPermissions(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
-      const existing = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
+      const existing = await this.dao.getByUuid(
+        req.params.uuid,
+        companyFilterScope(req),
+      );
       if (!existing || !existing.id) {
         res.status(404).json({ success: false, message: "Role not found" });
         return;
       }
+      // The Admin role's grants are fixed (every RW code); Member's are editable.
       if (existing.isProtected) {
         res.status(400).json({
           success: false,
@@ -179,6 +281,38 @@ export class RoleController {
         });
         return;
       }
+
+      const actor = (req as any).user;
+      if (actor?.role !== "superAdmin") {
+        const actorUser = await this.userDAO.getByUuid(actor.userId);
+        const actorAssignment =
+          actorUser && (actorUser as any).id
+            ? await this.dao.currentAssignment((actorUser as any).id)
+            : null;
+        if (actorAssignment?.roleId === existing.id) {
+          throw new RolePolicyError(
+            "OWN_ROLE",
+            "You cannot edit your own role.",
+          );
+        }
+      }
+
+      const catalogue = await this.dao.catalogueCodes(existing.companyId);
+      RolePolicyService.assertKnownCodes(codes, catalogue);
+
+      // The ceiling on a grant edit applies to the codes that MOVED (added
+      // or removed), not the whole grid — an actor who already granted a code
+      // they hold can leave it granted without needing to hold everything
+      // else the role already carries.
+      const before = new Set(existing.permissionCodes ?? []);
+      const after = new Set(codes);
+      const union = new Set<string>([...before, ...after]);
+      const changed = [...union].filter(
+        (code) => before.has(code) !== after.has(code),
+      );
+      const actorCodes = (await this.actorCodes(actor)) ?? [];
+      RolePolicyService.assertCeiling(actor?.role, actorCodes, changed);
+
       // A domain verb: the grid is replaced as a set, so the trigger writes
       // one `role_permissions` row per grant that actually moved.
       await setAuditAction("role.permissions");
@@ -189,15 +323,27 @@ export class RoleController {
       );
       res.status(200).json({ success: true, data: { codes: applied } });
     } catch (err: any) {
-      next(err);
+      this.respondPolicyError(err, res, next);
     }
   }
 
-  public async assign(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async assign(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const { userUuid, roleUuid } = req.body;
       if (!userUuid) {
-        res.status(400).json({ success: false, message: "userUuid is required" });
+        res
+          .status(400)
+          .json({ success: false, message: "userUuid is required" });
+        return;
+      }
+      if (!roleUuid) {
+        res
+          .status(400)
+          .json({ success: false, message: "roleUuid is required" });
         return;
       }
       const companyScope = companyFilterScope(req);
@@ -207,9 +353,9 @@ export class RoleController {
         return;
       }
 
-      // Cross-tenant guard on BOTH paths (assign and unassign): a non-superAdmin
-      // caller may only touch users of their own company. 404, not 403, so
-      // foreign users' existence isn't leaked.
+      // Cross-tenant guard: a non-superAdmin caller may only touch users of
+      // their own company. 404, not 403, so foreign users' existence isn't leaked.
+      // (Fails closed for UNRESOLVED_COMPANY too: no numeric companyId equals a symbol.)
       if (companyScope !== undefined) {
         if ((user as any).companyId !== companyScope) {
           res.status(404).json({ success: false, message: "User not found" });
@@ -217,54 +363,87 @@ export class RoleController {
         }
       }
 
-      let roleId: number | null = null;
-      if (roleUuid) {
-        const role = await this.dao.getByUuid(roleUuid, companyScope);
-        if (!role || !role.id) {
-          res.status(404).json({ success: false, message: "Role not found" });
-          return;
-        }
-        // The role must belong to the user's company (guards the superAdmin
-        // path too, where companyScope is undefined and no scope applied above).
-        if ((user as any).companyId !== role.companyId) {
-          res.status(400).json({
-            success: false,
-            message: "User and role belong to different companies.",
-          });
-          return;
-        }
-        roleId = role.id;
+      const role = await this.dao.getByUuid(roleUuid, companyScope);
+      if (!role || !role.id) {
+        res.status(404).json({ success: false, message: "Role not found" });
+        return;
       }
+      if ((user as any).companyId !== role.companyId) {
+        res.status(400).json({
+          success: false,
+          message: "User and role belong to different companies.",
+        });
+        return;
+      }
+
+      const actor = (req as any).user;
+      const current = await this.dao.currentAssignment((user as any).id);
+
+      // Both sides of the own-assignment check are the JWT-carried uuid,
+      // compared directly — no second lookup needed to resolve the actor's
+      // numeric id.
+      if (actor?.role !== "superAdmin" && actor?.userId === userUuid) {
+        throw new RolePolicyError(
+          "OWN_ROLE",
+          "You cannot change your own role assignment.",
+        );
+      }
+
+      const actorCodes = await this.actorCodes(actor);
+      if (actorCodes !== null) {
+        const currentRoleCodes = current?.roleId
+          ? ((await this.dao.getById(current.roleId))?.permissionCodes ?? [])
+          : [];
+        const targetCodes = role.permissionCodes ?? [];
+        const ceilingCodes = Array.from(
+          new Set<string>([...targetCodes, ...currentRoleCodes]),
+        );
+        RolePolicyService.assertCeiling(actor?.role, actorCodes, ceilingCodes);
+      }
+
+      const leavingActiveAdmin =
+        !!current?.isActive &&
+        current?.systemKey === "admin" &&
+        current.roleId !== role.id;
 
       // A domain verb: the write lands on `users`, not on `roles`.
       await setAuditAction("user.role_assign");
-      await this.dao.assignToUser((user as any).id, roleId);
-      res.status(200).json({ success: true, message: "Role assignment updated" });
+      await this.dao.assign({
+        userId: (user as any).id,
+        companyId: role.companyId,
+        roleId: role.id,
+        roleSystemKey: role.systemKey ?? null,
+        leavingActiveAdmin,
+      });
+      res
+        .status(200)
+        .json({ success: true, message: "Role assignment updated" });
     } catch (err: any) {
-      next(err);
+      this.respondPolicyError(err, res, next);
     }
   }
 
-  public async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public async delete(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
-      const existing = await this.dao.getByUuid(req.params.uuid, companyFilterScope(req));
+      const existing = await this.dao.getByUuid(
+        req.params.uuid,
+        companyFilterScope(req),
+      );
       if (!existing || !existing.id) {
         res.status(404).json({ success: false, message: "Role not found" });
         return;
       }
-      if (existing.isProtected) {
-        res.status(400).json({
-          success: false,
-          message: "The protected Admin role cannot be deleted.",
-        });
-        return;
-      }
-      // No FK can block this: users.roleId is ON DELETE SET NULL (assigned users
-      // fall back to the legacy enum) and role_permissions cascades.
-      await this.dao.delete(existing.id);
-      res.status(200).json({ success: true, message: "Role deleted successfully" });
+      RolePolicyService.assertNotSystemRole(existing, "delete");
+      await this.dao.deleteInUseChecked(existing.id);
+      res
+        .status(200)
+        .json({ success: true, message: "Role deleted successfully" });
     } catch (err: any) {
-      next(err);
+      this.respondPolicyError(err, res, next);
     }
   }
 }

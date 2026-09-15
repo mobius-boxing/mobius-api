@@ -28,6 +28,38 @@ export class AuthController {
   private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
   private _emailService: EmailService = new EmailService();
 
+  /**
+   * Resolve the roleId + `users.role` mirror for a user created from an
+   * invitation. Prefers `invitation.roleId` (set on every invitation created
+   * after role management shipped); a historical invitation without one
+   * falls back to the company's Admin/Member system role by legacy `role`
+   * value. No companyId (a superAdmin invitation) leaves roleId unset —
+   * superAdmin is never written by this path.
+   */
+  private async resolveInvitationRole(invitation: {
+    roleId?: number | null;
+    role: "member" | "admin" | "superAdmin";
+    companyId?: number;
+  }): Promise<{
+    roleId: number | null;
+    role: "member" | "admin" | "superAdmin";
+  }> {
+    if (!invitation.companyId) {
+      return { roleId: null, role: invitation.role };
+    }
+    const { RbacService } = await import("../../services/rbac.service");
+    let roleId = invitation.roleId ?? null;
+    if (!roleId) {
+      roleId = await RbacService.systemRoleId(
+        invitation.companyId,
+        invitation.role === "admin" ? "admin" : "member",
+      );
+    }
+    if (!roleId) return { roleId: null, role: invitation.role };
+    const systemKey = await RbacService.roleSystemKey(roleId);
+    return { roleId, role: RbacService.mirrorRoleFor(systemKey) };
+  }
+
   public async register(
     req: Request,
     res: Response,
@@ -103,6 +135,18 @@ export class AuthController {
       };
 
       const user = await this._userDAO.create(userToCreate);
+
+      // roleId + mirror, from the invitation's own role (roleUuid at create
+      // time) or a legacy-role fallback to the company's system roles.
+      if (user.id) {
+        const resolved = await this.resolveInvitationRole(invitation);
+        if (resolved.roleId) {
+          await this._userDAO.update(user.id, {
+            roleId: resolved.roleId,
+            role: resolved.role,
+          });
+        }
+      }
 
       if (invitation.id) {
         await this._invitationDAO.update(invitation.id, {
@@ -199,11 +243,18 @@ export class AuthController {
       // RBAC permission codes — same enrichment as /me so usePermissions works
       // immediately after login without a full-page reload. Fail-soft.
       let permissions: string[] = [];
+      let roleUuid: string | null = null;
+      let roleName: string | null = null;
       try {
         const { RbacService } = await import("../../services/rbac.service");
         permissions = await RbacService.permissionCodesForUserUuid(
           userWithCompany.uuid!,
         );
+        const roleInfo = await RbacService.roleForUserUuid(
+          userWithCompany.uuid!,
+        );
+        roleUuid = roleInfo?.roleUuid ?? null;
+        roleName = roleInfo?.roleName ?? null;
       } catch (err) {
         console.error("Failed to load permissions for login:", err);
         permissions = [];
@@ -217,6 +268,8 @@ export class AuthController {
         companyName: company?.name || undefined,
         modules: enabledModules,
         permissions,
+        roleUuid,
+        roleName,
       };
 
       const device = await issueOrReuseDevice(
@@ -282,9 +335,14 @@ export class AuthController {
 
       // Enrich /me with RBAC permission codes (module 02). Fail-soft like modules.
       let permissions: string[] = [];
+      let roleUuid: string | null = null;
+      let roleName: string | null = null;
       try {
         const { RbacService } = await import("../../services/rbac.service");
         permissions = await RbacService.permissionCodesForUserUuid(userId);
+        const roleInfo = await RbacService.roleForUserUuid(userId);
+        roleUuid = roleInfo?.roleUuid ?? null;
+        roleName = roleInfo?.roleName ?? null;
       } catch (err) {
         console.error("Failed to load permissions for /me:", err);
         permissions = [];
@@ -307,6 +365,8 @@ export class AuthController {
           companyName: withCompany?.company?.name,
           modules,
           permissions,
+          roleUuid,
+          roleName,
           device: req.device ?? null,
         },
       });
@@ -532,6 +592,19 @@ export class AuthController {
       };
 
       const user = await this._userDAO.create(userToCreate);
+
+      // roleId + mirror, from the invitation's own role (roleUuid at create
+      // time) or a legacy-role fallback to the company's system roles.
+      if (user.id) {
+        const resolved = await this.resolveInvitationRole(invitation);
+        if (resolved.roleId) {
+          await this._userDAO.update(user.id, {
+            roleId: resolved.roleId,
+            role: resolved.role,
+          });
+          user.role = resolved.role;
+        }
+      }
 
       if (invitation.id) {
         await this._invitationDAO.update(invitation.id, {
