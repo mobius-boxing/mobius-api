@@ -10,8 +10,11 @@ import {
 import { isValidDnsSlug } from "../../utils/slugify";
 import { normalizeBranding } from "../../utils/whitelabel-branding";
 
-/** Mobius green — what a tenant gets until somebody picks a colour. */
-const DEFAULT_BRAND_COLOR = "#018445";
+import {
+  DEFAULT_BRAND_COLOR,
+  DEFAULT_CANVAS_COLOR,
+  DEFAULT_SHELL_COLOR,
+} from "../../utils/whitelabel-defaults";
 /** Public origin of this API; the logo URL must be absolute (a different origin renders it). */
 const DEFAULT_PUBLIC_API_URL = "https://api.mobiusboxing.com";
 /** Branding is small, public and changes rarely — but not never. */
@@ -135,6 +138,11 @@ export class WhitelabelController {
           // until a tenant picks a second colour.
           accentColor:
             branding.accentColor ?? branding.brandColor ?? DEFAULT_BRAND_COLOR,
+          // Chrome and background. Both always resolve to a concrete colour so
+          // a module never has to guess: the endpoint is the single source of
+          // truth for what "unbranded" looks like.
+          shellColor: branding.shellColor ?? DEFAULT_SHELL_COLOR,
+          canvasColor: branding.canvasColor ?? DEFAULT_CANVAS_COLOR,
           logoUrl: branding.logoFileUuid
             ? this.logoUrl(moduleSlug, clientSlug)
             : null,

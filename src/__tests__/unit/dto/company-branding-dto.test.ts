@@ -24,6 +24,8 @@ describe("CompanyBrandingInputDTO — accepted input", () => {
         displayName: "Acme Cartón",
         brandColor: "#2563eb",
         accentColor: "#ffd400",
+        shellColor: null,
+        canvasColor: null,
         logoFileUuid: VALID_UUID_V4,
         loginMessage: "Bienvenido al portal",
       }).toBranding(),
@@ -31,6 +33,8 @@ describe("CompanyBrandingInputDTO — accepted input", () => {
       displayName: "Acme Cartón",
       brandColor: "#2563eb",
       accentColor: "#ffd400",
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: VALID_UUID_V4,
       loginMessage: "Bienvenido al portal",
     });
@@ -48,6 +52,8 @@ describe("CompanyBrandingInputDTO — accepted input", () => {
       displayName: null,
       brandColor: null,
       accentColor: null,
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -58,6 +64,8 @@ describe("CompanyBrandingInputDTO — accepted input", () => {
       displayName: null,
       brandColor: null,
       accentColor: null,
+      shellColor: null,
+      canvasColor: null,
       logoFileUuid: null,
       loginMessage: null,
     });
@@ -180,6 +188,8 @@ describe("CompanyModuleConfigInputDTO — unchanged after delegating", () => {
         displayName: "QA Demo",
         brandColor: "#2563eb",
         accentColor: "#ffd400",
+        shellColor: null,
+        canvasColor: null,
         logoFileUuid: null,
         loginMessage: "Portal de vencimientos de QA Demo.",
       },
@@ -194,6 +204,8 @@ describe("CompanyModuleConfigInputDTO — unchanged after delegating", () => {
         displayName: null,
         brandColor: null,
         accentColor: null,
+        shellColor: null,
+        canvasColor: null,
         logoFileUuid: null,
         loginMessage: null,
       },
@@ -218,5 +230,36 @@ describe("CompanyModuleConfigInputDTO — unchanged after delegating", () => {
       branding: { displayName: "  Acme  " },
     }).build();
     expect(dto.branding.displayName).toBe("Acme");
+  });
+});
+
+describe("CompanyBrandingInputDTO — shell and canvas colours", () => {
+  it("keeps a valid shell and canvas colour, lower-cased", () => {
+    const branding = build({
+      shellColor: "#211F1C",
+      canvasColor: "#F7F5F1",
+    }).toBranding();
+    expect(branding.shellColor).toBe("#211f1c");
+    expect(branding.canvasColor).toBe("#f7f5f1");
+  });
+
+  it("treats absent, null and empty string as unset so the default can stand", () => {
+    for (const value of [undefined, null, ""]) {
+      const branding = build({ shellColor: value, canvasColor: value }).toBranding();
+      expect(branding.shellColor).toBeNull();
+      expect(branding.canvasColor).toBeNull();
+    }
+  });
+
+  it("rejects a shell colour that is not #rrggbb — it would reach a browser as a style value", () => {
+    for (const bad of ["red", "#fff", "#12345g", "javascript:alert(1)", 42, {}]) {
+      expect(() => build({ shellColor: bad })).toThrow();
+    }
+  });
+
+  it("rejects a canvas colour that is not #rrggbb", () => {
+    for (const bad of ["white", "#ggg", "rgb(0,0,0)", true]) {
+      expect(() => build({ canvasColor: bad })).toThrow();
+    }
   });
 });

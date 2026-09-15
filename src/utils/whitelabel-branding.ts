@@ -28,6 +28,8 @@ const emptyBranding = (): ICompanyBranding => ({
   displayName: null,
   brandColor: null,
   accentColor: null,
+  shellColor: null,
+  canvasColor: null,
   logoFileUuid: null,
   loginMessage: null,
 });
@@ -57,6 +59,8 @@ export function normalizeBranding(raw: unknown): ICompanyBranding {
       displayName: readText(branding.displayName),
       brandColor: readPattern(branding.brandColor, HEX_COLOR_PATTERN),
       accentColor: readPattern(branding.accentColor, HEX_COLOR_PATTERN),
+      shellColor: readPattern(branding.shellColor, HEX_COLOR_PATTERN),
+      canvasColor: readPattern(branding.canvasColor, HEX_COLOR_PATTERN),
       logoFileUuid: readPattern(branding.logoFileUuid, UUID_V4_PATTERN),
       loginMessage: readText(branding.loginMessage),
     };
@@ -85,6 +89,8 @@ export function isEmptyBranding(branding: ICompanyBranding): boolean {
     branding.displayName === null &&
     branding.brandColor === null &&
     branding.accentColor === null &&
+    branding.shellColor === null &&
+    branding.canvasColor === null &&
     branding.logoFileUuid === null &&
     branding.loginMessage === null
   );

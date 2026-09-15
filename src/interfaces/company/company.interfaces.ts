@@ -15,6 +15,13 @@ export interface ICompanyBranding {
    * never invented for a tenant that never picked one.
    */
   accentColor: string | null;
+  /**
+   * App chrome (the module top bar). Unset means the stylesheet default — a
+   * near-neutral graphite chosen so it never competes with the brand colour.
+   */
+  shellColor: string | null;
+  /** Page background. Unset means the stylesheet default (warm paper). */
+  canvasColor: string | null;
   logoFileUuid: string | null;
   loginMessage: string | null;
 }
