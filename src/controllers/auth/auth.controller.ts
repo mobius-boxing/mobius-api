@@ -328,6 +328,58 @@ export class AuthController {
     });
   }
 
+  /**
+   * "Register this browser" for an already-authenticated session (gate
+   * amendment 3, D-230): the login procedure applied to `req.user` instead of
+   * to fresh credentials. Exists because a member whose `mobius_session`
+   * outlived a deploy never logs in again, so nothing would otherwise create
+   * their pending row — the waiting screen calls this once on mount instead of
+   * forcing a re-login. Exempt from the device gate; never 403, never 400 (no
+   * input).
+   *
+   * The numeric id and the DB role are re-read here rather than trusted off
+   * `req.user` (a JWT claim) for the same reason `authenticate` does not trust
+   * `decoded.role` for the gate (I-5): `issueOrReuseDevice` must key the row
+   * off `users.id` and must not gate/ungate a role the JWT merely asserts.
+   */
+  public async registerDevice(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const userUuid = req.user?.userId;
+      if (!userUuid) {
+        res.status(401).json({
+          success: false,
+          message: "Authentication required.",
+        });
+        return;
+      }
+
+      const user = await this._userDAO.getByUuid(userUuid);
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          message: "User no longer exists.",
+        });
+        return;
+      }
+
+      const device = await issueOrReuseDevice(
+        { id: user.id, uuid: user.uuid, role: user.role },
+        req,
+      );
+
+      res.status(200).json({
+        success: true,
+        data: device,
+      });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
   public async changePassword(
     req: Request,
     res: Response,

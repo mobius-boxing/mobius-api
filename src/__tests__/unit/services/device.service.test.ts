@@ -14,11 +14,18 @@
  * Only the DAO is stubbed: `hashToken`, `crypto.randomBytes` and the code util
  * run for real, because the hash↔secret relation is the thing under test.
  *
- * The last block drives `AuthController.login` rather than the service, because
- * I-12 ("a failed login creates or changes no device row") is a property of the
- * call site: the only way to prove it is to show the 401 path never reaches the
- * DAO, with a successful login in the same block so the absence is not absence
- * of wiring.
+ * The last two blocks drive `AuthController` methods rather than the service,
+ * because two properties are call-site properties, not `issueOrReuseDevice`
+ * properties:
+ *   - I-12 ("a failed login creates or changes no device row") — the only way
+ *     to prove it is to show the 401 path never reaches the DAO, with a
+ *     successful login in the same block so the absence is not absence of
+ *     wiring;
+ *   - I-18/I-19 (gate amendment 3, `POST /auth/device`) — `registerDevice` is
+ *     the thing that decides an admin/superAdmin never reaches
+ *     `issueOrReuseDevice` at all; the service's own admin/superAdmin cases
+ *     already prove the service side of I-18, so this block proves the
+ *     controller does not read the JWT's role and skip the DB lookup instead.
  */
 import { jest, describe, it, expect, beforeEach } from "@jest/globals";
 import type { Request, Response } from "express";
@@ -49,6 +56,7 @@ const dao = {
 const userDao = {
   getUserByEmailWithCompany: jest.fn<(...args: any[]) => Promise<any>>(),
   getUserByEmail: jest.fn<(...args: any[]) => Promise<any>>(),
+  getByUuid: jest.fn<(...args: any[]) => Promise<any>>(),
 };
 
 jest.mock("../../../dao/user/user.dao", () => ({
@@ -58,6 +66,9 @@ jest.mock("../../../dao/user/user.dao", () => ({
     }
     getUserByEmail(...args: any[]) {
       return userDao.getUserByEmail(...args);
+    }
+    getByUuid(...args: any[]) {
+      return userDao.getByUuid(...args);
     }
   },
 }));
@@ -531,5 +542,110 @@ describe("I-12 — a failed login touches no device row", () => {
       status: "pending",
     });
     expect(json.mock.calls[0][0].data.device.token).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("registerDevice — POST /auth/device (gate amendment 3, I-18/I-19)", () => {
+  const deviceRequest = (header?: string): Request =>
+    ({
+      user: { userId: MEMBER.uuid, email: "ana@acme.test", role: "member" },
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0",
+        ...(header === undefined ? {} : { [DEVICE_TOKEN_HEADER]: header }),
+      },
+      ip: "190.2.14.77",
+    }) as unknown as Request;
+
+  const runRegisterDevice = async (req: Request) => {
+    const json = jest.fn<(body: any) => void>();
+    const res = {
+      status: jest.fn(() => ({ json })),
+    } as unknown as Response;
+    const next = jest.fn();
+
+    await new AuthController().registerDevice(req, res, next as any);
+
+    return { json, res, next };
+  };
+
+  it("member, case 3 (no header): mints a fresh secret and returns it", async () => {
+    userDao.getByUuid.mockResolvedValue({
+      id: MEMBER.id,
+      uuid: MEMBER.uuid,
+      role: "member",
+    });
+
+    const { json, res } = await runRegisterDevice(deviceRequest());
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const body = json.mock.calls[0][0];
+    expect(body.success).toBe(true);
+    expect(body.data).toMatchObject({ status: "pending" });
+    expect(body.data.token).toMatch(/^[0-9a-f]{64}$/);
+    expect(dao.createPending).toHaveBeenCalledTimes(1);
+  });
+
+  it("member, case 1 repeated with the same header: writes nothing on either call", async () => {
+    userDao.getByUuid.mockResolvedValue({
+      id: MEMBER.id,
+      uuid: MEMBER.uuid,
+      role: "member",
+    });
+    dao.getByUserAndTokenHash.mockResolvedValue(deviceRow());
+
+    const first = await runRegisterDevice(deviceRequest(KNOWN_SECRET));
+    const second = await runRegisterDevice(deviceRequest(KNOWN_SECRET));
+
+    for (const call of [first, second]) {
+      const body = call.json.mock.calls[0][0];
+      expect(body.data).toMatchObject({ status: "pending" });
+      expect("token" in body.data).toBe(false);
+    }
+    for (const spy of writeSpies()) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["admin", "admin" as const],
+    ["superAdmin", "superAdmin" as const],
+  ])(
+    "%s: answers data null and never reaches the device DAO (I-18)",
+    async (_label, role) => {
+      userDao.getByUuid.mockResolvedValue({ id: 3, uuid: "admin-uuid", role });
+
+      const { json, res } = await runRegisterDevice(
+        deviceRequest(KNOWN_SECRET),
+      );
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(json.mock.calls[0][0]).toEqual({ success: true, data: null });
+      expect(dao.getByUserAndTokenHash).not.toHaveBeenCalled();
+      expect(dao.existsByTokenHash).not.toHaveBeenCalled();
+      for (const spy of writeSpies()) expect(spy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("answers 401 when the JWT's user no longer exists", async () => {
+    userDao.getByUuid.mockResolvedValue(null);
+
+    const { res, json } = await runRegisterDevice(deviceRequest());
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(json.mock.calls[0][0]).toMatchObject({ success: false });
+    for (const spy of writeSpies()) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("reads the role from the DB row, not the JWT claim (I-5 applied to I-18)", async () => {
+    // The JWT on `deviceRequest` claims "member"; the DB row says "admin" —
+    // the DB row must win, or a stale/forged claim could reach the DAO.
+    userDao.getByUuid.mockResolvedValue({
+      id: 3,
+      uuid: "admin-uuid",
+      role: "admin",
+    });
+
+    const { json } = await runRegisterDevice(deviceRequest(KNOWN_SECRET));
+
+    expect(json.mock.calls[0][0]).toEqual({ success: true, data: null });
+    expect(dao.getByUserAndTokenHash).not.toHaveBeenCalled();
   });
 });

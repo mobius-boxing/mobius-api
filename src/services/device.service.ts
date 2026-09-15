@@ -1,7 +1,8 @@
 /**
  * Device policy for the `X-Device-Token` transport: resolution for the gate and
- * the four login cases, in one place (D-24). `authenticate`, `login` and
- * `acceptInvitation` all need the same answers, and none of them may own them —
+ * the four login cases, in one place (D-24). `authenticate`, `login`,
+ * `acceptInvitation` and — since gate amendment 3 (D-230) — the authenticated
+ * `POST /auth/device` all need the same answers, and none of them may own them —
  * a second copy of "is this browser known to this user" is how one caller ends
  * up trusting a client-supplied hash.
  */
@@ -115,9 +116,14 @@ export async function resolveDevice(
 }
 
 /**
- * The login / accept-invitation write. Returns `null` for a role that is never
- * gated, and for a member always a session (I-7) whose `token` is present only
- * when this call minted the secret.
+ * The device registration procedure (login cases 1–3), shared verbatim by
+ * `login`, `acceptInvitation` and `POST /auth/device` (D-230) — one function,
+ * not three copies. Returns `null` for a role that is never gated (I-5, I-18),
+ * and for a member always a session (I-7, the authenticated twin is I-18) whose
+ * `token` is present only when this call minted the secret. `req` supplies the
+ * optional `X-Device-Token` header and the request's user-agent/ip regardless
+ * of which of the three callers is running: none of them need a signature of
+ * their own.
  */
 export async function issueOrReuseDevice(
   user: DeviceUser,

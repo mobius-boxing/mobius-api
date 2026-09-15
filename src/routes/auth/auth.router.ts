@@ -63,6 +63,15 @@ export class AuthRouter {
       apiRateLimiter,
       this.authController.getDevice.bind(this.authController),
     );
+    // Gate amendment 3 (D-230): lets an already-signed-in member whose session
+    // outlived a deploy register this browser without re-authenticating.
+    // Exempt from the device gate; idempotent (I-19).
+    this.router.post(
+      "/device",
+      authenticate,
+      apiRateLimiter,
+      this.authController.registerDevice.bind(this.authController),
+    );
     // Stateless JWT logout — exists so the client's POST doesn't 404; becomes
     // meaningful if/when server-side token revocation lands.
     this.router.post("/logout", authenticate, apiRateLimiter, (_req, res) => {

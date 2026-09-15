@@ -2,7 +2,8 @@
  * The device gate inside `authenticate` — AC-2-1 (three codes, verbatim
  * messages, nothing but the error envelope in the body), AC-2-2/AC-2-3 (the role
  * comes from the `users` row, not the JWT claim), AC-2-4 (the exempt set is
- * exactly four `METHOD path` pairs) and AC-2-5 (the gate writes nothing).
+ * exactly five `METHOD path` pairs, gate amendment 3 having added
+ * `POST /api/auth/device`) and AC-2-5 (the gate writes nothing).
  *
  * The harness is `integration/cookie-auth-rejection.test.ts`'s — the real
  * middleware on a throwaway Express app — with one addition that is load-bearing:
@@ -97,7 +98,8 @@ const SECRET = "b".repeat(64);
 type Role = "member" | "admin" | "superAdmin";
 
 /**
- * `/api/auth` carries the four exempt routes plus two deliberate near-misses;
+ * `/api/auth` carries the five exempt routes plus several deliberate
+ * near-misses (a trailing slash, a different method on an exempt path);
  * `/api/users` is the stand-in for every gated route in the API.
  */
 const buildApp = () => {
@@ -110,6 +112,9 @@ const buildApp = () => {
     authRouter.get(path, authenticate, echo);
     authRouter.post(path, authenticate, echo);
   }
+  // A near-miss on the exempt set: `POST /api/auth/device` is exempt (gate
+  // amendment 3), but no other method on that same path is.
+  authRouter.put("/device", authenticate, echo);
   authRouter.get("/logout", authenticate, echo);
   authRouter.post("/logout", authenticate, echo);
   app.use("/api/auth", authRouter);
@@ -148,7 +153,7 @@ type Options = {
   claimedRole?: Role;
   status?: IUserDevice["status"] | null;
   header?: string | null;
-  method?: "get" | "post";
+  method?: "get" | "post" | "put";
 };
 
 const call = async (path: string, options: Options = {}) => {
@@ -274,11 +279,12 @@ describe("AC-2-2 / AC-2-3 — the role comes from the users row", () => {
 });
 
 describe("AC-2-4 — the exempt set", () => {
-  it("is exactly the four routes of D-22", () => {
+  it("is exactly the five routes of D-22 and gate amendment 3 (D-230)", () => {
     expect([...DEVICE_GATE_EXEMPT].sort()).toEqual([
       "GET /api/auth/device",
       "GET /api/auth/me",
       "GET /api/auth/profile",
+      "POST /api/auth/device",
       "POST /api/auth/logout",
     ]);
   });
@@ -287,8 +293,9 @@ describe("AC-2-4 — the exempt set", () => {
     ["/api/auth/me", "get"],
     ["/api/auth/profile", "get"],
     ["/api/auth/device", "get"],
+    ["/api/auth/device", "post"],
     ["/api/auth/logout", "post"],
-  ] as const)("lets a pending member reach %s", async (path, method) => {
+  ] as const)("lets a pending member reach %s %s", async (path, method) => {
     const res = await call(path, { status: "pending", method });
 
     expect(res.status).toBe(200);
@@ -298,8 +305,13 @@ describe("AC-2-4 — the exempt set", () => {
   it.each([
     ["a gated route", "/api/users", "get"],
     ["change-password", "/api/auth/change-password", "post"],
-    ["the exempt path with a trailing slash", "/api/auth/device/", "get"],
-    ["the exempt path with another method", "/api/auth/device", "post"],
+    ["the exempt GET path with a trailing slash", "/api/auth/device/", "get"],
+    ["the exempt POST path with a trailing slash", "/api/auth/device/", "post"],
+    [
+      "the exempt path with an unexempt method (PUT)",
+      "/api/auth/device",
+      "put",
+    ],
     ["logout with another method", "/api/auth/logout", "get"],
     ["me with another method", "/api/auth/me", "post"],
   ] as const)("gates %s", async (_case, path, method) => {

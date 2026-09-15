@@ -34,6 +34,7 @@ export const DEVICE_GATE_EXEMPT = new Set([
   "GET /api/auth/me",
   "GET /api/auth/profile",
   "GET /api/auth/device",
+  "POST /api/auth/device",
   "POST /api/auth/logout",
 ]);
 
