@@ -20,6 +20,9 @@ one directory deeper.
   (D-17 option A) partly because `20251211000001_extend_warehouses_table.ts` and
   `20260120143704_add_company_id_to_master_tables.ts` cannot run without
   `companies`.
-- `park_tenant_tables` and `drop_zz_old_tables` are deliberately not committed
-  here (D-39). A committed file runs on the next deploy whatever state the
-  cutover is in, so they land with C3/C4 as a human-approved follow-up.
+- `park_tenant_tables` and `drop_zz_old_tables` (C3/C4, applied in production
+  2026-09-15) run wherever core is migrated. The park skips itself unless at
+  least one company is registered and every live registration is a dedicated
+  `tenant_*` database, so a fresh bootstrap or a local database still on the
+  shared target keeps its business tables; the drop only removes `zz_old_*`
+  tables and is a no-op where nothing was parked.
