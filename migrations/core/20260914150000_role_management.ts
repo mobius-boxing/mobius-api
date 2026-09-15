@@ -22,9 +22,10 @@ import type { Knex } from "knex";
  *     protected Admin role and grant it every RW code, create Member with the
  *     baseline grants.
  *  3. Backfill `users.roleId` where null (companyId not null): admin -> Admin,
- *     member -> Member.
+ *     member -> Member. Enum admins on any other role move to Admin, and the
+ *     `users.role` mirror is made to agree with the Admin role.
  *  4. Move each Procusto starter role's users + invitations to Member, then
- *     delete the role.
+ *     delete the role. Every remaining custom role gets Member's baseline.
  *  5. Prune permission rows outside the new catalogue (cascades role_permissions).
  *  6. Backfill `invitations.roleId` for pending invitations.
  */
@@ -556,6 +557,16 @@ export async function up(knex: Knex): Promise<void> {
       .where({ companyId, role: "member" })
       .whereNull("roleId")
       .update({ roleId: memberRole.id });
+    // An enum admin on a custom role got its authority from the enum, which no
+    // longer gates any route; leaving it there would strip its access.
+    await knex("users")
+      .where({ companyId, role: "admin" })
+      .whereNot("roleId", adminRole.id)
+      .update({ roleId: adminRole.id });
+    await knex("users")
+      .where({ companyId, roleId: adminRole.id })
+      .where("role", "member")
+      .update({ role: "admin" });
 
     // 4. Move each Procusto starter role's users/invitations to Member,
     // then delete the (now empty) role.
@@ -572,6 +583,30 @@ export async function up(knex: Knex): Promise<void> {
         .where({ companyId, roleId: starter.id })
         .update({ roleId: memberRole.id });
       await knex("roles").where({ id: starter.id }).delete();
+    }
+
+    // Custom roles predate permission-gated routes: their users reached the
+    // login-only routes that Member's baseline now covers.
+    const customRoles = await knex("roles")
+      .where({ companyId, isProtected: false })
+      .whereNull("systemKey")
+      .select("id");
+    const baselinePermissions = await knex("permissions")
+      .where({ companyId })
+      .whereIn("code", MEMBER_BASELINE_CODES)
+      .select("id");
+    for (const role of customRoles) {
+      if (!baselinePermissions.length) break;
+      await knex("role_permissions")
+        .insert(
+          baselinePermissions.map((p: any) => ({
+            roleId: role.id,
+            permissionId: p.id,
+            companyId,
+          })),
+        )
+        .onConflict(["roleId", "permissionId"])
+        .ignore();
     }
 
     // 5. Prune permission rows outside the new catalogue (cascades role_permissions).
