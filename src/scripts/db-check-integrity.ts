@@ -10,6 +10,7 @@ import { GENERATED_CROSS_PLANE_REFS } from "../database/cross-plane-refs.generat
 import { userReferences } from "../services/company-purge.service";
 import {
   closeDedicatedTenant,
+  coreHostsTenantTables,
   listDedicatedTenants,
   openDedicatedTenant,
   resolveDedicatedTenant,
@@ -431,19 +432,21 @@ export async function runDbCheckIntegrity(
     // I-18 applies "from C1 onward"; pre-C1 has no dedicated tenant yet.
     findings.push(...(await checkPreC1(deps.core(), snapshot)));
   } else {
-    // The shared/legacy target — unchanged since before T9 (C0/C1: "tenant"
-    // resolves to core, so this already covers every shared-target company).
-    for (const ref of references) {
-      const orphans = await findOrphans(
-        deps.tenant(),
-        deps.core(),
-        ref,
-        deps.batchSize,
-      );
-      if (orphans) {
-        findings.push(
-          `orphans: ${ref.table}.${ref.column} has ${orphans.orphanValues} value(s) missing from ${ref.referencedTable}.${ref.referencedColumn} (e.g. ${orphans.sample.join(", ")})`,
+    // The shared/legacy target (C0/C1: "tenant" resolves to core, so this
+    // covers every shared-target company) — gone once C3 parks core's copies.
+    if (await coreHostsTenantTables(deps.tenant())) {
+      for (const ref of references) {
+        const orphans = await findOrphans(
+          deps.tenant(),
+          deps.core(),
+          ref,
+          deps.batchSize,
         );
+        if (orphans) {
+          findings.push(
+            `orphans: ${ref.table}.${ref.column} has ${orphans.orphanValues} value(s) missing from ${ref.referencedTable}.${ref.referencedColumn} (e.g. ${orphans.sample.join(", ")})`,
+          );
+        }
       }
     }
 

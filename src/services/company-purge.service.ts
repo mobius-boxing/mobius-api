@@ -10,6 +10,7 @@ import { type ForeignKeyDeleteRule } from "../database/cross-plane-refs";
 import { GENERATED_CROSS_PLANE_REFS } from "../database/cross-plane-refs.generated";
 import {
   closeDedicatedTenant,
+  coreHostsTenantTables,
   listDedicatedTenants,
   openDedicatedTenant,
   type DedicatedTenantTarget,
@@ -479,6 +480,8 @@ const purgeReferencesInOneTenant = async (
 export type PurgeUserDeps = {
   /** The shared/legacy target — pre-cutover, where "tenant" IS core (C0/C1, D-31's dedupe). */
   sharedTarget: () => Knex;
+  /** False once C3 has parked core's copies of the company tables: the shared target then only holds `users`. */
+  sharedTargetHostsTenantTables: (shared: Knex) => Promise<boolean>;
   listDedicatedTenants: () => Promise<DedicatedTenantTarget[]>;
   openTenant: (target: DedicatedTenantTarget) => Promise<Knex>;
   closeTenant: (knex: Knex) => Promise<void>;
@@ -491,6 +494,7 @@ export type PurgeUserDeps = {
  */
 const defaultPurgeUserDeps: PurgeUserDeps = {
   sharedTarget: () => guardedForTenant(rawCoreInstance()),
+  sharedTargetHostsTenantTables: coreHostsTenantTables,
   listDedicatedTenants,
   openTenant: openDedicatedTenant,
   closeTenant: closeDedicatedTenant,
@@ -521,11 +525,15 @@ export async function purgeUser(
   const refuseRefs = references.filter((r) => r.action === "refuse");
 
   const shared = deps.sharedTarget();
+  const sharedHostsTenantTables =
+    await deps.sharedTargetHostsTenantTables(shared);
   const dedicated = await deps.listDedicatedTenants();
 
-  const sharedPreflight = await countBlockers(shared, refuseRefs, userId);
-  if (sharedPreflight.length > 0) {
-    throw new UserPurgeRefusedError(userId, sharedPreflight);
+  if (sharedHostsTenantTables) {
+    const sharedPreflight = await countBlockers(shared, refuseRefs, userId);
+    if (sharedPreflight.length > 0) {
+      throw new UserPurgeRefusedError(userId, sharedPreflight);
+    }
   }
 
   const opened: { target: DedicatedTenantTarget; knex: Knex }[] = [];
@@ -561,18 +569,20 @@ export async function purgeUser(
     // database, one transaction covers everything," and it only runs once
     // every dedicated tenant above has already committed.
     await shared.transaction(async (trx) => {
-      const raced = await countBlockers(
-        trx as unknown as Knex,
-        refuseRefs,
-        userId,
-      );
-      if (raced.length > 0) throw new UserPurgeRefusedError(userId, raced);
-      await writeReferences(
-        trx as unknown as Knex,
-        references,
-        userId,
-        outcome,
-      );
+      if (sharedHostsTenantTables) {
+        const raced = await countBlockers(
+          trx as unknown as Knex,
+          refuseRefs,
+          userId,
+        );
+        if (raced.length > 0) throw new UserPurgeRefusedError(userId, raced);
+        await writeReferences(
+          trx as unknown as Knex,
+          references,
+          userId,
+          outcome,
+        );
+      }
       // Raw, not `trx("users")`: `shared` is guarded as "tenant" (T11/D-6's
       // shape), and `users` belongs to core — the wrong-database guard would
       // reject the callable form even though this transaction's connection

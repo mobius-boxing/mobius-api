@@ -7,6 +7,24 @@ import type {
   IDbServer,
   ITenantDatabase,
 } from "../interfaces/tenant/tenant.interfaces";
+import { ownerOf, tablesOf } from "./ownership";
+
+/**
+ * Whether `knex`'s database still holds the shared target's company tables:
+ * true before C3 and on local or scratch databases, false once
+ * `park_tenant_tables` has renamed them. Asks the catalogue, not the registry,
+ * because the tables themselves are what a shared-target read needs.
+ */
+export async function coreHostsTenantTables(knex: Knex): Promise<boolean> {
+  const tenantOnly = tablesOf("tenant").filter(
+    (table) => ownerOf(table) === "tenant",
+  );
+  const result = (await knex.raw(
+    "select exists (select 1 from pg_tables where schemaname = current_schema() and tablename = any(string_to_array(?, ','))) as hosted",
+    [tenantOnly.join(",")],
+  )) as { rows: { hosted: boolean }[] };
+  return result.rows[0]?.hosted === true;
+}
 
 /**
  * Every dedicated `tenant_*` database, each its own physical server (T9

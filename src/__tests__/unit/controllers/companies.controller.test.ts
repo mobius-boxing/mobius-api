@@ -67,6 +67,22 @@ jest.mock("../../../services/company-purge.service", () => ({
   __esModule: true,
   purgeCompany: (...args) =>
     require("./companies.controller.test").mockPurgeCompany(...args),
+  purgeCompanyCentralOnly: (...args) =>
+    require("./companies.controller.test").mockPurgeCompanyCentralOnly(...args),
+}));
+
+/**
+ * C3: with no live tenant row, the delete picks the shared-target purge only
+ * while core still holds the company tables. Defaults to "still holds them",
+ * the pre-C3 world the existing no-live-row cases assert.
+ */
+export const mockPurgeCompanyCentralOnly = jest.fn();
+export const mockCoreHostsTenantTables = jest.fn();
+
+jest.mock("../../../database/dedicated-tenants", () => ({
+  __esModule: true,
+  coreHostsTenantTables: (...args) =>
+    require("./companies.controller.test").mockCoreHostsTenantTables(...args),
 }));
 
 /**
@@ -181,6 +197,8 @@ describe("CompaniesController", () => {
     });
     mockRunProvisioningSteps.mockReset();
     mockDecommissionTenantDatabase.mockReset();
+    mockCoreHostsTenantTables.mockReset().mockResolvedValue(true);
+    mockPurgeCompanyCentralOnly.mockReset();
 
     // Create controller instance
     controller = new CompaniesController();
@@ -468,6 +486,31 @@ describe("CompaniesController", () => {
       expect(mockRes.json).toHaveBeenCalledWith({
         success: false,
         message: "Failed to delete company",
+      });
+    });
+
+    it("C3: with no live tenant row and core's company tables parked, purges centrally only", async () => {
+      const existingCompany = createTestCompany({
+        id: 1,
+        uuid: "existing-uuid",
+      });
+      mockCompanyDAO.getByUuid.mockResolvedValue(existingCompany);
+      mockCoreHostsTenantTables.mockResolvedValue(false);
+      mockPurgeCompanyCentralOnly.mockResolvedValue({
+        companyDeleted: true,
+        ledgerRowsDeleted: 2,
+      });
+
+      const mockReq = createUuidParamRequest("existing-uuid") as Request;
+
+      await controller.delete(mockReq, mockRes as Response, mockNext);
+
+      expect(mockPurgeCompanyCentralOnly).toHaveBeenCalledWith(1);
+      expect(mockPurgeCompany).not.toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: "Company deleted successfully",
       });
     });
 

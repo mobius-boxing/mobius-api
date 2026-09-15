@@ -690,6 +690,8 @@ describe("userReferences — each foreign key's own rule, plus the manifests", (
 describe("purgeUser — refuse, delete, null, then the user", () => {
   /** Dedicated tenant targets this run's `deps.listDedicatedTenants` reports. */
   let dedicated;
+  /** False once C3 has parked core's copies of the company tables. */
+  let sharedHostsTenantTables;
 
   /** Adds a dedicated tenant, traced into `log` under its own key. */
   const addDedicated = (name) => {
@@ -705,6 +707,7 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
   /** `purgeUser`'s deps: the shared facade + whatever `addDedicated` has registered. */
   const deps = () => ({
     sharedTarget: () => facades.core,
+    sharedTargetHostsTenantTables: async () => sharedHostsTenantTables,
     listDedicatedTenants: async () => dedicated.map((d) => d.target),
     openTenant: async (target) =>
       dedicated.find((d) => d.target === target).facade,
@@ -724,6 +727,7 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
       { table: "nf_workflows", column: "createdByUserId", nullable: true },
     ];
     dedicated = [];
+    sharedHostsTenantTables = true;
   });
 
   it("counts blockers first, then deletes, nulls and removes the user in one transaction while the planes share a database", async () => {
@@ -854,6 +858,33 @@ describe("purgeUser — refuse, delete, null, then the user", () => {
     await expect(purgeUser(USER_ID, deps())).resolves.toMatchObject({
       userDeleted: false,
     });
+  });
+
+  it("after C3 parks core's company tables, touches only the dedicated tenants and the users row (mutation: read the shared target anyway)", async () => {
+    sharedHostsTenantTables = false;
+    answerRaw("core", { blocking: { "countdown_documents.uploadedBy": 5 } });
+    addDedicated("tenant_a");
+    answerRaw("tenant_a", { affected: { "files.uploadedBy": 1 } });
+
+    await expect(purgeUser(USER_ID, deps())).resolves.toStrictEqual({
+      userDeleted: true,
+      rowsDeleted: { "countdown_group_members.userId": 0 },
+      valuesNulled: {
+        "files.uploadedBy": 1,
+        "nf_workflows.createdByUserId": 0,
+      },
+    });
+
+    // The shared target's blockers are never counted — the tables are gone —
+    // so the `users` delete is the one statement core sees.
+    expect(sequenceOf("core")).toStrictEqual([
+      "begin",
+      `raw ${USER_ROW_DELETE_SQL} [${USER_ID}]`,
+      "commit",
+    ]);
+    expect(
+      sequenceOf("tenant_a").filter((entry) => entry.startsWith("raw")),
+    ).toHaveLength(5);
   });
 });
 

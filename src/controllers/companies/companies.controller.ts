@@ -14,7 +14,11 @@ import {
 } from "../../dto/input/company";
 import { setAuditAction } from "../../database/audit-context";
 import { db, withTenantTarget } from "../../database/registry";
-import { purgeCompany } from "../../services/company-purge.service";
+import {
+  purgeCompany,
+  purgeCompanyCentralOnly,
+} from "../../services/company-purge.service";
+import { coreHostsTenantTables } from "../../database/dedicated-tenants";
 import { TenantDatabaseDAO } from "../../dao/tenant-database/tenant-database.dao";
 import {
   beginProvisioning,
@@ -342,6 +346,10 @@ export class CompaniesController implements IBaseController {
           });
           return;
         }
+      } else if (!(await coreHostsTenantTables(db("core")))) {
+        // After C3 core holds no company tables, so a company without a live
+        // tenant database has no business rows left to delete anywhere.
+        result = await purgeCompanyCentralOnly(companyId);
       } else {
         // T8/AC-49 (found while verifying T10): `purgeCompany`'s target list
         // resolves `physicalKeyOf("tenant")`, which now throws outside any
