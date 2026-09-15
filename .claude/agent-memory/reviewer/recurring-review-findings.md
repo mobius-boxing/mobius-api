@@ -182,3 +182,56 @@ Check these on every review; each has already been found at least once.
   canary that the invariant is actually tested, and a real prior incident (a
   previous reviewer session left this exact mutation live in untracked source
   after an infra failure).
+
+- **"Is this secret logged?" has a cheap definitive answer here.** `errorMiddleware`
+  does `console.error("Error:", err)` on every 500, and morgan runs in `"tiny"`
+  format (method/url/status only — no headers, no body). Knex in this repo does
+  NOT interpolate bindings into `err.message` (it stays `… values ($1, $2)`) and
+  the pg error object carries no `bindings` own-property, so a failed insert logs
+  column *names* only. Verified 2026-09-13 with a live failing insert. The one
+  value that does reach the log is a unique-violation `detail` ("Key (a,b)=(…)"),
+  so only columns inside a UNIQUE index can leak this way. Use this instead of
+  reading every `console.*` call on the path.
+- **Gate/middleware ACs are cheap to verify live against the real local DB.**
+  Create throwaway users with `set mobius.audit_skip='on'` (bcryptjs hash, an
+  existing `companyId`), run your own API on a free port, curl the matrix, then
+  `delete from users where email like '<prefix>%'` — FK cascade removes the child
+  rows and the only residue is the append-only ledger. Mint forged-claim JWTs
+  with `JWT_SECRET` from `.env` to prove role is read from the DB row. Watch the
+  5/min per-IP login limiter: budget the logins per minute before starting.
+
+- **A new mobius-web-app list page that forgets `useEffectiveCompany`.** 167 call
+  sites thread `effectiveCompanyId` into the fetch (`Machines.tsx:29-42`,
+  `Roles.tsx:40` are the canonical shape: a `useCallback` fetchFn plus a
+  `refresh()` effect on change). A page built straight on
+  `useEntityList({fetchFn: xApi.getX})` compiles, looks right for an admin
+  (the API scopes from the token) and silently ignores the superAdmin company
+  switcher — for a superAdmin the endpoint is then *unscoped* and the list mixes
+  tenants. Check this on every new list page; it is invisible in an admin-only
+  browser walk.
+- **`useEntityList`'s `defaultFilters` is merged AFTER the live filters**
+  (`...filters, ...defaultFilters`), so it pins a filter for good; the house
+  workaround is `setFilters(...)` in a mount effect. Cost nobody logs: the
+  hook's own autoFetch effect is registered during render and fires FIRST, so
+  the page issues two requests on mount and the first one is unfiltered (a flash
+  of rows the filter is meant to hide). `Users.tsx` escapes it only because its
+  initial selection stringifies to the same `{}`.
+
+- **A new field on `GET /auth/me` is a deploy-order hazard, not just a contract
+  change.** `repos/modules/shared/auth`'s `writeCachedUser` persists the whole
+  `me()` payload to `localStorage` (both module AuthContexts call it on boot,
+  on focus-resync and on login), so the day the API starts returning a new
+  secret-bearing field, every module bundle *still on old code* caches it. The
+  mirror hazard points the other way: a new SPA bundle that derives a
+  "blocked" flag from an absent field (`device?.status !== 'approved'`) parks
+  every affected user on a dead-end screen while the API is still old. Neither
+  is visible in a per-repo review — ask, for every cross-repo field addition,
+  "old frontend + new API?" and "new frontend + old API?" separately, then pin
+  the order per repo. Found on the device-approval close-out 2026-09-13, where
+  brief.md and page.html had recorded two *opposite* orders, each safe in only
+  one direction.
+- **Read-modify-write counters behind a security bound.** A cap implemented as
+  `{ counter: readValue + 1 }` in JS (rather than `knex.raw('"c" + 1')`) can
+  under-count under concurrency, which quietly widens a "max N attempts"
+  guarantee. Check the DAO statement, not the predicate — the predicate is
+  usually the thing that got a decision entry and a test.
