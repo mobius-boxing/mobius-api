@@ -67,26 +67,17 @@ export const requireEntityHistoryAccess = async (
     const { RbacService } = await import("../services/rbac.service");
 
     let codes: string[] | undefined = req.permissionCodes;
-    let hasRole: boolean | undefined = req.permissionHasRole;
-    if (codes === undefined || hasRole === undefined) {
+    if (codes === undefined) {
       const authz = await RbacService.authzForUserUuid(user.userId);
-      hasRole = authz.hasRole;
       codes = authz.codes;
       req.permissionCodes = codes;
-      req.permissionHasRole = hasRole;
     }
 
     const options = { allowReadOnly: true };
     const allowed =
-      RbacService.isAllowed(
-        user.role,
-        hasRole,
-        codes,
-        AUDIT_READ_CODE,
-        options,
-      ) ||
+      RbacService.isAllowed(user.role, codes, AUDIT_READ_CODE, options) ||
       (entityCode !== null &&
-        RbacService.isAllowed(user.role, hasRole, codes, entityCode, options));
+        RbacService.isAllowed(user.role, codes, entityCode, options));
 
     if (!allowed) {
       res.status(403).json({

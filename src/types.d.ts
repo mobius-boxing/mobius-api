@@ -37,7 +37,6 @@ declare global {
       device?: IDeviceSession | null;
       /** Per-request cache filled by requirePermission. */
       permissionCodes?: string[];
-      permissionHasRole?: boolean;
     }
   }
 }

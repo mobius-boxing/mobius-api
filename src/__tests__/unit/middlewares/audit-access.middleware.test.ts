@@ -17,9 +17,9 @@
  *
  * Only `RbacService.authzForUserUuid` is stubbed — the one call that would hit
  * the database. `RbacService.isAllowed` runs for real, because it owns the
- * superAdmin bypass, the roleless-admin fallback and the `.readonly` pairing;
- * a mocked decision function would leave all three untested (L-008 is the
- * lesson about exactly this layer lying quietly).
+ * superAdmin bypass and the `.readonly` pairing; a mocked decision function
+ * would leave both untested (L-008 is the lesson about exactly this layer
+ * lying quietly).
  */
 import { jest, describe, it, expect, beforeEach } from "@jest/globals";
 import type { NextFunction, Request, Response } from "express";
@@ -43,15 +43,15 @@ const READONLY_ENTITY = "box_types";
 
 type Role = "member" | "admin" | "superAdmin";
 
-const authz = jest.fn<() => Promise<{ hasRole: boolean; codes: string[] }>>();
+const authz = jest.fn<() => Promise<{ codes: string[] }>>();
 
 const run = async (
   role: Role,
   entityName: string,
-  options: { codes?: string[]; hasRole?: boolean; user?: boolean } = {},
+  options: { codes?: string[]; user?: boolean } = {},
 ) => {
-  const { codes = [], hasRole = codes.length > 0, user = true } = options;
-  authz.mockResolvedValue({ hasRole, codes });
+  const { codes = [], user = true } = options;
+  authz.mockResolvedValue({ codes });
 
   const req = createMockRequest({
     params: { entityName, entityUuid: "8a1f0a34-6c2e-4a1e-9a2b-0d5f6c7e8a90" },
@@ -107,16 +107,9 @@ describe("requireEntityHistoryAccess — who passes", () => {
     expect(authz).not.toHaveBeenCalled();
   });
 
-  it("passes a roleless admin on a null-entry entity (Stage A legacy fallback, same as any code)", async () => {
-    expectPassed(await run("admin", ADMIN_ONLY_ENTITY));
-  });
-
   it("passes an admin with a role, via the audit.read every RW-holding Admin is seeded", async () => {
     expectPassed(
-      await run("admin", ADMIN_ONLY_ENTITY, {
-        codes: ["audit.read"],
-        hasRole: true,
-      }),
+      await run("admin", ADMIN_ONLY_ENTITY, { codes: ["audit.read"] }),
     );
   });
 
@@ -189,10 +182,17 @@ describe("requireEntityHistoryAccess — who is refused", () => {
     );
   });
 
-  it("refuses a roleless member (the legacy-enum fallback denies)", async () => {
-    expectStatus(
-      await run("member", CODED_ENTITY, { codes: [], hasRole: false }),
-      403,
+  it("refuses a roleless member (no codes, no grant)", async () => {
+    expectStatus(await run("member", CODED_ENTITY, { codes: [] }), 403);
+  });
+
+  it("refuses a roleless admin on a null-entry entity (mutation: reintroducing the legacy fallback would grant everyone)", async () => {
+    const result = await run("admin", ADMIN_ONLY_ENTITY);
+    expectStatus(result, 403);
+    expect(result.res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("audit.read") as unknown as string,
+      }),
     );
   });
 
@@ -214,12 +214,14 @@ describe("requireEntityHistoryAccess — an unknown table", () => {
     );
   });
 
-  it("passes an admin, so the controller answers the honest 400", async () => {
+  it("passes an admin holding audit.read, so the controller answers the honest 400", async () => {
     // `code_sequences` is excluded from auditing entirely, so it has no
     // manifest entry: the gate must not turn its "not an audited table" 400
     // into a 403 for the callers who are allowed to read the ledger.
     expect(ENTITY_READ_PERMISSION["code_sequences"]).toBeUndefined();
-    expectPassed(await run("admin", "code_sequences"));
+    expectPassed(
+      await run("admin", "code_sequences", { codes: ["audit.read"] }),
+    );
   });
 });
 
@@ -229,7 +231,6 @@ describe("requireEntityHistoryAccess — the per-request cache", () => {
       codes: ["parts.edit"],
     });
     expect(req.permissionCodes).toEqual(["parts.edit"]);
-    expect(req.permissionHasRole).toBe(true);
     expect(authz).toHaveBeenCalledTimes(1);
   });
 
@@ -242,7 +243,6 @@ describe("requireEntityHistoryAccess — the per-request cache", () => {
         role: "member",
       },
       permissionCodes: ["audit.read"],
-      permissionHasRole: true,
     }) as Request;
     const res = createMockResponse() as Response;
     const next = jest.fn() as unknown as NextFunction;

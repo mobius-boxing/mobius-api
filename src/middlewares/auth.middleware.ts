@@ -222,10 +222,9 @@ export const optionalAuth = async (
  * grants for `code`; with allowReadOnly, the `.readonly` variant also passes
  * (Procusto's SoloLectura pairing — use on GET routes).
  *
- * Transition semantics (02/08-migration-notes dual-read): superAdmin always
- * passes; a user with NO roleId falls back to the legacy enum (admin passes,
- * member is denied). Once every user carries a roleId the fallback dies with
- * the enum column.
+ * superAdmin always passes; a user with no roleId (or a role with no matching
+ * grant) is denied — the transition-era legacy-enum fallback was removed once
+ * the backfill migration put every company user on a role.
  */
 export const requirePermission = (
   code: string,
@@ -252,17 +251,14 @@ export const requirePermission = (
 
     // Cache per request — several gates may run on one request.
     let codes: string[] | undefined = req.permissionCodes;
-    let hasRole: boolean | undefined = req.permissionHasRole;
-    if (codes === undefined || hasRole === undefined) {
+    if (codes === undefined) {
       try {
         const { RbacService } = await import("../services/rbac.service");
         // NOTE: UserDAO.getByUuid must not be used here — its mapToInterface
         // drops roleId, which would silently disable the whole grid.
         const authz = await RbacService.authzForUserUuid(user.userId);
-        hasRole = authz.hasRole;
         codes = authz.codes;
         req.permissionCodes = codes;
-        req.permissionHasRole = hasRole;
       } catch (err) {
         // An authz lookup failure never allows — 503, not a 500 that
         // some upstream client could retry into an accidental 4xx-swallow.
@@ -279,12 +275,7 @@ export const requirePermission = (
       // Decision semantics live in ONE place (RbacService.isAllowed) — the
       // superAdmin bypass above is only a fetch-skipping fast path.
       const { RbacService } = await import("../services/rbac.service");
-      if (
-        !RbacService.isAllowed(user.role, hasRole, codes, code, options, {
-          userUuid: user.userId,
-          path: `${req.baseUrl}${req.path}`,
-        })
-      ) {
+      if (!RbacService.isAllowed(user.role, codes, code, options)) {
         res.status(403).json({
           success: false,
           message: `Insufficient permissions. Required: ${code}`,

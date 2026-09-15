@@ -3,12 +3,11 @@
  * RbacService.isAllowed — the single decision point behind `requirePermission`
  * and every controller-level `userHasPermission` check.
  *
- * The `!hasRole -> role==='admin'` legacy fallback stays, but every allow it
- * grants must be logged at warn (`rbac.legacy_fallback_allow`). Each leg
- * below has a case that fails if only that leg breaks (L-018): denying
- * admins-without-a-role would lock out the transition population; logging on
- * every call (not just the fallback) would flood the log; logging BUT still
- * denying would silently break write access for the same population.
+ * The `!hasRole -> role==='admin'` legacy fallback (and its
+ * `rbac.legacy_fallback_allow` warn log) was removed once the backfill
+ * migration put every company user on a role and prod logs showed zero
+ * fallback hits for a week: a roleless user — admin or member — now gets no
+ * permissions.
  */
 import {
   jest,
@@ -38,92 +37,55 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe("RbacService.isAllowed — superAdmin bypass", () => {
-  it("passes regardless of codes or hasRole", () => {
-    expect(RbacService.isAllowed("superAdmin", false, [], "orders.edit")).toBe(
-      true,
-    );
-    expect(RbacService.isAllowed("superAdmin", true, [], "orders.edit")).toBe(
-      true,
-    );
+  it("passes regardless of codes", () => {
+    expect(RbacService.isAllowed("superAdmin", [], "orders.edit")).toBe(true);
+    expect(
+      RbacService.isAllowed("superAdmin", ["orders.edit"], "orders.edit"),
+    ).toBe(true);
   });
 });
 
 describe("RbacService.isAllowed — a user with a role", () => {
   it("passes when the RW code is granted", () => {
     expect(
-      RbacService.isAllowed("member", true, ["orders.edit"], "orders.edit"),
+      RbacService.isAllowed("member", ["orders.edit"], "orders.edit"),
     ).toBe(true);
   });
 
   it("denies when neither the code nor its readonly sibling is granted", () => {
-    expect(RbacService.isAllowed("member", true, [], "orders.edit")).toBe(
-      false,
-    );
+    expect(RbacService.isAllowed("member", [], "orders.edit")).toBe(false);
   });
 
   it("denies the readonly sibling unless allowReadOnly is set (mutation: an unguarded reader)", () => {
     expect(
-      RbacService.isAllowed(
-        "member",
-        true,
-        ["orders.edit.readonly"],
-        "orders.edit",
-      ),
+      RbacService.isAllowed("member", ["orders.edit.readonly"], "orders.edit"),
     ).toBe(false);
   });
 
   it("passes the readonly sibling when allowReadOnly is set", () => {
     expect(
-      RbacService.isAllowed(
-        "member",
-        true,
-        ["orders.edit.readonly"],
-        "orders.edit",
-        { allowReadOnly: true },
-      ),
+      RbacService.isAllowed("member", ["orders.edit.readonly"], "orders.edit", {
+        allowReadOnly: true,
+      }),
     ).toBe(true);
   });
 });
 
-describe("RbacService.isAllowed — the roleless-admin fallback", () => {
-  it("allows an admin with no roleId (mutation: denying breaks the transition population)", () => {
-    expect(RbacService.isAllowed("admin", false, [], "orders.edit")).toBe(true);
+describe("RbacService.isAllowed — a roleless user (legacy fallback removed)", () => {
+  it("denies a roleless admin (mutation: reintroducing the fallback would grant everyone)", () => {
+    expect(RbacService.isAllowed("admin", [], "orders.edit")).toBe(false);
   });
 
-  it("denies a roleless member (mutation: the fallback must not widen to every role)", () => {
-    expect(RbacService.isAllowed("member", false, [], "orders.edit")).toBe(
-      false,
-    );
+  it("denies a roleless member", () => {
+    expect(RbacService.isAllowed("member", [], "orders.edit")).toBe(false);
   });
 
-  it("logs rbac.legacy_fallback_allow with userUuid/code/path exactly when the fallback allows", () => {
+  it("never logs rbac.legacy_fallback_allow — the log line is gone with the fallback", () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
 
-    RbacService.isAllowed("admin", false, [], "orders.edit", undefined, {
-      userUuid: "u-1",
-      path: "/api/orders",
-    });
-
-    expect(warn).toHaveBeenCalledTimes(1);
-    const [line] = warn.mock.calls[0];
-    expect(line).toContain("rbac.legacy_fallback_allow");
-    expect(line).toContain("userUuid=u-1");
-    expect(line).toContain("code=orders.edit");
-    expect(line).toContain("path=/api/orders");
-  });
-
-  it("does not log when the fallback denies (mutation: logging unconditionally hides the signal)", () => {
-    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-
-    RbacService.isAllowed("member", false, [], "orders.edit");
-
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("does not log a normal grid decision — only the fallback leg logs", () => {
-    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-
-    RbacService.isAllowed("member", true, ["orders.edit"], "orders.edit");
+    RbacService.isAllowed("admin", [], "orders.edit");
+    RbacService.isAllowed("member", [], "orders.edit");
+    RbacService.isAllowed("member", ["orders.edit"], "orders.edit");
 
     expect(warn).not.toHaveBeenCalled();
   });
@@ -144,7 +106,7 @@ describe("RbacService.userHasPermission", () => {
   it("resolves through authzForUserUuid + isAllowed for everyone else", async () => {
     jest
       .spyOn(RbacService, "authzForUserUuid")
-      .mockResolvedValue({ hasRole: true, codes: ["orders.edit"] });
+      .mockResolvedValue({ codes: ["orders.edit"] });
 
     await expect(
       RbacService.userHasPermission("u-1", "member", "orders.edit"),
@@ -156,11 +118,10 @@ describe("RbacService.userHasPermission", () => {
 });
 
 describe("RbacService.authzForUserUuid", () => {
-  it("returns hasRole=false and no codes when the user has no roleId", async () => {
+  it("returns no codes when the user has no roleId", async () => {
     mock.fixture("users").firstRows = [{ roleId: null }];
 
     await expect(RbacService.authzForUserUuid("u-1")).resolves.toEqual({
-      hasRole: false,
       codes: [],
     });
   });
@@ -173,7 +134,6 @@ describe("RbacService.authzForUserUuid", () => {
     ];
 
     await expect(RbacService.authzForUserUuid("u-1")).resolves.toEqual({
-      hasRole: true,
       codes: ["orders.edit", "orders.delete"],
     });
   });

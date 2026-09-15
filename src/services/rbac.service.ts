@@ -151,57 +151,44 @@ export class RbacService {
   }
 
   /**
-   * Authorization state for the permission gate: whether the user has a role
-   * assigned at all (drives the legacy-enum fallback) and their granted codes.
+   * Authorization state for the permission gate: the caller's granted codes.
    * One targeted query on users (the DAO's mapToInterface drops roleId, so the
    * middleware must NOT rely on UserDAO for this).
    */
   static async authzForUserUuid(
     userUuid: string,
-  ): Promise<{ hasRole: boolean; codes: string[] }> {
+  ): Promise<{ codes: string[] }> {
     const knex = db("core");
     const user = await knex("users")
       .where("uuid", userUuid)
       .select("roleId")
       .first();
-    if (!user?.roleId) return { hasRole: false, codes: [] };
+    if (!user?.roleId) return { codes: [] };
     const rows = await knex("role_permissions")
       .join("permissions", "role_permissions.permissionId", "permissions.id")
       .where("role_permissions.roleId", user.roleId)
       .select("permissions.code");
-    return { hasRole: true, codes: rows.map((r: any) => r.code) };
+    return { codes: rows.map((r: any) => r.code) };
   }
 
   /**
-   * THE permission decision — single source for the superAdmin bypass, the
-   * legacy roleless-admin fallback, and the `.readonly` variant. Both the
-   * requirePermission middleware and any controller-level check MUST route
-   * through here; never inline these semantics elsewhere.
+   * THE permission decision — single source for the superAdmin bypass and the
+   * `.readonly` variant. Both the requirePermission middleware and any
+   * controller-level check MUST route through here; never inline these
+   * semantics elsewhere.
    *
-   * The legacy fallback stays live but every allow it grants is logged at
-   * warn (`rbac.legacy_fallback_allow`) so its eventual removal can be timed
-   * against zero hits. `context` is optional so existing call sites that
-   * predate this parameter keep compiling; omitting it only omits the
-   * uuid/path from the log line, it never skips the log.
+   * The legacy roleless-admin fallback (`!hasRole -> role === "admin"`) was
+   * removed once the backfill migration put every company user on a role and
+   * `rbac.legacy_fallback_allow` logged zero hits for a week: a user with no
+   * role now gets no permissions, full stop.
    */
   static isAllowed(
     role: string | undefined,
-    hasRole: boolean,
     codes: string[],
     code: string,
     options?: { allowReadOnly?: boolean },
-    context?: { userUuid?: string; path?: string },
   ): boolean {
     if (role === "superAdmin") return true;
-    if (!hasRole) {
-      const allowed = role === "admin";
-      if (allowed) {
-        console.warn(
-          `[rbac.legacy_fallback_allow] userUuid=${context?.userUuid ?? "unknown"} code=${code} path=${context?.path ?? "unknown"}`,
-        );
-      }
-      return allowed;
-    }
     return (
       codes.includes(code) ||
       (options?.allowReadOnly === true && codes.includes(`${code}.readonly`))
@@ -217,9 +204,7 @@ export class RbacService {
   ): Promise<boolean> {
     if (role === "superAdmin") return true;
     const authz = await this.authzForUserUuid(userUuid);
-    return this.isAllowed(role, authz.hasRole, authz.codes, code, options, {
-      userUuid,
-    });
+    return this.isAllowed(role, authz.codes, code, options);
   }
 
   /** Permission codes for a user (by users.id). Empty when the user has no role. */

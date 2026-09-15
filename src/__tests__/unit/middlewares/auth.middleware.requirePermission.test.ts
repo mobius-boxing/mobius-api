@@ -64,7 +64,7 @@ describe("requirePermission — normal decisions", () => {
   it("passes when the code is granted", async () => {
     jest
       .spyOn(RbacService, "authzForUserUuid")
-      .mockResolvedValue({ hasRole: true, codes: ["orders.edit"] });
+      .mockResolvedValue({ codes: ["orders.edit"] });
 
     const { res, next } = await run({ userId: "u-1", role: "member" });
     expect(next).toHaveBeenCalledWith();
@@ -74,7 +74,7 @@ describe("requirePermission — normal decisions", () => {
   it("answers 403 when the code is not granted", async () => {
     jest
       .spyOn(RbacService, "authzForUserUuid")
-      .mockResolvedValue({ hasRole: true, codes: [] });
+      .mockResolvedValue({ codes: [] });
 
     const { res, next } = await run({ userId: "u-1", role: "member" });
     expect(res.status).toHaveBeenCalledWith(403);
@@ -119,18 +119,17 @@ describe("requirePermission — AC-7: lookup failure answers 503, never allows",
   });
 });
 
-describe("requirePermission — fallback logging integration", () => {
-  it("logs rbac.legacy_fallback_allow through the real isAllowed when a roleless admin passes", async () => {
+describe("requirePermission — legacy fallback removed", () => {
+  it("denies (and never logs rbac.legacy_fallback_allow) through the real isAllowed when a roleless admin has no matching code", async () => {
     jest
       .spyOn(RbacService, "authzForUserUuid")
-      .mockResolvedValue({ hasRole: false, codes: [] });
+      .mockResolvedValue({ codes: [] });
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
 
-    const { next } = await run({ userId: "u-1", role: "admin" });
+    const { res, next } = await run({ userId: "u-1", role: "admin" });
 
-    expect(next).toHaveBeenCalledWith();
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain("userUuid=u-1");
-    expect(warn.mock.calls[0][0]).toContain("path=/api/sales-orders/");
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

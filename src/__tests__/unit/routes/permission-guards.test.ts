@@ -381,13 +381,7 @@ describe("AC-4 — router → code mapping (static)", () => {
 
 describe("AC-4 — Member baseline behavior (through RbacService.isAllowed)", () => {
   const member = (code: string, options?: { allowReadOnly?: boolean }) =>
-    RbacService.isAllowed(
-      "member",
-      true,
-      [...MEMBER_BASELINE_CODES],
-      code,
-      options,
-    );
+    RbacService.isAllowed("member", [...MEMBER_BASELINE_CODES], code, options);
 
   it("200s on consumables CRUD (full RW baseline grant)", () => {
     for (const code of [
@@ -416,13 +410,7 @@ describe("AC-4 — Member baseline behavior (through RbacService.isAllowed)", ()
 
 describe("AC-4 — custom role with box-types.edit.readonly (through RbacService.isAllowed)", () => {
   const custom = (code: string, options?: { allowReadOnly?: boolean }) =>
-    RbacService.isAllowed(
-      "member",
-      true,
-      ["box-types.edit.readonly"],
-      code,
-      options,
-    );
+    RbacService.isAllowed("member", ["box-types.edit.readonly"], code, options);
 
   it("200s GET", () => {
     expect(custom("box-types.edit", { allowReadOnly: true })).toBe(true);

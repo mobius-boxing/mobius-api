@@ -597,9 +597,10 @@ describe("I-7 — requireAdmin()/admin requireRole() gone from routes; inline ro
    *  - `users.controller.ts` computes whether the user being deactivated IS
    *    the last active Admin (I-3/D-11) — a fact about the target row, not
    *    an authorization decision about the actor;
-   *  - `rbac.service.ts`'s `isAllowed` is the sanctioned Stage A/B
-   *    transition fallback (model.md D-9), scheduled for removal in the
-   *    later fallback-removal commit, not this track.
+   *  - `rbac.service.ts`'s `isAllowed` doc comment names the removed
+   *    Stage A/B transition fallback (model.md D-9) in prose, for context —
+   *    the fallback code itself is gone, only the string survives in a
+   *    comment.
    * A file gaining a new, unlisted match here is a regression.
    */
   const ADMIN_STRING_CHECK_ALLOWLIST = [
