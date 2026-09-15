@@ -2,7 +2,7 @@ import { Router } from "express";
 import { CustomerCategoryController } from "../../controllers/customer-category/customer-category.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,6 +22,7 @@ export class CustomerCategoryRouter {
     this.router.get(
       "/",
       authenticate,
+      requirePermission("customer-categories.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.customerCategoryController.getAll.bind(
@@ -31,6 +32,7 @@ export class CustomerCategoryRouter {
     this.router.get(
       "/:uuid",
       authenticate,
+      requirePermission("customer-categories.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.customerCategoryController.getByUuid.bind(
@@ -40,7 +42,7 @@ export class CustomerCategoryRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("customer-categories.edit"),
       apiRateLimiter,
       this.customerCategoryController.create.bind(
         this.customerCategoryController,
@@ -49,7 +51,7 @@ export class CustomerCategoryRouter {
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("customer-categories.edit"),
       validateUUID(),
       apiRateLimiter,
       this.customerCategoryController.update.bind(
@@ -59,7 +61,7 @@ export class CustomerCategoryRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("customer-categories.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.customerCategoryController.delete.bind(

@@ -514,6 +514,16 @@ describe("AC-3 — every requirePermission/userHasPermission code literal is in 
       referenced.add("orders.approve.financial");
     }
 
+    // parts.router.ts dispatches `parts.approve.${machine}` for each
+    // APPROVAL_MACHINES entry (dimensions/technical/sketch), falling back to
+    // the literal "parts.approve.part" the regex above already resolves.
+    if (contents.includes("`parts.approve.${machine}`")) {
+      referenced.add("parts.approve.dimensions");
+      referenced.add("parts.approve.technical");
+      referenced.add("parts.approve.sketch");
+      referenced.add("parts.approve.part");
+    }
+
     return referenced;
   };
 
@@ -534,96 +544,13 @@ describe("AC-3 — every requirePermission/userHasPermission code literal is in 
   });
 
   /**
-   * "Every catalogue code is referenced" only holds once the remaining
-   * routers are swept onto the catalogue. Until then, this is the exact,
-   * sorted set of catalogue codes no guard or controller check names yet;
-   * whoever wires a code must remove its entry here in the SAME change, so
-   * this list is empty once every code is enforced and this test starts
-   * asserting full coverage for real.
+   * The T2 router sweep wired every remaining code onto its router or
+   * controller check, so this is now empty — I-6's "every catalogue code is
+   * referenced" half holds for real. Left as an exact-equality assertion
+   * (not `.toHaveLength(0)`) so a future prune that forgets to wire a new
+   * code's enforcement fails here by name, not just by count.
    */
-  const CODES_NOT_YET_ENFORCED: string[] = [
-    "box-types.edit",
-    "box-types.edit.readonly",
-    "color-types.edit",
-    "color-types.edit.readonly",
-    "colors.edit",
-    "colors.edit.readonly",
-    "complements.edit",
-    "complements.edit.readonly",
-    "consumable-stock.edit",
-    "consumable-stock.edit.readonly",
-    "consumable-supplies.edit",
-    "consumable-supplies.edit.readonly",
-    "consumable-types.edit",
-    "consumable-types.edit.readonly",
-    "corrugated.classes",
-    "corrugated.classes.readonly",
-    "corrugated.edit",
-    "corrugated.edit.readonly",
-    "customer-categories.edit",
-    "customer-categories.edit.readonly",
-    "customers.edit",
-    "customers.edit.readonly",
-    "delivery-zones.edit",
-    "delivery-zones.edit.readonly",
-    "files.manage",
-    "finished-goods.edit",
-    "finished-goods.edit.readonly",
-    "flap-types.edit",
-    "flap-types.edit.readonly",
-    "flute-types.edit",
-    "flute-types.edit.readonly",
-    "fsc-types.edit",
-    "fsc-types.edit.readonly",
-    "glue-types.edit",
-    "glue-types.edit.readonly",
-    // Reads on these five routers stay `requireAdmin()`-gated by design —
-    // only their RW code is wired today.
-    "machines.edit.readonly",
-    "manufacturers.edit",
-    "manufacturers.edit.readonly",
-    "models.edit.readonly",
-    "palletizing.edit.readonly",
-    "paper-stock.edit",
-    "paper-stock.edit.readonly",
-    "paper-types.edit",
-    "paper-types.edit.readonly",
-    "paper.classes",
-    "paper.classes.readonly",
-    "papers.edit",
-    "papers.edit.readonly",
-    // parts.approve.{dimensions,sketch,technical}: no route/controller checks
-    // these three yet (only .bulk and, via product.controller, .part do).
-    "parts.approve.dimensions",
-    "parts.approve.sketch",
-    "parts.approve.technical",
-    "parts.edit.readonly",
-    "product-types.edit",
-    "product-types.edit.readonly",
-    "products.delete",
-    "products.edit",
-    "products.edit.readonly",
-    "routes.edit.readonly",
-    "score-types.edit",
-    "score-types.edit.readonly",
-    "settings.edit",
-    "sheet-stock.edit",
-    "sheet-stock.edit.readonly",
-    "strapping-types.edit",
-    "strapping-types.edit.readonly",
-    "suppliers.edit",
-    "suppliers.edit.readonly",
-    "supplies.edit",
-    "supplies.edit.readonly",
-    "tooling-stock.edit",
-    "tooling-stock.edit.readonly",
-    "tooling-types.edit",
-    "tooling-types.edit.readonly",
-    "tooling.edit",
-    "tooling.edit.readonly",
-    "warehouses.edit",
-    "warehouses.edit.readonly",
-  ].sort();
+  const CODES_NOT_YET_ENFORCED: string[] = [];
 
   it("names every unenforced catalogue code, exactly — shrink this list as routes are gated", () => {
     const referenced = allReferencedCodes();
@@ -631,5 +558,68 @@ describe("AC-3 — every requirePermission/userHasPermission code literal is in 
       (code) => !referenced.has(code),
     ).sort();
     expect(unreferenced).toEqual(CODES_NOT_YET_ENFORCED);
+  });
+});
+
+describe("I-7 — requireAdmin()/admin requireRole() gone from routes; inline role==='admin' authz gone from controllers/services", () => {
+  const ROUTE_FILES = () =>
+    sourceFiles().filter((f) => f.startsWith("routes/"));
+  const CONTROLLER_SERVICE_FILES = () =>
+    sourceFiles().filter(
+      (f) => f.startsWith("controllers/") || f.startsWith("services/"),
+    );
+
+  /** Route files' own comments cite `requireAdmin()` as contrast prose (what a
+   * route does NOT use); only code outside `//`/`/* *\/` counts as a hit. */
+  const stripComments = (contents: string): string =>
+    contents.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+  it("has no requireAdmin( call and no admin requireRole([...]) call under src/routes", () => {
+    const offenders = ROUTE_FILES().filter((f) => {
+      const contents = stripComments(read(f));
+      return (
+        /requireAdmin\(/.test(contents) ||
+        /requireRole\(\s*\[[^\]]*admin[^\]]*\]/i.test(contents)
+      );
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  const ADMIN_STRING_CHECK_RE = /role\s*[=!]==?\s*["']admin["']/;
+
+  /**
+   * Every remaining `role === "admin"` match under controllers/services —
+   * the T2 sweep replaced every authorization gate with a permission-code
+   * check. What is left is not a gate on the caller:
+   *  - `auth.controller.ts` / `invitations.controller.ts` resolve which
+   *    system role NAME a legacy `role: "admin"|"member"` enum maps to, for
+   *    a user/invitation being created — not who may call the endpoint;
+   *  - `users.controller.ts` computes whether the user being deactivated IS
+   *    the last active Admin (I-3/D-11) — a fact about the target row, not
+   *    an authorization decision about the actor;
+   *  - `rbac.service.ts`'s `isAllowed` is the sanctioned Stage A/B
+   *    transition fallback (model.md D-9), scheduled for removal in the
+   *    later fallback-removal commit, not this track.
+   * A file gaining a new, unlisted match here is a regression.
+   */
+  const ADMIN_STRING_CHECK_ALLOWLIST = [
+    "controllers/auth/auth.controller.ts",
+    "controllers/invitations/invitations.controller.ts",
+    "controllers/users/users.controller.ts",
+    "services/rbac.service.ts",
+  ];
+
+  it("has no inline role==='admin' authorization outside the documented allowlist", () => {
+    const offenders = CONTROLLER_SERVICE_FILES()
+      .filter((f) => ADMIN_STRING_CHECK_RE.test(read(f)))
+      .filter((f) => !ADMIN_STRING_CHECK_ALLOWLIST.includes(f));
+    expect(offenders).toEqual([]);
+  });
+
+  it("the allowlist names only files that still match — a stale entry would hide a regression", () => {
+    const stale = ADMIN_STRING_CHECK_ALLOWLIST.filter(
+      (f) => !ADMIN_STRING_CHECK_RE.test(read(f)),
+    );
+    expect(stale).toEqual([]);
   });
 });

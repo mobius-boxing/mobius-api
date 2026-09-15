@@ -3,7 +3,6 @@ import { PartController } from "../../controllers/part/part.controller";
 import { APPROVAL_MACHINES } from "../../interfaces/part/part.interfaces";
 import {
   authenticate,
-  requireAdmin,
   requirePermission,
   validateUUID,
   validatePagination,
@@ -12,10 +11,11 @@ import {
 } from "../../middlewares";
 
 /**
- * Parts routes. CRUD writes gated by parts.edit; each approval machine by its
- * parts.approve.* code (module-02 enrichment, seeded in the catalogue).
- * The machine-specific gate is applied inside the handler chain via a
- * per-request dispatch because the code depends on the :machine param.
+ * Parts routes. Reads accept parts.edit's readonly variant; CRUD writes
+ * require parts.edit; each approval machine gates on its parts.approve.*
+ * code (module-02 enrichment, seeded in the catalogue). The machine-specific
+ * gate is applied inside the handler chain via a per-request dispatch
+ * because the code depends on the :machine param.
  */
 export class PartsRouter {
   public router: Router = Router();
@@ -29,7 +29,7 @@ export class PartsRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("parts.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),
@@ -51,7 +51,7 @@ export class PartsRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("parts.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.controller.getByUuid.bind(this.controller),

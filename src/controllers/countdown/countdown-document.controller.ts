@@ -67,14 +67,11 @@ export class CountdownDocumentController {
     const userId = await getIdByUuid(user.userId, "users");
     if (!userId) return { success: false, message: "Usuario no encontrado" };
 
-    const canManage =
-      user.role === "admin" ||
-      user.role === "superAdmin" ||
-      (await RbacService.userHasPermission(
-        user.userId,
-        user.role,
-        "countdown.manage",
-      ));
+    const canManage = await RbacService.userHasPermission(
+      user.userId,
+      user.role,
+      "countdown.manage",
+    );
 
     return { success: true, ctx: { companyId, userId, canManage } };
   }

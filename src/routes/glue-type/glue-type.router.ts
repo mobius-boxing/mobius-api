@@ -2,7 +2,7 @@ import { Router } from "express";
 import { GlueTypeController } from "../../controllers/glue-type/glue-type.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class GlueTypeRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("glue-types.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.glueTypeController.getAll.bind(this.glueTypeController),
@@ -30,7 +30,7 @@ export class GlueTypeRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("glue-types.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.glueTypeController.getByUuid.bind(this.glueTypeController),
@@ -38,14 +38,14 @@ export class GlueTypeRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("glue-types.edit"),
       apiRateLimiter,
       this.glueTypeController.create.bind(this.glueTypeController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("glue-types.edit"),
       validateUUID(),
       apiRateLimiter,
       this.glueTypeController.update.bind(this.glueTypeController),
@@ -53,7 +53,7 @@ export class GlueTypeRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("glue-types.edit"),
       validateUUID(),
       sensitiveGlueTypeDeletionRateLimiter,
       this.glueTypeController.delete.bind(this.glueTypeController),

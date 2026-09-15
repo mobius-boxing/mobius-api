@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { ConsumableTypeController } from "../../controllers/consumable-type/consumable-type.controller";
-import { authenticate } from "../../middlewares";
+import { authenticate, requirePermission } from "../../middlewares";
 
 export class ConsumableTypeRouter {
   private _router: Router;
@@ -15,27 +15,42 @@ export class ConsumableTypeRouter {
     this._router.get(
       "/",
       authenticate,
-      this._consumableTypeController.getAll.bind(this._consumableTypeController)
+      requirePermission("consumable-types.edit", { allowReadOnly: true }),
+      this._consumableTypeController.getAll.bind(
+        this._consumableTypeController,
+      ),
     );
     this._router.get(
       "/:uuid",
       authenticate,
-      this._consumableTypeController.getByUuid.bind(this._consumableTypeController)
+      requirePermission("consumable-types.edit", { allowReadOnly: true }),
+      this._consumableTypeController.getByUuid.bind(
+        this._consumableTypeController,
+      ),
     );
     this._router.post(
       "/",
       authenticate,
-      this._consumableTypeController.create.bind(this._consumableTypeController)
+      requirePermission("consumable-types.edit"),
+      this._consumableTypeController.create.bind(
+        this._consumableTypeController,
+      ),
     );
     this._router.put(
       "/:uuid",
       authenticate,
-      this._consumableTypeController.update.bind(this._consumableTypeController)
+      requirePermission("consumable-types.edit"),
+      this._consumableTypeController.update.bind(
+        this._consumableTypeController,
+      ),
     );
     this._router.delete(
       "/:uuid",
       authenticate,
-      this._consumableTypeController.delete.bind(this._consumableTypeController)
+      requirePermission("consumable-types.edit"),
+      this._consumableTypeController.delete.bind(
+        this._consumableTypeController,
+      ),
     );
   }
 

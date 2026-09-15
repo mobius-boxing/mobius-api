@@ -2,7 +2,7 @@ import { Router } from "express";
 import { PaperStockController } from "../../controllers/paper-stock/paper-stock.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class PaperStockRouter {
     this._router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-stock.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this._paperStockController.getAll.bind(this._paperStockController),
@@ -30,7 +30,7 @@ export class PaperStockRouter {
     this._router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-stock.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this._paperStockController.getByUuid.bind(this._paperStockController),
@@ -38,14 +38,14 @@ export class PaperStockRouter {
     this._router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-stock.edit"),
       apiRateLimiter,
       this._paperStockController.create.bind(this._paperStockController),
     );
     this._router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-stock.edit"),
       validateUUID(),
       apiRateLimiter,
       this._paperStockController.update.bind(this._paperStockController),
@@ -53,7 +53,7 @@ export class PaperStockRouter {
     this._router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-stock.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this._paperStockController.delete.bind(this._paperStockController),

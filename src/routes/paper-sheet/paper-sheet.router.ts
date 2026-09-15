@@ -2,7 +2,7 @@ import { Router } from "express";
 import { PaperSheetController } from "../../controllers/paper-sheet/paper-sheet.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class PaperSheetRouter {
     this._router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("papers.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this._paperSheetController.getAll.bind(this._paperSheetController),
@@ -30,7 +30,7 @@ export class PaperSheetRouter {
     this._router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("papers.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this._paperSheetController.getByUuid.bind(this._paperSheetController),
@@ -38,14 +38,14 @@ export class PaperSheetRouter {
     this._router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("papers.edit"),
       apiRateLimiter,
       this._paperSheetController.create.bind(this._paperSheetController),
     );
     this._router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("papers.edit"),
       validateUUID(),
       apiRateLimiter,
       this._paperSheetController.update.bind(this._paperSheetController),
@@ -53,7 +53,7 @@ export class PaperSheetRouter {
     this._router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("papers.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this._paperSheetController.delete.bind(this._paperSheetController),

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { PaperTypeController } from "../../controllers/paper-type/paper-type.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class PaperTypeRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-types.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.paperTypeController.getAll.bind(this.paperTypeController),
@@ -30,7 +30,7 @@ export class PaperTypeRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-types.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.paperTypeController.getByUuid.bind(this.paperTypeController),
@@ -38,14 +38,14 @@ export class PaperTypeRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-types.edit"),
       apiRateLimiter,
       this.paperTypeController.create.bind(this.paperTypeController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-types.edit"),
       validateUUID(),
       apiRateLimiter,
       this.paperTypeController.update.bind(this.paperTypeController),
@@ -53,7 +53,7 @@ export class PaperTypeRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("paper-types.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.paperTypeController.delete.bind(this.paperTypeController),

@@ -6,7 +6,7 @@ import {
 } from "../../controllers/file/file.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -31,7 +31,7 @@ export class FilesRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("files.manage"),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),

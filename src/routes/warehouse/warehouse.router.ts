@@ -2,7 +2,7 @@ import { Router } from "express";
 import { WarehouseController } from "../../controllers/warehouse/warehouse.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class WarehouseRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.warehouseController.getAll.bind(this.warehouseController),
@@ -30,7 +30,7 @@ export class WarehouseRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.warehouseController.getByUuid.bind(this.warehouseController),
@@ -38,7 +38,7 @@ export class WarehouseRouter {
     this.router.get(
       "/:uuid/stock",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.warehouseController.getWarehouseStock.bind(this.warehouseController),
@@ -46,14 +46,14 @@ export class WarehouseRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit"),
       apiRateLimiter,
       this.warehouseController.create.bind(this.warehouseController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit"),
       validateUUID(),
       apiRateLimiter,
       this.warehouseController.update.bind(this.warehouseController),
@@ -61,7 +61,7 @@ export class WarehouseRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.warehouseController.delete.bind(this.warehouseController),

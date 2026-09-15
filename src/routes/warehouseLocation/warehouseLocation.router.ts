@@ -2,7 +2,7 @@ import { Router } from "express";
 import { WarehouseLocationController } from "../../controllers/warehouseLocation/warehouseLocation.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class WarehouseLocationRouter {
     this._router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this._warehouseLocationController.getAll.bind(
@@ -32,7 +32,7 @@ export class WarehouseLocationRouter {
     this._router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this._warehouseLocationController.getByUuid.bind(
@@ -42,7 +42,7 @@ export class WarehouseLocationRouter {
     this._router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit"),
       apiRateLimiter,
       this._warehouseLocationController.create.bind(
         this._warehouseLocationController,
@@ -51,7 +51,7 @@ export class WarehouseLocationRouter {
     this._router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit"),
       validateUUID(),
       apiRateLimiter,
       this._warehouseLocationController.update.bind(
@@ -61,7 +61,7 @@ export class WarehouseLocationRouter {
     this._router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this._warehouseLocationController.delete.bind(
@@ -72,7 +72,7 @@ export class WarehouseLocationRouter {
     this._router.get(
       "/warehouse/:warehouseUuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit", { allowReadOnly: true }),
       validateUUID("warehouseUuid"),
       apiRateLimiter,
       this._warehouseLocationController.getByWarehouse.bind(
@@ -82,7 +82,7 @@ export class WarehouseLocationRouter {
     this._router.put(
       "/warehouse/:warehouseUuid/batch",
       authenticate,
-      requireAdmin(),
+      requirePermission("warehouses.edit"),
       validateUUID("warehouseUuid"),
       apiRateLimiter,
       this._warehouseLocationController.batchUpdate.bind(

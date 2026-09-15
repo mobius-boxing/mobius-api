@@ -2,7 +2,7 @@ import { Router } from "express";
 import { ManufacturerController } from "../../controllers/manufacturer/manufacturer.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class ManufacturerRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("manufacturers.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.manufacturerController.getAll.bind(this.manufacturerController),
@@ -30,7 +30,7 @@ export class ManufacturerRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("manufacturers.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.manufacturerController.getByUuid.bind(this.manufacturerController),
@@ -38,14 +38,14 @@ export class ManufacturerRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("manufacturers.edit"),
       apiRateLimiter,
       this.manufacturerController.create.bind(this.manufacturerController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("manufacturers.edit"),
       validateUUID(),
       apiRateLimiter,
       this.manufacturerController.update.bind(this.manufacturerController),
@@ -53,7 +53,7 @@ export class ManufacturerRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("manufacturers.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.manufacturerController.delete.bind(this.manufacturerController),

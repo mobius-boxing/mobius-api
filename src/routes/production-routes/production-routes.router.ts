@@ -2,7 +2,6 @@ import { Router } from "express";
 import { ProductionRouteController } from "../../controllers/production-route/production-route.controller";
 import {
   authenticate,
-  requireAdmin,
   requirePermission,
   validateUUID,
   validatePagination,
@@ -23,7 +22,7 @@ export class ProductionRoutesRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("routes.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),
@@ -31,7 +30,7 @@ export class ProductionRoutesRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("routes.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.controller.getByUuid.bind(this.controller),

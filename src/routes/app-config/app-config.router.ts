@@ -2,7 +2,7 @@ import { Router } from "express";
 import { AppConfigController } from "../../controllers/app-config/app-config.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   apiRateLimiter,
 } from "../../middlewares";
 
@@ -16,7 +16,7 @@ export class AppConfigRouter {
 
   private initRoutes(): void {
     // Reads are open to any authenticated user (config drives app behavior client-side);
-    // writes are admin-only, mirroring Procusto's Configuración screen access.
+    // writes require settings.edit.
     this.router.get(
       "/",
       authenticate,
@@ -32,14 +32,14 @@ export class AppConfigRouter {
     this.router.put(
       "/:key",
       authenticate,
-      requireAdmin(),
+      requirePermission("settings.edit"),
       apiRateLimiter,
       this.controller.set.bind(this.controller),
     );
     this.router.delete(
       "/:key",
       authenticate,
-      requireAdmin(),
+      requirePermission("settings.edit"),
       apiRateLimiter,
       this.controller.reset.bind(this.controller),
     );

@@ -3,7 +3,6 @@ import { ProductController } from "../../controllers/product/product.controller"
 import { PartController } from "../../controllers/part/part.controller";
 import {
   authenticate,
-  requireAdmin,
   requirePermission,
   validateUUID,
   validatePagination,
@@ -25,7 +24,7 @@ export class ProductRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("products.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.productController.getAll.bind(this.productController),
@@ -33,7 +32,7 @@ export class ProductRouter {
     this.router.get(
       "/:uuid/with-details",
       authenticate,
-      requireAdmin(),
+      requirePermission("products.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.productController.getWithDetails.bind(this.productController),
@@ -41,7 +40,7 @@ export class ProductRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("products.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.productController.getByUuid.bind(this.productController),
@@ -49,23 +48,24 @@ export class ProductRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("products.edit"),
       apiRateLimiter,
       this.productController.create.bind(this.productController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("products.edit"),
       validateUUID(),
       apiRateLimiter,
       this.productController.update.bind(this.productController),
     );
-    // Nested parts (15-list-page.md: embedded product-detail grid).
+    // Nested parts (15-list-page.md: embedded product-detail grid) — the
+    // resource read is a parts listing, gated like parts.router's own GETs.
     this.router.get(
       "/:productUuid/parts",
       authenticate,
-      requireAdmin(),
+      requirePermission("parts.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.partController.getAllForProduct.bind(this.partController),
@@ -89,7 +89,7 @@ export class ProductRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("products.delete"),
       validateUUID(),
       sensitiveRateLimiter,
       this.productController.delete.bind(this.productController),

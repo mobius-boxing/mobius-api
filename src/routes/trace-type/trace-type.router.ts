@@ -2,7 +2,7 @@ import { Router } from "express";
 import { TraceTypeController } from "../../controllers/trace-type/trace-type.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class TraceTypeRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("score-types.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.traceTypeController.getAll.bind(this.traceTypeController),
@@ -30,7 +30,7 @@ export class TraceTypeRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("score-types.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.traceTypeController.getByUuid.bind(this.traceTypeController),
@@ -38,14 +38,14 @@ export class TraceTypeRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("score-types.edit"),
       apiRateLimiter,
       this.traceTypeController.create.bind(this.traceTypeController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("score-types.edit"),
       validateUUID(),
       apiRateLimiter,
       this.traceTypeController.update.bind(this.traceTypeController),
@@ -53,7 +53,7 @@ export class TraceTypeRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("score-types.edit"),
       validateUUID(),
       sensitiveTraceTypeDeletionRateLimiter,
       this.traceTypeController.delete.bind(this.traceTypeController),

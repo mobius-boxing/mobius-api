@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { ConsumableStockController } from "../../controllers/consumable-stock/consumable-stock.controller";
-import { authenticate } from "../../middlewares";
+import { authenticate, requirePermission } from "../../middlewares";
 
 export class ConsumableStockRouter {
   private _router: Router;
@@ -15,27 +15,42 @@ export class ConsumableStockRouter {
     this._router.get(
       "/",
       authenticate,
-      this._consumableStockController.getAll.bind(this._consumableStockController)
+      requirePermission("consumable-stock.edit", { allowReadOnly: true }),
+      this._consumableStockController.getAll.bind(
+        this._consumableStockController,
+      ),
     );
     this._router.get(
       "/:uuid",
       authenticate,
-      this._consumableStockController.getByUuid.bind(this._consumableStockController)
+      requirePermission("consumable-stock.edit", { allowReadOnly: true }),
+      this._consumableStockController.getByUuid.bind(
+        this._consumableStockController,
+      ),
     );
     this._router.post(
       "/",
       authenticate,
-      this._consumableStockController.create.bind(this._consumableStockController)
+      requirePermission("consumable-stock.edit"),
+      this._consumableStockController.create.bind(
+        this._consumableStockController,
+      ),
     );
     this._router.put(
       "/:uuid",
       authenticate,
-      this._consumableStockController.update.bind(this._consumableStockController)
+      requirePermission("consumable-stock.edit"),
+      this._consumableStockController.update.bind(
+        this._consumableStockController,
+      ),
     );
     this._router.delete(
       "/:uuid",
       authenticate,
-      this._consumableStockController.delete.bind(this._consumableStockController)
+      requirePermission("consumable-stock.edit"),
+      this._consumableStockController.delete.bind(
+        this._consumableStockController,
+      ),
     );
   }
 

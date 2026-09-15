@@ -2,7 +2,7 @@ import { Router } from "express";
 import { ColorTypeController } from "../../controllers/color-type/color-type.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -21,7 +21,7 @@ export class ColorTypeRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("color-types.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),
@@ -29,7 +29,7 @@ export class ColorTypeRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("color-types.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.controller.getByUuid.bind(this.controller),
@@ -37,14 +37,14 @@ export class ColorTypeRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("color-types.edit"),
       apiRateLimiter,
       this.controller.create.bind(this.controller),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("color-types.edit"),
       validateUUID(),
       apiRateLimiter,
       this.controller.update.bind(this.controller),
@@ -52,7 +52,7 @@ export class ColorTypeRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("color-types.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.controller.delete.bind(this.controller),

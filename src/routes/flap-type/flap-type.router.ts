@@ -2,7 +2,7 @@ import { Router } from "express";
 import { FlapTypeController } from "../../controllers/flap-type/flap-type.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class FlapTypeRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("flap-types.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.flapTypeController.getAll.bind(this.flapTypeController),
@@ -30,7 +30,7 @@ export class FlapTypeRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("flap-types.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.flapTypeController.getByUuid.bind(this.flapTypeController),
@@ -38,14 +38,14 @@ export class FlapTypeRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("flap-types.edit"),
       apiRateLimiter,
       this.flapTypeController.create.bind(this.flapTypeController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("flap-types.edit"),
       validateUUID(),
       apiRateLimiter,
       this.flapTypeController.update.bind(this.flapTypeController),
@@ -53,7 +53,7 @@ export class FlapTypeRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("flap-types.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.flapTypeController.delete.bind(this.flapTypeController),

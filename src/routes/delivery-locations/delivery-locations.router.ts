@@ -2,7 +2,7 @@ import { Router } from "express";
 import { DeliveryLocationController } from "../../controllers/delivery-location/delivery-location.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -23,7 +23,7 @@ export class DeliveryLocationsRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("delivery-zones.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),
@@ -31,7 +31,7 @@ export class DeliveryLocationsRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("delivery-zones.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.controller.getByUuid.bind(this.controller),
@@ -39,14 +39,14 @@ export class DeliveryLocationsRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("delivery-zones.edit"),
       apiRateLimiter,
       this.controller.create.bind(this.controller),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("delivery-zones.edit"),
       validateUUID(),
       apiRateLimiter,
       this.controller.update.bind(this.controller),
@@ -54,7 +54,7 @@ export class DeliveryLocationsRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("delivery-zones.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.controller.delete.bind(this.controller),

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { FinishedGoodController } from "../../controllers/finished-good/finished-good.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class FinishedGoodsRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("finished-goods.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),
@@ -30,7 +30,7 @@ export class FinishedGoodsRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("finished-goods.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.controller.getByUuid.bind(this.controller),
@@ -38,14 +38,14 @@ export class FinishedGoodsRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("finished-goods.edit"),
       apiRateLimiter,
       this.controller.create.bind(this.controller),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("finished-goods.edit"),
       validateUUID(),
       apiRateLimiter,
       this.controller.update.bind(this.controller),
@@ -53,7 +53,7 @@ export class FinishedGoodsRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("finished-goods.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.controller.delete.bind(this.controller),

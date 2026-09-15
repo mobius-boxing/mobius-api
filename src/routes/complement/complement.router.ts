@@ -2,7 +2,7 @@ import { Router } from "express";
 import { ComplementController } from "../../controllers/complement/complement.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class ComplementRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("complements.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.complementController.getAll.bind(this.complementController),
@@ -30,7 +30,7 @@ export class ComplementRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("complements.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.complementController.getByUuid.bind(this.complementController),
@@ -38,14 +38,14 @@ export class ComplementRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("complements.edit"),
       apiRateLimiter,
       this.complementController.create.bind(this.complementController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("complements.edit"),
       validateUUID(),
       apiRateLimiter,
       this.complementController.update.bind(this.complementController),
@@ -53,7 +53,7 @@ export class ComplementRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("complements.edit"),
       validateUUID(),
       sensitiveComplementDeletionRateLimiter,
       this.complementController.delete.bind(this.complementController),

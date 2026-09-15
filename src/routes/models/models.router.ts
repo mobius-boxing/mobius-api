@@ -2,7 +2,6 @@ import { Router } from "express";
 import { ModelController } from "../../controllers/model/model.controller";
 import {
   authenticate,
-  requireAdmin,
   requirePermission,
   validateUUID,
   validatePagination,
@@ -11,8 +10,9 @@ import {
 } from "../../middlewares";
 
 /**
- * Models routes (module 08). Reads stay admin-gated; writes and test-formula
- * gated by the models.edit catalogue code (mirroring palletizations).
+ * Models routes (module 08). Every route gated by the models.edit catalogue
+ * code — reads accept the readonly variant, writes and test-formula require
+ * the full grant.
  *
  * ROUTE ORDER: /test-formula and /formula-reference MUST register before
  * /:uuid or validateUUID() rejects them with a uuid-validation 400.
@@ -29,7 +29,7 @@ export class ModelsRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("models.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),
@@ -44,14 +44,14 @@ export class ModelsRouter {
     this.router.get(
       "/formula-reference",
       authenticate,
-      requireAdmin(),
+      requirePermission("models.edit", { allowReadOnly: true }),
       apiRateLimiter,
       this.controller.formulaReference.bind(this.controller),
     );
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("models.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.controller.getByUuid.bind(this.controller),

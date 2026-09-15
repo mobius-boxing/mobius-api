@@ -2,7 +2,7 @@ import { Router } from "express";
 import { CorrugationClassController } from "../../controllers/corrugation-class/corrugation-class.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class CorrugationClassRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.classes", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.corrugationClassController.getAll.bind(
@@ -32,7 +32,7 @@ export class CorrugationClassRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.classes", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.corrugationClassController.getByUuid.bind(
@@ -42,7 +42,7 @@ export class CorrugationClassRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.classes"),
       apiRateLimiter,
       this.corrugationClassController.create.bind(
         this.corrugationClassController,
@@ -51,7 +51,7 @@ export class CorrugationClassRouter {
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.classes"),
       validateUUID(),
       apiRateLimiter,
       this.corrugationClassController.update.bind(
@@ -61,7 +61,7 @@ export class CorrugationClassRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.classes"),
       validateUUID(),
       sensitiveRateLimiter,
       this.corrugationClassController.delete.bind(

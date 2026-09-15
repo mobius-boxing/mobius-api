@@ -9,10 +9,11 @@
  *  1. `audit.read` alone opens every entity — the ledger-wide code;
  *  2. the entity's own code opens that entity — including its `.readonly`
  *     variant, because opening a history is a read;
- *  3. a `null` entry (and an unknown table) means `requireAdmin` semantics —
- *     **admin and superAdmin only**, member denied. Deleting the role test in
- *     that branch is the mutation that "grants everyone", and it is what
- *     `ENTITY_READ_PERMISSION`'s 43 nulls make load-bearing.
+ *  3. a `null` entry (and an unknown table) opens for `audit.read` only —
+ *     **no role-string exemption**, since no route reads `role` anymore
+ *     either. Deleting the negative test in that branch is the mutation that
+ *     "grants everyone", and it is what `ENTITY_READ_PERMISSION`'s null
+ *     entries make load-bearing.
  *
  * Only `RbacService.authzForUserUuid` is stubbed — the one call that would hit
  * the database. `RbacService.isAllowed` runs for real, because it owns the
@@ -32,7 +33,7 @@ import {
 
 /** An entity whose own routes enforce a code (`parts.edit`). */
 const CODED_ENTITY = "parts";
-/** An entity whose own routes are `requireAdmin()`-gated — a `null` entry. */
+/** An entity with no dedicated code in `ENTITY_READ_PERMISSION` — a `null` entry. */
 const ADMIN_ONLY_ENTITY = "customers";
 
 type Role = "member" | "admin" | "superAdmin";
@@ -100,8 +101,17 @@ describe("requireEntityHistoryAccess — who passes", () => {
     expect(authz).not.toHaveBeenCalled();
   });
 
-  it("passes an admin on a null-entry entity (requireAdmin semantics)", async () => {
+  it("passes a roleless admin on a null-entry entity (Stage A legacy fallback, same as any code)", async () => {
     expectPassed(await run("admin", ADMIN_ONLY_ENTITY));
+  });
+
+  it("passes an admin with a role, via the audit.read every RW-holding Admin is seeded", async () => {
+    expectPassed(
+      await run("admin", ADMIN_ONLY_ENTITY, {
+        codes: ["audit.read"],
+        hasRole: true,
+      }),
+    );
   });
 
   it("passes a member holding the entity's own code", async () => {
@@ -148,9 +158,7 @@ describe("requireEntityHistoryAccess — who is refused", () => {
     // cannot be used to probe which tables exist.
     expect(result.res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: expect.stringContaining(
-          "administrator account",
-        ) as unknown as string,
+        message: expect.stringContaining("audit.read") as unknown as string,
       }),
     );
   });
@@ -175,9 +183,7 @@ describe("requireEntityHistoryAccess — an unknown table", () => {
     expectStatus(result, 403);
     expect(result.res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: expect.stringContaining(
-          "administrator account",
-        ) as unknown as string,
+        message: expect.stringContaining("audit.read") as unknown as string,
       }),
     );
   });

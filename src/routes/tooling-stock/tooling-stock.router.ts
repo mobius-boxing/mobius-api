@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { ToolingStockController } from "../../controllers/tooling-stock/tooling-stock.controller";
-import { authenticate } from "../../middlewares";
+import { authenticate, requirePermission } from "../../middlewares";
 
 export class ToolingStockRouter {
   private _router: Router;
@@ -15,27 +15,32 @@ export class ToolingStockRouter {
     this._router.get(
       "/",
       authenticate,
-      this._toolingStockController.getAll.bind(this._toolingStockController)
+      requirePermission("tooling-stock.edit", { allowReadOnly: true }),
+      this._toolingStockController.getAll.bind(this._toolingStockController),
     );
     this._router.get(
       "/:uuid",
       authenticate,
-      this._toolingStockController.getByUuid.bind(this._toolingStockController)
+      requirePermission("tooling-stock.edit", { allowReadOnly: true }),
+      this._toolingStockController.getByUuid.bind(this._toolingStockController),
     );
     this._router.post(
       "/",
       authenticate,
-      this._toolingStockController.create.bind(this._toolingStockController)
+      requirePermission("tooling-stock.edit"),
+      this._toolingStockController.create.bind(this._toolingStockController),
     );
     this._router.put(
       "/:uuid",
       authenticate,
-      this._toolingStockController.update.bind(this._toolingStockController)
+      requirePermission("tooling-stock.edit"),
+      this._toolingStockController.update.bind(this._toolingStockController),
     );
     this._router.delete(
       "/:uuid",
       authenticate,
-      this._toolingStockController.delete.bind(this._toolingStockController)
+      requirePermission("tooling-stock.edit"),
+      this._toolingStockController.delete.bind(this._toolingStockController),
     );
   }
 

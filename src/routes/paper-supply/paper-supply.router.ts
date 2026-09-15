@@ -2,7 +2,7 @@ import { Router } from "express";
 import { PaperSupplyController } from "../../controllers/paper-supply/paper-supply.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class PaperSupplyRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("supplies.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.paperSupplyController.getAll.bind(this.paperSupplyController),
@@ -30,7 +30,7 @@ export class PaperSupplyRouter {
     this.router.get(
       "/:uuid/with-details",
       authenticate,
-      requireAdmin(),
+      requirePermission("supplies.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.paperSupplyController.getWithDetails.bind(
@@ -40,7 +40,7 @@ export class PaperSupplyRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("supplies.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.paperSupplyController.getByUuid.bind(this.paperSupplyController),
@@ -48,14 +48,14 @@ export class PaperSupplyRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("supplies.edit"),
       apiRateLimiter,
       this.paperSupplyController.create.bind(this.paperSupplyController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("supplies.edit"),
       validateUUID(),
       apiRateLimiter,
       this.paperSupplyController.update.bind(this.paperSupplyController),
@@ -63,7 +63,7 @@ export class PaperSupplyRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("supplies.edit"),
       validateUUID(),
       sensitivePaperSupplyDeletionRateLimiter,
       this.paperSupplyController.delete.bind(this.paperSupplyController),

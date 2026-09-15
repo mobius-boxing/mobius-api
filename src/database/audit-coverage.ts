@@ -149,17 +149,24 @@ export const auditedTablesOf = (key: DbKey): string[] =>
   tablesOf(key).filter((table) => !AUDIT_EXCLUDED.has(table));
 
 /**
- * The catalogue code that governs an audited table, or `null` when that
- * entity's own routes are `requireAdmin()`-gated (R-1, 2026-09-02).
+ * The catalogue code that governs an audited table, or `null` for no
+ * dedicated per-entity code (R-1, 2026-09-02).
  *
  * **Not** "the code the entity's `GET /` enforces" — the handbook's recipe.
  * Exactly three routers gate their list with `requirePermission` (`roles`,
  * `permissions`, `sales-orders`); the other ~70 call sites sit on the
  * **mutating** routes, so the value here is the code the entity's routes
- * enforce *anywhere*. `null` therefore means "nobody but an admin reaches this
- * entity through its own routes either", and `requireEntityHistoryAccess` (T5)
- * falls back to `requireAdmin` semantics for it — the same access the entity's
- * own list endpoint already grants, no more.
+ * enforce *anywhere*. `requireEntityHistoryAccess` opens a `null` entry to
+ * `audit.read` only — no other fallback.
+ *
+ * Snapshot taken 2026-09-02, before the role-management project's T2 router
+ * sweep replaced every `requireAdmin()` call with a catalogue code (2026-09-14):
+ * most of the `null` entries below now understate their entity's real gate —
+ * their router enforces a code today (see `docs/dev/role-management/
+ * model.md`'s route mapping) that this manifest was never updated to name.
+ * Re-deriving it from the current routers, not from this comment, is the T2
+ * report's own recommendation; not done here because it changes audit-history
+ * *reach*, which is this file's allowlist owner's call, not a router-sweep's.
  *
  * Derived by reading every `src/routes/<entity>/<entity>.router.ts` on
  * 2026-09-02, not from the catalogue: a code that no router enforces would
@@ -172,7 +179,8 @@ export const auditedTablesOf = (key: DbKey): string[] =>
  * `audit-coverage.schema.test.ts`. 43 of the 75 entries are `null`.
  */
 export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
-  // ── Admin-only entities: their routers use `requireAdmin()` throughout ────
+  // ── No dedicated code in this manifest (stale since the T2 router sweep —
+  //    see the block comment above) ──────────────────────────────────────
   app_config: null,
   box_types: null,
   color_types: null,
@@ -246,9 +254,10 @@ export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   production_route_stage_supplies: "routes.edit",
   production_route_stages: "routes.edit",
   production_routes: "routes.edit", // `routes.delete` gates deletion only
-  // Product CRUD is `requireAdmin()`; the one code the product router enforces
-  // on a *product* route is the technical-approval PATCH (the `parts.edit` call
-  // site on that router belongs to the nested `/parts` collection).
+  // Stale since the T2 router sweep: product CRUD now enforces `products.edit`
+  // (`products.delete` on DELETE); this value predates that and still names
+  // only the technical-approval PATCH (the `parts.edit` call site on that
+  // router belongs to the nested `/parts` collection).
   products: "products.approve.technical",
   role_permissions: "roles.edit", // child of `roles`
   roles: "roles.edit",

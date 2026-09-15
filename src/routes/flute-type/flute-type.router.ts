@@ -2,7 +2,7 @@ import { Router } from "express";
 import { FluteTypeController } from "../../controllers/flute-type/flute-type.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class FluteTypeRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("flute-types.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.fluteTypeController.getAll.bind(this.fluteTypeController),
@@ -30,7 +30,7 @@ export class FluteTypeRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("flute-types.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.fluteTypeController.getByUuid.bind(this.fluteTypeController),
@@ -38,14 +38,14 @@ export class FluteTypeRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("flute-types.edit"),
       apiRateLimiter,
       this.fluteTypeController.create.bind(this.fluteTypeController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("flute-types.edit"),
       validateUUID(),
       apiRateLimiter,
       this.fluteTypeController.update.bind(this.fluteTypeController),
@@ -53,7 +53,7 @@ export class FluteTypeRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("flute-types.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.fluteTypeController.delete.bind(this.fluteTypeController),

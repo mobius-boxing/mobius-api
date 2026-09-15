@@ -2,7 +2,7 @@ import { Router } from "express";
 import { SheetStockController } from "../../controllers/sheet-stock/sheet-stock.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class SheetStockRouter {
     this._router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("sheet-stock.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this._sheetStockController.getAll.bind(this._sheetStockController),
@@ -30,7 +30,7 @@ export class SheetStockRouter {
     this._router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("sheet-stock.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this._sheetStockController.getByUuid.bind(this._sheetStockController),
@@ -38,14 +38,14 @@ export class SheetStockRouter {
     this._router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("sheet-stock.edit"),
       apiRateLimiter,
       this._sheetStockController.create.bind(this._sheetStockController),
     );
     this._router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("sheet-stock.edit"),
       validateUUID(),
       apiRateLimiter,
       this._sheetStockController.update.bind(this._sheetStockController),
@@ -53,7 +53,7 @@ export class SheetStockRouter {
     this._router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("sheet-stock.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this._sheetStockController.delete.bind(this._sheetStockController),

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { ConsumableSupplyController } from "../../controllers/consumable-supply/consumable-supply.controller";
-import { authenticate } from "../../middlewares";
+import { authenticate, requirePermission } from "../../middlewares";
 
 export class ConsumableSupplyRouter {
   private _router: Router;
@@ -15,27 +15,42 @@ export class ConsumableSupplyRouter {
     this._router.get(
       "/",
       authenticate,
-      this._consumableSupplyController.getAll.bind(this._consumableSupplyController)
+      requirePermission("consumable-supplies.edit", { allowReadOnly: true }),
+      this._consumableSupplyController.getAll.bind(
+        this._consumableSupplyController,
+      ),
     );
     this._router.get(
       "/:uuid",
       authenticate,
-      this._consumableSupplyController.getByUuid.bind(this._consumableSupplyController)
+      requirePermission("consumable-supplies.edit", { allowReadOnly: true }),
+      this._consumableSupplyController.getByUuid.bind(
+        this._consumableSupplyController,
+      ),
     );
     this._router.post(
       "/",
       authenticate,
-      this._consumableSupplyController.create.bind(this._consumableSupplyController)
+      requirePermission("consumable-supplies.edit"),
+      this._consumableSupplyController.create.bind(
+        this._consumableSupplyController,
+      ),
     );
     this._router.put(
       "/:uuid",
       authenticate,
-      this._consumableSupplyController.update.bind(this._consumableSupplyController)
+      requirePermission("consumable-supplies.edit"),
+      this._consumableSupplyController.update.bind(
+        this._consumableSupplyController,
+      ),
     );
     this._router.delete(
       "/:uuid",
       authenticate,
-      this._consumableSupplyController.delete.bind(this._consumableSupplyController)
+      requirePermission("consumable-supplies.edit"),
+      this._consumableSupplyController.delete.bind(
+        this._consumableSupplyController,
+      ),
     );
   }
 

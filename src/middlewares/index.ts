@@ -7,10 +7,8 @@ export * from "./error/error.middleware";
 export {
   authenticate,
   optionalAuth,
-  requireRole,
   requirePermission,
   requireSuperAdmin,
-  requireAdmin,
   requireSameCompany,
   generateToken,
 } from "./auth.middleware";

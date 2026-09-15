@@ -2,7 +2,7 @@ import { Router } from "express";
 import { CorrugationController } from "../../controllers/corrugation/corrugation.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class CorrugationRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.corrugationController.getAll.bind(this.corrugationController),
@@ -30,7 +30,7 @@ export class CorrugationRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.corrugationController.getByUuid.bind(this.corrugationController),
@@ -38,14 +38,14 @@ export class CorrugationRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.edit"),
       apiRateLimiter,
       this.corrugationController.create.bind(this.corrugationController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.edit"),
       validateUUID(),
       apiRateLimiter,
       this.corrugationController.update.bind(this.corrugationController),
@@ -53,7 +53,7 @@ export class CorrugationRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("corrugated.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.corrugationController.delete.bind(this.corrugationController),

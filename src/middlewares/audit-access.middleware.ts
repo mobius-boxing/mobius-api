@@ -15,24 +15,15 @@ const AUDIT_READ_CODE = "audit.read";
  *
  * A user passes when they hold **`audit.read`** (the ledger-wide code) **or**
  * the code in `ENTITY_READ_PERMISSION[entityName]` — the code that entity's own
- * routes enforce. When that entry is `null` the entity's own routes are
- * `requireAdmin()`-gated, so this falls back to **`requireAdmin` semantics**:
- * admin and superAdmin pass, member denied. That is exactly the access the
- * entity's own list endpoint already grants — no more, and no less.
+ * routes enforce. When that entry is `null`, `audit.read` is the only door
+ * (handbook §P3.4): the catalogue seeds it to every RW-holding Admin, so an
+ * Admin's reach is unchanged, and a custom role sees exactly what it was
+ * granted — nothing implied by a `role` string that no longer gates routes.
  *
- * **This deviates from the handbook's §P3.4**, where `null` meant "`audit.read`
- * only". The deviation is deliberate and signed off as R-1: 43 of the 74
- * entries are `null`, so the handbook's reading would leave P4's history drawer
- * dark for every custom role on more than half the entities, while granting
- * nothing an admin cannot already read through the entity's own list.
- *
- * An **unknown** `entityName` resolves to `null` too, which is deliberate on
- * both halves:
- * - a member is denied (fail closed) and cannot tell an unknown table from an
- *   admin-only one — the gate leaks no schema, exactly like `applyFilters`;
- * - an admin passes, so the *controller* answers the honest
- *   "not an audited table" 400 (`code_sequences`, which is excluded from
- *   auditing entirely, reaches that 400 rather than a misleading 403).
+ * An **unknown** `entityName` resolves to `null` too, so it is denied unless
+ * the caller holds `audit.read` — the gate leaks no schema, exactly like
+ * `applyFilters`, and cannot be told apart from a real table with no
+ * dedicated code.
  *
  * **L-008.** The user is never loaded through `UserDAO.getByUuid`:
  * `mapToInterface` drops `roleId`, which would silently disable the whole
@@ -95,15 +86,7 @@ export const requireEntityHistoryAccess = async (
         options,
       ) ||
       (entityCode !== null &&
-        RbacService.isAllowed(
-          user.role,
-          hasRole,
-          codes,
-          entityCode,
-          options,
-        )) ||
-      // `requireAdmin` semantics; superAdmin already returned above.
-      (entityCode === null && user.role === "admin");
+        RbacService.isAllowed(user.role, hasRole, codes, entityCode, options));
 
     if (!allowed) {
       res.status(403).json({
@@ -112,7 +95,7 @@ export const requireEntityHistoryAccess = async (
         // cannot be used to probe which tables exist.
         message:
           entityCode === null
-            ? `Insufficient permissions. Required: ${AUDIT_READ_CODE} or an administrator account`
+            ? `Insufficient permissions. Required: ${AUDIT_READ_CODE}`
             : `Insufficient permissions. Required: ${AUDIT_READ_CODE} or ${entityCode}`,
       });
       return;

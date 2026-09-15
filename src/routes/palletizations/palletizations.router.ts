@@ -2,7 +2,6 @@ import { Router } from "express";
 import { PalletizationController } from "../../controllers/palletization/palletization.controller";
 import {
   authenticate,
-  requireAdmin,
   requirePermission,
   validateUUID,
   validatePagination,
@@ -19,13 +18,11 @@ export class PalletizationsRouter {
     this.initRoutes();
   }
 
-  // Writes gated by the RBAC catalogue code (reads stay admin-gated,
-  // mirroring parts.router).
   private initRoutes(): void {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("palletizing.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),
@@ -33,7 +30,7 @@ export class PalletizationsRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("palletizing.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.controller.getByUuid.bind(this.controller),

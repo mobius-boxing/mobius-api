@@ -2,7 +2,7 @@ import { Router } from "express";
 import { ToolingController } from "../../controllers/tooling/tooling.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class ToolingRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("tooling.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.toolingController.getAll.bind(this.toolingController),
@@ -30,7 +30,7 @@ export class ToolingRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("tooling.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.toolingController.getByUuid.bind(this.toolingController),
@@ -38,14 +38,14 @@ export class ToolingRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("tooling.edit"),
       apiRateLimiter,
       this.toolingController.create.bind(this.toolingController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("tooling.edit"),
       validateUUID(),
       apiRateLimiter,
       this.toolingController.update.bind(this.toolingController),
@@ -53,7 +53,7 @@ export class ToolingRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("tooling.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.toolingController.delete.bind(this.toolingController),

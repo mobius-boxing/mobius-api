@@ -299,9 +299,7 @@ export const requirePermission = (
   };
 };
 
-export const requireRole = (
-  roles: Array<"member" | "admin" | "superAdmin">,
-) => {
+export const requireSuperAdmin = () => {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!(req as any).user) {
       res.status(401).json({
@@ -311,25 +309,16 @@ export const requireRole = (
       return;
     }
 
-    if (!roles.includes((req as any).user.role)) {
+    if ((req as any).user.role !== "superAdmin") {
       res.status(403).json({
         success: false,
-        message:
-          "Insufficient permissions. Required role: " + roles.join(" or "),
+        message: "Insufficient permissions. Required role: superAdmin",
       });
       return;
     }
 
     next();
   };
-};
-
-export const requireSuperAdmin = () => {
-  return requireRole(["superAdmin"]);
-};
-
-export const requireAdmin = () => {
-  return requireRole(["admin", "superAdmin"]);
 };
 
 /**

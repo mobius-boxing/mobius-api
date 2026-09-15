@@ -2,7 +2,7 @@ import { Router } from "express";
 import { CustomerController } from "../../controllers/customer/customer.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,6 +22,7 @@ export class CustomerRouter {
     this.router.get(
       "/",
       authenticate,
+      requirePermission("customers.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.customerController.getAll.bind(this.customerController),
@@ -29,6 +30,7 @@ export class CustomerRouter {
     this.router.get(
       "/:uuid/with-details",
       authenticate,
+      requirePermission("customers.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.customerController.getWithDetails.bind(this.customerController),
@@ -36,6 +38,7 @@ export class CustomerRouter {
     this.router.get(
       "/:uuid",
       authenticate,
+      requirePermission("customers.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.customerController.getByUuid.bind(this.customerController),
@@ -43,14 +46,14 @@ export class CustomerRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("customers.edit"),
       apiRateLimiter,
       this.customerController.create.bind(this.customerController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("customers.edit"),
       validateUUID(),
       apiRateLimiter,
       this.customerController.update.bind(this.customerController),
@@ -58,7 +61,7 @@ export class CustomerRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("customers.edit"),
       validateUUID(),
       sensitiveCustomerDeletionRateLimiter,
       this.customerController.delete.bind(this.customerController),

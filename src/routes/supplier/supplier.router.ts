@@ -2,7 +2,7 @@ import { Router } from "express";
 import { SupplierController } from "../../controllers/supplier/supplier.controller";
 import {
   authenticate,
-  requireAdmin,
+  requirePermission,
   validateUUID,
   validatePagination,
   apiRateLimiter,
@@ -22,7 +22,7 @@ export class SupplierRouter {
     this.router.get(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("suppliers.edit", { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.supplierController.getAll.bind(this.supplierController),
@@ -30,7 +30,7 @@ export class SupplierRouter {
     this.router.get(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("suppliers.edit", { allowReadOnly: true }),
       validateUUID(),
       apiRateLimiter,
       this.supplierController.getByUuid.bind(this.supplierController),
@@ -38,14 +38,14 @@ export class SupplierRouter {
     this.router.post(
       "/",
       authenticate,
-      requireAdmin(),
+      requirePermission("suppliers.edit"),
       apiRateLimiter,
       this.supplierController.create.bind(this.supplierController),
     );
     this.router.put(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("suppliers.edit"),
       validateUUID(),
       apiRateLimiter,
       this.supplierController.update.bind(this.supplierController),
@@ -53,7 +53,7 @@ export class SupplierRouter {
     this.router.delete(
       "/:uuid",
       authenticate,
-      requireAdmin(),
+      requirePermission("suppliers.edit"),
       validateUUID(),
       sensitiveRateLimiter,
       this.supplierController.delete.bind(this.supplierController),
