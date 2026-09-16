@@ -7,8 +7,8 @@ export interface IFinishedGood {
   description?: string | null;
   supplierId?: number | null;
   manufacturerId?: number | null;
-  /** Interim plain ints until modules 07/12 land (Q-09-3). */
-  partId?: number | null;
+  /** Interim plain ints until modules 07/12 land (Q-09-3). D-10 renamed this column. */
+  productId?: number | null;
   stageId?: number | null;
   minimumStock?: number | null;
   legacyId?: number | null;

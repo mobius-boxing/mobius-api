@@ -144,6 +144,25 @@ export class PalletizationDAO {
     return deleted > 0;
   }
 
+  /** D-22 delete pre-check: how many products reference this palletization (max 10 codes). */
+  async countProductsReferencing(
+    id: number,
+  ): Promise<{ count: number; codes: string[] }> {
+    const knex = db("tenant");
+    const [totalResult, rows] = await Promise.all([
+      knex("products").where("palletizationId", id).count("* as count").first(),
+      knex("products")
+        .where("palletizationId", id)
+        .orderBy("id", "asc")
+        .limit(10)
+        .select("code"),
+    ]);
+    return {
+      count: parseInt(totalResult?.count as string) || 0,
+      codes: rows.map((row: { code: string | null }) => row.code ?? ""),
+    };
+  }
+
   async getAllWithFilters(
     req: Request,
   ): Promise<IDataPaginator<IPalletization>> {

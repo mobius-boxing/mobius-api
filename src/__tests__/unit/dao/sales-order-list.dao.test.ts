@@ -255,12 +255,11 @@ describe("column filters (AC-5, AC-7..AC-9, AC-13)", () => {
     ]);
   });
 
-  it("resolves partUuid against parts", async () => {
-    fixtures.parts = { firstRows: [{ id: 12 }] };
-    await list({ partUuid: PART_UUID });
-
-    expect(fixtures.parts.whereCalls[0]).toEqual(["uuid", PART_UUID]);
-    expect(orderWheres()).toContainEqual(["sales_orders.partId", "=", 12]);
+  it("rejects a partUuid filter outright — parts is gone (AC-9, D-1, L-007)", async () => {
+    await expect(list({ partUuid: PART_UUID })).rejects.toMatchObject({
+      name: "ValidationError",
+      message: "partUuid is not supported",
+    });
   });
 
   it("resolves sheetSupplyUuid against paper_sheets (F-1)", async () => {
@@ -631,14 +630,6 @@ describe("item description (AC-34)", () => {
     ).toBe("Producto: C1 - Caja - Revisión: 3");
   });
 
-  it("builds the parte form", async () => {
-    expect(
-      await mapOne({
-        part: { uuid: "p", code: "PT1", description: "Tapa", revision: 0 },
-      }),
-    ).toBe("Parte: PT1 - Tapa - Revisión: 0");
-  });
-
   it("builds the plancha form, without a revision", async () => {
     expect(
       await mapOne({
@@ -647,8 +638,18 @@ describe("item description (AC-34)", () => {
     ).toBe("Plancha: PL1 - Plancha B");
   });
 
-  it("is the empty string when none of the three is set", async () => {
+  it("is the empty string when neither is set", async () => {
     expect(await mapOne({})).toBe("");
+  });
+
+  it("no longer builds a parte form — a stray `part` record is ignored (D-1, was AC-34 'builds the parte form')", async () => {
+    // itemDescriptionOf's parte branch is gone with `parts`; a `part` key
+    // surviving on a joined row (e.g. a stale cache) must never resurrect it.
+    expect(
+      await mapOne({
+        part: { uuid: "p", code: "PT1", description: "Tapa", revision: 0 },
+      }),
+    ).toBe("");
   });
 });
 
@@ -694,9 +695,9 @@ describe("getAssociatedProductionOrders (AC-25, AC-26)", () => {
           schedulingApprovedAt: "2026-01-02",
           completedAt: null,
           voidedAt: null,
-          partUuid: "part-uuid",
-          partCode: "PT1",
-          partDescription: "Tapa",
+          productUuid: "product-uuid",
+          productCode: "PT1",
+          productDescription: "Tapa",
           customerUuid: "cust-uuid",
           customerName: "Acme",
         },
@@ -721,12 +722,12 @@ describe("getAssociatedProductionOrders (AC-25, AC-26)", () => {
       orderDate: "2026-01-01",
       deliveryDate: "2026-02-01",
       quantity: 500,
-      part: { uuid: "part-uuid", code: "PT1", description: "Tapa" },
+      product: { uuid: "product-uuid", code: "PT1", description: "Tapa" },
       customer: { uuid: "cust-uuid", name: "Acme" },
       schedulingApprovedAt: "2026-01-02",
       completedAt: null,
       voidedAt: null,
     });
-    expect(JSON.stringify(result.data)).not.toMatch(/"id":|"partId":/);
+    expect(JSON.stringify(result.data)).not.toMatch(/"id":|"productId":/);
   });
 });

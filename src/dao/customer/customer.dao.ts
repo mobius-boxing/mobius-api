@@ -132,12 +132,16 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     return customer ? this.mapToInterface(customer) : null;
   }
 
-  async getIdByUuid(uuid: string): Promise<number | null> {
+  async getIdByUuid(
+    uuid: string,
+    companyId?: CompanyScope,
+  ): Promise<number | null> {
     const knex = db("tenant");
-    const customer = await knex(this.tableName)
-      .where("uuid", uuid)
-      .select("id")
-      .first();
+    const query = knex(this.tableName).where("uuid", uuid);
+
+    applyCompanyScope(query, this.tableName, companyId);
+
+    const customer = await query.select("id").first();
 
     return customer ? customer.id : null;
   }

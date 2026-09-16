@@ -158,14 +158,14 @@ export class ModelDAO {
     return deleted > 0;
   }
 
-  /** D-8 delete pre-check: how many parts reference the model (max 10 codes). */
-  async countPartsReferencing(
+  /** D-22 delete pre-check: how many products reference the model (max 10 codes). */
+  async countProductsReferencing(
     id: number,
   ): Promise<{ count: number; codes: string[] }> {
     const knex = db("tenant");
     const [totalResult, rows] = await Promise.all([
-      knex("parts").where("modelId", id).count("* as count").first(),
-      knex("parts")
+      knex("products").where("modelId", id).count("* as count").first(),
+      knex("products")
         .where("modelId", id)
         .orderBy("id", "asc")
         .limit(10)

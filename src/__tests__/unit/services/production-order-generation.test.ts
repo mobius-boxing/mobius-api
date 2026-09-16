@@ -48,7 +48,6 @@ const approvedSalesOrder = {
   id: 11,
   uuid: "pedido-uuid",
   companyId: 3,
-  partId: 42,
   orderDataId: 77,
   quantity: 300,
   deliveryDate: null,
@@ -82,7 +81,7 @@ const stubEverything = (overrides: Record<string, unknown> = {}) => {
     .spyOn(ProductionOrderDAO.prototype, "loadOrderValidationContext")
     .mockResolvedValue({
       routeStageCount: 2,
-      partApproved: true,
+      productApproved: true,
       customerActive: true,
       productId: 5,
       productCode: "PRD-1",
@@ -321,7 +320,7 @@ describe("guard ordering and the two API-unreachable guards (AC-11)", () => {
     const reasons = evaluateGuards({
       salesOrder: {
         ...approvedSalesOrder,
-        partId: null,
+        productId: null,
         orderDataId: null,
         orderDataNumber: null,
         commercialApprovedAt: null,
@@ -337,7 +336,7 @@ describe("guard ordering and the two API-unreachable guards (AC-11)", () => {
     expect(reasons.map((r) => r.code)).toEqual([
       "NO_QUANTITIES",
       "ORDERS_ALREADY_EXIST",
-      "SALES_ORDER_WITHOUT_PART",
+      "SALES_ORDER_WITHOUT_PRODUCT",
       "SALES_ORDER_WITHOUT_ORDER_DATA",
       "ORDER_DATA_WITHOUT_NUMBER",
       "PURCHASE_ORDER_IMAGE_REQUIRED",
@@ -360,7 +359,7 @@ describe("guard ordering and the two API-unreachable guards (AC-11)", () => {
 
   it("carries Procusto's verbatim message on every guard", () => {
     const reasons = evaluateGuards({
-      salesOrder: { ...approvedSalesOrder, partId: null },
+      salesOrder: { ...approvedSalesOrder, productId: null },
       existingOrderCount: 1,
       promisedQuantities: [],
       force: false,

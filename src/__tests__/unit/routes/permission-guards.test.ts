@@ -303,36 +303,45 @@ const NO_READONLY_CASES: RouterCase[] = [
     readonlyCalls: 0,
     writeCalls: 1,
   },
+  // D-1: `parts` removed — `product/product.router.ts` gates on ONE code now
+  // (`products.edit`, plus the dedicated approval/delete codes below), so it
+  // moved out of MIXED_CODE_FILES into this single-code table. `POST
+  // /product/calculate` is a write call on `products.edit` too (I-14).
+  {
+    file: "product/product.router.ts",
+    code: "products.edit",
+    readonlyCalls: 3,
+    writeCalls: 3,
+  },
 ];
 
 /**
- * `parts` and `product` mix codes on one router, so they get their own count
- * assertions rather than the single-code table above.
+ * Codes a router gates on BESIDES its single primary code, counted with the
+ * same regex as MIXED_CODE_FILES used to (kept separate from ROUTER_CASES,
+ * whose `code` column asserts exactly one code per file).
  */
-const MIXED_CODE_FILES: Array<{
+const EXTRA_CODE_FILES: Array<{
   file: string;
   expected: Record<string, number>;
 }> = [
   {
     file: "product/product.router.ts",
     expected: {
-      '"products.edit", { allowReadOnly: true }': 3,
-      '"products.edit"': 2,
-      '"parts.edit", { allowReadOnly: true }': 1,
-      '"parts.edit"': 1,
       '"products.approve.technical"': 1,
       '"products.delete"': 1,
     },
   },
-  {
-    file: "parts/parts.router.ts",
-    expected: {
-      '"parts.edit", { allowReadOnly: true }': 2,
-      '"parts.edit"': 4,
-      '"parts.approve.bulk"': 2,
-    },
-  },
 ];
+
+/**
+ * D-1: `routes/parts/` is gone — this is the negative-space assertion that
+ * replaces the old `parts/parts.router.ts` row in MIXED_CODE_FILES (AC-9).
+ */
+describe("AC-9 — routes/parts is gone (D-1)", () => {
+  it("no longer exists on disk", () => {
+    expect(fs.existsSync(path.join(ROUTES, "parts"))).toBe(false);
+  });
+});
 
 const countCalls = (
   contents: string,
@@ -360,8 +369,8 @@ describe("AC-4 — router → code mapping (static)", () => {
     },
   );
 
-  it.each(MIXED_CODE_FILES)(
-    "$file gates on its mixed codes exactly",
+  it.each(EXTRA_CODE_FILES)(
+    "$file gates on its extra codes exactly",
     ({ file, expected }) => {
       const contents = read(file);
       for (const [call, count] of Object.entries(expected)) {

@@ -32,9 +32,10 @@ const AUDIT_READ_CODE = "audit.read";
  * `requirePermission` fills (`auth.middleware.ts:170-210`) so two gates on one
  * request cost one query.
  *
- * `allowReadOnly` is on for both codes: opening a history is a read, so
- * `parts.edit.readonly` must reach `parts` history the same way it reaches the
- * parts list. (`audit.read` has no `.readonly` variant seeded today —
+ * `allowReadOnly` is on for both codes: opening a history is a read, so an
+ * entity's own `.edit.readonly` code (e.g. `box-types.edit.readonly`) must
+ * reach that entity's history the same way it reaches its list. (`audit.read`
+ * has no `.readonly` variant seeded today —
  * `MOBIUS_ADDED_PERMISSIONS` are RW-only — the flag simply mirrors the list
  * endpoint's gate so the two cannot drift.)
  */

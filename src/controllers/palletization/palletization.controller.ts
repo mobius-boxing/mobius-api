@@ -19,8 +19,10 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
   protected dao = new PalletizationDAO();
   protected options: BaseCrudOptions = {
     entityLabel: "Palletization",
+    // DB backstop for the 409 pre-check below (products.palletizationId SET NULL,
+    // so this path is unlikely to fire — the pre-check is the real guard, D-22).
     fkCatchOnDelete: true,
-    fkCatchMessage: "Cannot delete palletization: parts still reference it.",
+    fkCatchMessage: "Cannot delete palletization: products still reference it.",
   };
 
   private palletTypeDAO = new PalletTypeDAO();
@@ -148,5 +150,41 @@ export class PalletizationController extends BaseCrudController<IPalletization> 
     const payload: any = { ...inputDTO, ...refs };
     delete payload.palletTypeUuid;
     return payload;
+  }
+
+  /**
+   * D-22: deleting a Palletization referenced by products answers 409 with
+   * the count — `products."palletizationId"` is SET NULL, so the FK itself
+   * never blocks the delete; this pre-check is the real guard.
+   */
+  public async delete(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { uuid } = req.params;
+      const companyScope = this.itemCompanyScope(req);
+      const existingId = await this.resolveIdByUuid(uuid, companyScope);
+      if (!existingId) {
+        this.sendNotFound(res);
+        return;
+      }
+
+      const referencing = await this.dao.countProductsReferencing(existingId);
+      if (referencing.count > 0) {
+        res.status(409).json({
+          success: false,
+          message: `Cannot delete palletization: ${referencing.count} product(s) still reference it.`,
+          count: referencing.count,
+          productCodes: referencing.codes,
+        });
+        return;
+      }
+    } catch (err: any) {
+      next(err);
+      return;
+    }
+    await super.delete(req, res, next);
   }
 }

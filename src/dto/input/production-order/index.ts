@@ -24,7 +24,7 @@ import { IPromisedQuantity } from "../../../interfaces/production-order/producti
 
 /** Foreign keys arrive as UUIDs (SECURITY: numeric ids never cross the API). */
 const REFERENCE_FIELDS = [
-  "partUuid",
+  "productUuid",
   "orderDataUuid",
   "salesOrderUuid",
   "routeUuid",
@@ -63,7 +63,7 @@ const FLOAT_FIELDS = [
 ] as const;
 
 export class ProductionOrderCreateInputDTO {
-  partUuid?: string;
+  productUuid?: string;
   orderDataUuid?: string | null;
   salesOrderUuid?: string | null;
   routeUuid?: string | null;
@@ -122,6 +122,11 @@ export class ProductionOrderCreateInputDTO {
   }
 
   protected validateTypes(): void {
+    // AC-9/L-007: `parts` is gone (D-1) — a `partUuid` body field is rejected
+    // outright, never silently accepted-and-ignored.
+    if (this.providedKeys.has("partUuid")) {
+      throw new Error("partUuid is not supported");
+    }
     if (this.providedKeys.has("quantity") && this.quantity === undefined) {
       throw new Error("quantity must be a number");
     }

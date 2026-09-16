@@ -32,7 +32,7 @@ import { companyFilterScope, type CompanyScope } from "../../utils/daoScope";
 
 /** uuid body field → { table it lives in, numeric column it resolves to }. */
 const REFERENCES: Record<string, { table: string; idKey: string }> = {
-  partUuid: { table: "parts", idKey: "partId" },
+  productUuid: { table: "products", idKey: "productId" },
   orderDataUuid: { table: "order_data", idKey: "orderDataId" },
   routeUuid: { table: "production_routes", idKey: "routeId" },
   palletizationUuid: { table: "palletizations", idKey: "palletizationId" },
@@ -190,14 +190,14 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
    * read it exactly like the reference-resolution helper above.
    */
   private async runValidator(
-    row: { partId: number | null; quantity: number | null },
+    row: { productId: number | null; quantity: number | null },
     routeId: number | null,
     companyId: number,
     isNew: boolean,
     res: Response,
   ): Promise<boolean> {
     const context = await this.dao.loadOrderValidationContext({
-      partId: row.partId,
+      productId: row.productId,
       routeId,
     });
     const maxQuantity = await this.appConfig.getNumber(
@@ -208,7 +208,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
       row,
       {
         routeStageCount: context?.routeStageCount ?? 0,
-        partApproved: context?.partApproved ?? false,
+        productApproved: context?.productApproved ?? false,
         customerActive: context?.customerActive ?? false,
         maxQuantity,
       },
@@ -226,7 +226,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
 
   /** OrdenDeProduccionForm.cs:634,639 — advice, never a rejection. */
   private async buildWarnings(row: {
-    partId: number | null;
+    productId: number | null;
     quantity: number | null;
     orderDataId: number | null;
   }): Promise<string[]> {
@@ -237,20 +237,17 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
     if (!salesOrder) return [];
 
     const warnings: string[] = [];
-    const partContext = await this.dao.loadOrderValidationContext({
-      partId: row.partId,
-    });
-    const orderProduct = partContext?.productId ?? null;
-    const isPedidosOwnPart =
-      salesOrder.partId != null && salesOrder.partId === row.partId;
     if (
-      !isPedidosOwnPart &&
       salesOrder.productId != null &&
-      orderProduct !== salesOrder.productId
+      row.productId != null &&
+      row.productId !== salesOrder.productId
     ) {
+      const context = await this.dao.loadOrderValidationContext({
+        productId: row.productId,
+      });
       warnings.push(
-        WARNING_MESSAGES.partProductMismatch(
-          partContext?.productCode ?? "?",
+        WARNING_MESSAGES.productMismatch(
+          context?.productCode ?? "?",
           salesOrder.productCode ?? "?",
         ),
       );
@@ -317,7 +314,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
     if (payload.orderDate === undefined) payload.orderDate = new Date();
 
     const row = {
-      partId: (refs.partId ?? null) as number | null,
+      productId: (refs.productId ?? null) as number | null,
       quantity: (inputDTO.quantity ?? null) as number | null,
       orderDataId: (refs.orderDataId ?? null) as number | null,
     };
@@ -370,7 +367,9 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
     this.stripReferenceKeys(payload);
 
     const row = {
-      partId: (refs.partId ?? existing.partId ?? null) as number | null,
+      productId: (refs.productId ?? existing.productId ?? null) as
+        | number
+        | null,
       quantity: (inputDTO.quantity ?? existing.quantity ?? null) as
         | number
         | null,
@@ -442,7 +441,7 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
    * Query params (flat syntax):
    * - page, limit, sortBy (number|orderDate|deliveryDate|quantity|createdAt),
    *   sortOrder, search (number)
-   * - number, uuid, partUuid, orderDataUuid, salesOrderUuid, customerUuid
+   * - number, uuid, productUuid, orderDataUuid, salesOrderUuid, customerUuid
    * - schedulingState (enabled|disabled), completionState (open|completed),
    *   voidState (active|voided)
    * - deliveryDateFrom, deliveryDateTo, orderDateFrom, orderDateTo

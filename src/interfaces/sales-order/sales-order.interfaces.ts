@@ -82,7 +82,6 @@ export interface ISalesOrder {
   customerId?: number;
   salesUserId?: number | null;
   productId?: number | null;
-  partId?: number | null;
   orderDataId?: number | null;
 
   uuid?: string;
@@ -178,7 +177,7 @@ export interface ISalesOrderWrite extends ISalesOrder {
 /**
  * One row of `GET /sales-orders/:uuid/production-orders`
  * (OrdenesAsociadasForm.cs:106-168). Ten fields, uuid-only: the numeric ids of
- * the OP, its parte and its cliente never leave the API.
+ * the OP, its producto and its cliente never leave the API.
  */
 export interface IAssociatedProductionOrder {
   uuid: string;
@@ -186,7 +185,11 @@ export interface IAssociatedProductionOrder {
   orderDate: Date | string | null;
   deliveryDate: Date | string | null;
   quantity: number;
-  part: { uuid: string; code: string | null; description: string | null } | null;
+  product: {
+    uuid: string;
+    code: string | null;
+    description: string | null;
+  } | null;
   customer: { uuid: string; name: string | null } | null;
   schedulingApprovedAt: Date | string | null;
   completedAt: Date | string | null;

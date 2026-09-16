@@ -11,9 +11,9 @@ import {
  * verbatim.
  *
  * DIVERGENCE D-3: Procusto dereferences `Parte` unguarded at :339 and :351 and
- * throws a NullReferenceException when no part is set. Here V2/V4/V5 — the
- * three rules that need the part — are SKIPPED once V1 has fired, so a
- * part-less payload yields exactly one clean problem instead of a 500.
+ * throws a NullReferenceException when no product is set. Here V2/V4/V5 —
+ * the three rules that need the product — are SKIPPED once V1 has fired, so a
+ * product-less payload yields exactly one clean problem instead of a 500.
  * Reproducing the crash would not be parity worth having.
  *
  * V5 is create-only (`isNew`): deactivating a customer must not make every
@@ -30,25 +30,25 @@ export function validateProductionOrder(
 ): IProductionOrderValidation {
   const problems: string[] = [];
 
-  const hasPart = order.partId !== null && order.partId !== undefined;
-  if (!hasPart) problems.push(VALIDATION_MESSAGES.V1);
+  const hasProduct = order.productId !== null && order.productId !== undefined;
+  if (!hasProduct) problems.push(VALIDATION_MESSAGES.V1);
 
-  // V2 — the effective route must have at least one stage. Part-dependent.
-  if (hasPart && context.routeStageCount < 1) {
+  // V2 — the effective route must have at least one stage. Product-dependent.
+  if (hasProduct && context.routeStageCount < 1) {
     problems.push(VALIDATION_MESSAGES.V2);
   }
 
-  // V3 — quantity > 0. Independent of the part, so it always runs.
+  // V3 — quantity > 0. Independent of the product, so it always runs.
   const quantity = order.quantity ?? 0;
   if (!(quantity > 0)) problems.push(VALIDATION_MESSAGES.V3);
 
-  // V4 — the part must be approved. Part-dependent.
-  if (hasPart && !context.partApproved) {
+  // V4 — the product must be approved. Product-dependent.
+  if (hasProduct && !context.productApproved) {
     problems.push(VALIDATION_MESSAGES.V4);
   }
 
   // V5 — new orders only: the product's customer must be active.
-  if (hasPart && options.isNew && !context.customerActive) {
+  if (hasProduct && options.isNew && !context.customerActive) {
     problems.push(VALIDATION_MESSAGES.V5);
   }
 

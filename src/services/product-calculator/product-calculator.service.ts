@@ -1,21 +1,17 @@
 /**
- * Part calculations — specs/parts/03-calculations.md + 06-cascade-and-dimensions.md.
+ * Product calculations — specs/parts/03-calculations.md + 06-cascade-and-dimensions.md,
+ * folded onto `products` (D-1). Moved/renamed from `services/part-calculator`,
+ * alongside the rest of the removed-composite-products cleanup.
  *
- * Scope note: with parts.modelId still unset on live rows, the cascade paths
- * here are:
+ * Scope note: with products.modelId still largely unset on live rows, the
+ * cascade paths here are:
  *   - internal ↔ external via the corrugation's FIRST flute-type static
  *     adjustments (AjusteLargo/Ancho/Altura → flute_types.length/width/height)
  *   - boxSurface → boxWeight (the ONLY auto-weight path;
  *     PesoEditableEnPartes=False at the live customer → weight computed)
  *
- * Module-08 extension point: the NCalc-parity formula engine is shipped at
- * `src/services/formula-engine/` — consume `evaluate(formula, scope)` for
- * scalar Modelo formulas and `evaluateList(text, scope)` for the pipe-`|`
- * trazadores lists (scope = the 34 FORMULA_PARAMETERS names). Follow-up
- * slices that will consume it from here: CalcularPlancha/CalcularAletas
- * (sheet dims, trazadores from Modelo, flap formulas, AumentoEnFormula
- * Chapeton override), the RotacionObligatoria sheet-swap (golden Fixture C),
- * and POST /models/:uuid/recalculate-parts.
+ * Scope = today's 8 cascade fields only (D-11, D-19); CalcularPlancha /
+ * CalcularAletas / model formulas are a separate card.
  *
  * All arithmetic in IEEE-754 doubles (parity — 03 gotcha #5).
  */
@@ -36,7 +32,7 @@ export type CascadeField =
   | "boxSurface"
   | "grammage";
 
-export interface ICascadePart {
+export interface ICalculableProduct {
   boxLength?: number | null;
   boxWidth?: number | null;
   boxHeight?: number | null;
@@ -55,16 +51,16 @@ const AXES = [
   { internal: "boxHeight", external: "externalHeight", adjust: "height" },
 ] as const;
 
-export class PartCalculator {
+export class ProductCalculator {
   /**
-   * Effective grammage: Part override, else corrugation theoretical
-   * (`GramajeTeorico = Parte.Gramaje ?? Corrugado.GramajeTeorico`).
+   * Effective grammage: product override, else corrugation theoretical
+   * (`GramajeTeorico = Producto.Gramaje ?? Corrugado.GramajeTeorico`).
    */
   effectiveGrammage(
-    partGrammage: number | null | undefined,
+    productGrammage: number | null | undefined,
     corrugationTheoretical: number | null | undefined,
   ): number | null {
-    return partGrammage ?? corrugationTheoretical ?? null;
+    return productGrammage ?? corrugationTheoretical ?? null;
   }
 
   /** SuperficiePlancha = LargoPlancha × AnchoPlancha / 1_000_000 (m²). */
@@ -92,66 +88,66 @@ export class PartCalculator {
 
   /**
    * Apply one field edit and cascade (06-cascade-and-dimensions.md), mutating
-   * and returning the part. `flute` = the corrugation's FIRST flute-type
+   * and returning the product. `flute` = the corrugation's FIRST flute-type
    * adjustments (Corrugado.TiposDeOnda().First() — only the first is
    * consulted, even for multi-wall). Delta source order: Modelo formula
    * (TODO(module-08)) → flute adjustment → 0 (external == internal).
    */
   applyEdit(
-    part: ICascadePart,
+    product: ICalculableProduct,
     field: CascadeField,
     value: number | null,
     flute: IFluteAdjustments | null,
     corrugationTheoreticalGrammage: number | null,
-  ): ICascadePart {
+  ): ICalculableProduct {
     const axisByInternal = AXES.find((a) => a.internal === field);
     const axisByExternal = AXES.find((a) => a.external === field);
 
     if (axisByInternal) {
       // Internal → external: external = internal + delta.
-      (part as any)[axisByInternal.internal] = value;
+      (product as any)[axisByInternal.internal] = value;
       if (value != null) {
         const delta = flute?.[axisByInternal.adjust] ?? 0;
-        (part as any)[axisByInternal.external] = value + delta;
+        (product as any)[axisByInternal.external] = value + delta;
       }
     } else if (axisByExternal) {
       // External → internal (reverse): internal = external - delta.
-      (part as any)[axisByExternal.external] = value;
+      (product as any)[axisByExternal.external] = value;
       if (value != null) {
         const delta = flute?.[axisByExternal.adjust] ?? 0;
-        (part as any)[axisByExternal.internal] = value - delta;
+        (product as any)[axisByExternal.internal] = value - delta;
       }
     } else if (field === "boxSurface") {
-      part.boxSurface = value;
+      product.boxSurface = value;
       const grammage = this.effectiveGrammage(
-        part.grammage,
+        product.grammage,
         corrugationTheoreticalGrammage,
       );
-      part.boxWeight = this.boxWeight(value, grammage);
+      product.boxWeight = this.boxWeight(value, grammage);
     } else if (field === "grammage") {
-      part.grammage = value;
+      product.grammage = value;
       const grammage = this.effectiveGrammage(
         value,
         corrugationTheoreticalGrammage,
       );
-      part.boxWeight = this.boxWeight(part.boxSurface, grammage);
+      product.boxWeight = this.boxWeight(product.boxSurface, grammage);
     }
 
     // TODO(module-08): CalcularAletas + CalcularPlancha when a Modelo is set
     // (sheet dims, trazadores, flap formulas, RotacionObligatoria swap).
-    return part;
+    return product;
   }
 
   /** Batch weight recalc (RecalcularPeso): returns the new weight. */
   recalculateBoxWeight(
-    part: ICascadePart,
+    product: ICalculableProduct,
     corrugationTheoreticalGrammage: number | null,
   ): number | null {
     const grammage = this.effectiveGrammage(
-      part.grammage,
+      product.grammage,
       corrugationTheoreticalGrammage,
     );
-    part.boxWeight = this.boxWeight(part.boxSurface, grammage);
-    return part.boxWeight ?? null;
+    product.boxWeight = this.boxWeight(product.boxSurface, grammage);
+    return product.boxWeight ?? null;
   }
 }

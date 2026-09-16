@@ -3,7 +3,7 @@
  * Modelo-less paths only (formula engine = module 08).
  */
 import { describe, it, expect } from "@jest/globals";
-import { PartCalculator } from "../../../services/part-calculator/part-calculator.service";
+import { ProductCalculator as PartCalculator } from "../../../services/product-calculator/product-calculator.service";
 
 const calc = new PartCalculator();
 const flute = { length: 6, width: 4, height: 8 };

@@ -9,7 +9,7 @@ import { companyFilterScope } from "../../utils/daoScope";
 export const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 
 /**
- * File attachment endpoints. Consumers (parts, products, models, palletizations)
+ * File attachment endpoints. Consumers (products, models, palletizations)
  * store files.uuid in their file FK columns.
  *
  * POST   /files              multipart (field "file", optional "description";

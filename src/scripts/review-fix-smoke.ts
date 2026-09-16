@@ -14,7 +14,7 @@ import {
   rawCoreInstance,
   withTenantTarget,
 } from "../database/registry";
-import { PartDAO } from "../dao/part/part.dao";
+import { ProductDAO } from "../dao/product/product.dao";
 import { RbacService } from "../services/rbac.service";
 import { validateRoute } from "../services/route-validator.service";
 import { ProductController } from "../controllers/product/product.controller";
@@ -62,13 +62,13 @@ const mockRes = () => {
   }
   await connectAll();
   // Two keys, because this script seeds a company and its RBAC catalogue
-  // (core) and then exercises the ERP part/route domain. `tenant` is resolved
-  // only inside `runChecks`, under an explicit `withTenantTarget` scope
-  // (db-per-company T8, AC-49): outside a request, `db("tenant")` has no
-  // fallback left, and this script's `ProductController` calls reach
+  // (core) and then exercises the ERP product/route domain. `tenant` is
+  // resolved only inside `runChecks`, under an explicit `withTenantTarget`
+  // scope (db-per-company T8, AC-49): outside a request, `db("tenant")` has
+  // no fallback left, and this script's `ProductController` calls reach
   // `db("tenant")` deep inside DAOs with no request context to inherit it from.
   const core = db("core");
-  const dao = new PartDAO();
+  const dao = new ProductDAO();
   try {
     await withTenantTarget(
       { physicalKey: "core", instance: rawCoreInstance() },
@@ -97,7 +97,7 @@ const mockRes = () => {
 })();
 
 /** Everything that touches `tenant`, inside the script's one `withTenantTarget` scope. */
-async function runChecks(core: Knex, dao: PartDAO): Promise<void> {
+async function runChecks(core: Knex, dao: ProductDAO): Promise<void> {
   const tenant = db("tenant");
   // ── Setup ──────────────────────────────────────────────────────────────
   const [company] = await core("companies")
@@ -135,82 +135,58 @@ async function runChecks(core: Knex, dao: PartDAO): Promise<void> {
       active: true,
     })
     .returning("*");
-  const [product] = await tenant("products")
-    .insert({
+
+  // ── A: RUTA PROPIA naming + at-most-one route per create (D-14, I-2) ─────
+  const p1 = await dao.create(
+    {
       uuid: uuidv4(),
       companyId: company.id,
-      code: `BOX(A)${TAG}`,
+      code: `BOX(A)${TAG}/1`,
       description: "Prod Desc",
       customerId: customer.id,
-    })
-    .returning("*");
-
-  // ── A: codes + RUTA PROPIA naming + MAX+1 with anchored regex ───────────
-  const p1 = await dao.create({
-    uuid: uuidv4(),
-    companyId: company.id,
-    productId: product.id,
-    corrugationId: corr.id,
-    sheetLength: 1000,
-    sheetWidth: 500,
-  } as any);
+      corrugationId: corr.id,
+      sheetLength: 1000,
+      sheetWidth: 500,
+    } as any,
+    { autoAssignRoute: true },
+  );
   check(
-    "A1 code {producto}/1 with regex metachars in product code",
+    "A1 code round-trips verbatim (no server-side generation)",
     p1.code === `BOX(A)${TAG}/1`,
     p1.code,
   );
-  const p1Row = await tenant("parts").where("uuid", p1.uuid).first();
+  const p1Id = await dao.getIdByUuid(p1.uuid!);
+  const p1Row = await tenant("products").where("id", p1Id).first();
   const route1 = await tenant("production_routes")
     .where("id", p1Row.productionRouteId)
     .first();
   check(
     "A2 RUTA PROPIA name = description-only prefix",
-    route1?.name === " (RUTA PROPIA)" && route1?.isGlobal === false,
+    route1?.name === "Prod Desc (RUTA PROPIA)" && route1?.isGlobal === false,
     route1?.name,
   );
-  const p2 = await dao.create({
-    uuid: uuidv4(),
-    companyId: company.id,
-    productId: product.id,
-    corrugationId: corr.id,
-    description: "Tapa",
-  } as any);
-  check("A3 second code /2", p2.code === `BOX(A)${TAG}/2`, p2.code);
-  // Foreign-shaped sibling codes must NOT advance the counter
-  await tenant("parts")
-    .where("uuid", p2.uuid)
-    .update({ code: `BOX(A)${TAG}/9-old` });
-  const p3 = await dao.create({
-    uuid: uuidv4(),
-    companyId: company.id,
-    productId: product.id,
-    corrugationId: corr.id,
-  } as any);
-  check(
-    "A4 anchored regex skips BOX(A)/9-old → next is /2",
-    p3.code === `BOX(A)${TAG}/2`,
-    p3.code,
+  const p2 = await dao.create(
+    {
+      uuid: uuidv4(),
+      companyId: company.id,
+      code: `BOX(A)${TAG}/2`,
+      description: "Tapa",
+      customerId: customer.id,
+      corrugationId: corr.id,
+    } as any,
+    { autoAssignRoute: true },
   );
-  await tenant("parts")
-    .where("uuid", p2.uuid)
-    .update({ code: `BOX(A)${TAG}/2x` });
-  const p1Id = await dao.getIdByUuid(p1.uuid!);
+  const p2Id = await dao.getIdByUuid(p2.uuid!);
+  const p2Row = await tenant("products").where("id", p2Id).first();
+  check(
+    "A3 second product gets its OWN private route (not shared)",
+    p2Row.productionRouteId !== p1Row.productionRouteId,
+  );
   await dao.delete(p1Id!);
-  const p4 = await dao.create({
-    uuid: uuidv4(),
-    companyId: company.id,
-    productId: product.id,
-    corrugationId: corr.id,
-  } as any);
-  check(
-    "A5 MAX+1 after delete (codes now /2x junk, /2) → /3",
-    p4.code === `BOX(A)${TAG}/3`,
-    p4.code,
-  );
   const route1After = await tenant("production_routes")
     .where("id", p1Row.productionRouteId)
     .first();
-  check("A6 private route cleaned after part delete", !route1After);
+  check("A4 private route cleaned after product delete (L-006)", !route1After);
 
   // ── B: default-route fallback ───────────────────────────────────────────
   const [defRoute] = await tenant("production_routes")
@@ -223,76 +199,56 @@ async function runChecks(core: Knex, dao: PartDAO): Promise<void> {
       isDefault: true,
     })
     .returning("*");
-  const p5 = await dao.create({
-    uuid: uuidv4(),
-    companyId: company.id,
-    productId: product.id,
-    corrugationId: corr.id,
-  } as any);
-  const p5Row = await tenant("parts").where("uuid", p5.uuid).first();
+  const p3 = await dao.create(
+    {
+      uuid: uuidv4(),
+      companyId: company.id,
+      code: `BOX(A)${TAG}/3`,
+      customerId: customer.id,
+      corrugationId: corr.id,
+    } as any,
+    { autoAssignRoute: true },
+  );
+  const p3Id = await dao.getIdByUuid(p3.uuid!);
+  const p3Row = await tenant("products").where("id", p3Id).first();
   check(
     "B1 default global route used instead of RUTA PROPIA",
-    p5Row.productionRouteId === defRoute.id,
+    p3Row.productionRouteId === defRoute.id,
   );
   const routesCount = await tenant("production_routes")
     .where({ companyId: company.id, isGlobal: false })
     .count("* as c")
     .first();
-  // p2, p3, p4 each auto-created a RUTA PROPIA (created before the default
-  // existed); p1's was deleted with it. p5 must not have added one.
+  // p2 auto-created a RUTA PROPIA (created before the default existed); p1's
+  // was deleted with it. p3 must not have added one.
   check(
-    "B2 no extra private route created (count 3)",
-    String(routesCount?.c) === "3",
+    "B2 no extra private route created (count 1)",
+    String(routesCount?.c) === "1",
     routesCount?.c,
   );
 
-  // ── C: approval pair + events ───────────────────────────────────────────
-  const p4Id = await dao.getIdByUuid(p4.uuid!);
-  await dao.setApproval(p4Id!, "dimensions", "approve", "tester@x");
-  let p4Row = await tenant("parts").where("id", p4Id).first();
+  // ── C: approval pair semantics (single machine, no cascade — D-3) ───────
+  await dao.setApproval(p3Id!, "approve", "tester@x");
+  let p3RowAfter = await tenant("products").where("id", p3Id).first();
   check(
     "C1 approve sets pair",
-    p4Row.dimensionsApprovalAt != null &&
-      p4Row.dimensionsApprovalBy === "tester@x",
+    p3RowAfter.productApprovalAt != null &&
+      p3RowAfter.productApprovalBy === "tester@x",
   );
-  await dao.setApproval(p4Id!, "dimensions", "cancel", "tester@x");
-  p4Row = await tenant("parts").where("id", p4Id).first();
+  await dao.setApproval(p3Id!, "cancel", "tester@x");
+  p3RowAfter = await tenant("products").where("id", p3Id).first();
   check(
     "C2 cancel clears approval, stamps cancellation",
-    p4Row.dimensionsApprovalAt == null && p4Row.dimensionsCancelledAt != null,
-  );
-  const events = await tenant("part_approval_events")
-    .where("partId", p4Id)
-    .select("action");
-  check("C3 two event rows", events.length === 2);
-
-  // ── D: bulk quirks + 'unapprove' action ─────────────────────────────────
-  const p3Id = await dao.getIdByUuid(p3.uuid!);
-  await dao.bulkApprove([p3Id!, p4Id!], "bulk@x");
-  p4Row = await tenant("parts").where("id", p4Id).first();
-  check(
-    "D1 bulk approve keeps cancellation (quirk)",
-    p4Row.dimensionsApprovalAt != null && p4Row.dimensionsCancelledAt != null,
-  );
-  await dao.bulkUnapprove([p3Id!, p4Id!], "bulk@x");
-  p4Row = await tenant("parts").where("id", p4Id).first();
-  check("D2 bulk unapprove nulls approvals", p4Row.partApprovalAt == null);
-  const unapproveEvents = await tenant("part_approval_events")
-    .where({ partId: p4Id, action: "unapprove" })
-    .count("* as c")
-    .first();
-  check(
-    "D3 unapprove events logged as 'unapprove'",
-    String(unapproveEvents?.c) === "3",
+    p3RowAfter.productApprovalAt == null &&
+      p3RowAfter.productCancellationAt != null,
   );
 
-  // ── E: cascade rework (state-filtered, transactional, product last) ─────
-  await dao.setApproval(p3Id!, "part", "approve", "pre@x"); // p3 approved, p4/p5 pending
+  // ── D: PATCH /product/:uuid/approval — cascade is gone (I-22, D-18) ──────
   const controller = new ProductController();
   const superReq: any = {
-    params: { uuid: product.uuid },
+    params: { uuid: p3.uuid },
     query: {},
-    body: { action: "cancel", cascade: true },
+    body: { action: "approve", cascade: true },
     user: {
       userId: uuidv4(),
       email: "super@x",
@@ -302,112 +258,47 @@ async function runChecks(core: Knex, dao: PartDAO): Promise<void> {
   };
   let res = mockRes();
   await controller.setApproval(superReq, res, (e: any) =>
-    check("E0 no next(err)", !e, e),
+    check("D0 no next(err)", !e, e),
   );
   check(
-    "E1 cascade cancel 200",
-    res.statusCode === 200 && res.body?.success === true,
+    "D1 cascade:true is rejected (400)",
+    res.statusCode === 400 &&
+      /cascade is no longer supported/.test(res.body?.message ?? ""),
     res.body,
   );
-  check(
-    "E2 only approved part cancelled (cascaded=1)",
-    res.body?.cascaded === 1,
-    res.body?.cascaded,
-  );
-  const p4After = await tenant("parts").where("id", p4Id).first();
-  check("E3 pending part STAYS pending", p4After.partCancelledAt == null);
-  const p3After = await tenant("parts").where("id", p3Id).first();
-  check("E4 approved part now cancelled", p3After.partCancelledAt != null);
-  const prodRow = await tenant("products").where("id", product.id).first();
-  check("E5 product cancelled", prodRow.productCancellationAt != null);
 
   res = mockRes();
-  superReq.body = { action: "approve", cascade: true };
+  superReq.body = { action: "approve" };
   await controller.setApproval(superReq, res, () => {});
-  const allParts = await tenant("parts")
-    .where("productId", product.id)
-    .select("partApprovalAt");
   check(
-    "E6 cascade approve → all parts approved",
-    allParts.every((r: any) => r.partApprovalAt != null),
-    allParts.length,
+    "D2 cascade absent → 200, no `cascaded` key on the response",
+    res.statusCode === 200 && !("cascaded" in (res.body ?? {})),
+    res.body,
   );
 
-  // ── F: cascade permission gate ──────────────────────────────────────────
-  const perm = await core("permissions")
-    .where({ companyId: company.id, code: "products.approve.technical" })
-    .first();
-  const [limitedRole] = await core("roles")
-    .insert({
-      uuid: uuidv4(),
-      companyId: company.id,
-      name: `ProductApprover-${TAG}`,
-      profileType: "general",
-    })
-    .returning("*");
-  await core("role_permissions").insert({
-    roleId: limitedRole.id,
-    permissionId: perm.id,
-    companyId: company.id,
-  });
-  const [limitedUser] = await core("users")
-    .insert({
-      uuid: uuidv4(),
-      email: `limited-${TAG}@x`,
-      password: "x",
-      firstName: "L",
-      lastName: "U",
-      role: "member",
-      companyId: company.id,
-      isActive: true,
-      roleId: limitedRole.id,
-    })
-    .returning("*");
-  const limitedReq: any = {
-    params: { uuid: product.uuid },
-    query: {},
-    body: { action: "approve", cascade: true },
-    user: {
-      userId: limitedUser.uuid,
-      email: "limited@x",
-      role: "member",
-      companyId: company.uuid,
-    },
-  };
-  res = mockRes();
-  await controller.setApproval(limitedReq, res, () => {});
+  // ── E: uuid-only response surface ───────────────────────────────────────
+  const p2Full = await dao.getByUuid(p2.uuid!);
   check(
-    "F1 cascade without parts.approve.part → 403",
-    res.statusCode === 403,
-    res.statusCode,
+    "E1 no raw FK ids on response",
+    (p2Full as any).corrugationId === undefined &&
+      (p2Full as any).productionRouteId === undefined &&
+      (p2Full as any).flapTypeId === undefined,
   );
-  res = mockRes();
-  limitedReq.body = { action: "approve" };
-  await controller.setApproval(limitedReq, res, () => {});
   check(
-    "F2 non-cascade approval still allowed for the role via route gate (200)",
-    res.statusCode === 200,
-    res.statusCode,
+    "E2 non-FK scalars intact",
+    (p2Full as any).sheetLength !== undefined || true,
+  );
+  check(
+    "E3 nested corrugation uuid present",
+    p2Full?.corrugation?.uuid === corr.uuid,
+  );
+  check(
+    "E4 approvalStatus derived (I-7)",
+    p2Full?.approvalStatus === "pending",
+    p2Full?.approvalStatus,
   );
 
-  // ── G: uuid-only response surface ───────────────────────────────────────
-  const p5Full = await dao.getByUuid(p5.uuid!);
-  check(
-    "G1 no raw FK ids on response",
-    (p5Full as any).corrugationId === undefined &&
-      (p5Full as any).productionRouteId === undefined &&
-      (p5Full as any).flapTypeId === undefined,
-  );
-  check(
-    "G2 non-FK scalars intact",
-    (p5Full as any).sheetLength !== undefined || true,
-  );
-  check(
-    "G3 nested corrugation uuid present",
-    p5Full?.corrugation?.uuid === corr.uuid,
-  );
-
-  // ── H: validator V10 null/zero quantity = Critico ───────────────────────
+  // ── F: validator V10 null/zero quantity = Critico ───────────────────────
   const fakeStage: any = {
     number: 1,
     supplies: [
@@ -424,12 +315,12 @@ async function runChecks(core: Knex, dao: PartDAO): Promise<void> {
   };
   const verdict = validateRoute({ name: "t", stages: [fakeStage] } as any);
   check(
-    "H1 null quantity raises V10 Critico",
+    "F1 null quantity raises V10 Critico",
     verdict.critical.some((c: any) => c.code === "V10"),
     JSON.stringify(verdict.critical.map((c: any) => c.code)),
   );
 
-  // ── I: machine DTO num() guards ─────────────────────────────────────────
+  // ── G: machine DTO num() guards ──────────────────────────────────────────
   const { MachineCreateInputDTO } = await import("../dto/input/machine");
   const dto = new MachineCreateInputDTO({
     machineTypeUuid: "x",
@@ -438,7 +329,7 @@ async function runChecks(core: Knex, dao: PartDAO): Promise<void> {
     setupTime: "5",
   }).build();
   check(
-    "I1 '' and null → undefined; '5' → 5",
+    "G1 '' and null → undefined; '5' → 5",
     (dto as any).sheetWidthMin === undefined &&
       (dto as any).width === undefined &&
       (dto as any).setupTime === 5,

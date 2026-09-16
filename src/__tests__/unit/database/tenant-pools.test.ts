@@ -7,6 +7,8 @@
  * on `pg_stat_activity`, and a real pin mismatch live in
  * `tenant-pools.db.test.ts`.
  */
+import fs from "fs";
+import { migrationsDirectory } from "../../../database/migration-sets";
 import {
   jest,
   describe,
@@ -64,7 +66,14 @@ type FakeInstance = jest.Mock & {
 
 // knex records `knex_migrations.name` WITH the file extension (confirmed
 // against a real bootstrap): `00000000000000_baseline.ts`, not stripped.
-const BASELINE_NAME = "00000000000000_baseline.ts";
+// The current head is whichever tenant migration sorts last on disk — the
+// same rule `latestTenantMigrationFile` applies — so later migrations do not
+// turn an up-to-date instance into a "behind" one here.
+const HEAD_NAME = fs
+  .readdirSync(migrationsDirectory("tenant"))
+  .filter((file) => file.endsWith(".ts") || file.endsWith(".js"))
+  .sort()
+  .reverse()[0];
 
 const fakeInstance = (opts: {
   pin?: number | null;
@@ -250,7 +259,7 @@ describe("acquireTenant — pin and head checks (I-15, I-7)", () => {
     getLiveByCompanyId.mockResolvedValue(
       row() as unknown as Record<string, unknown>,
     );
-    const instance = fakeInstance({ pin: 999, headName: BASELINE_NAME });
+    const instance = fakeInstance({ pin: 999, headName: HEAD_NAME });
     knexMock.mockReturnValue(instance);
     const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
@@ -279,7 +288,7 @@ describe("acquireTenant — pin and head checks (I-15, I-7)", () => {
     getLiveByCompanyId.mockResolvedValue(
       row() as unknown as Record<string, unknown>,
     );
-    const instance = fakeInstance({ pin: 7, headName: BASELINE_NAME });
+    const instance = fakeInstance({ pin: 7, headName: HEAD_NAME });
     knexMock.mockReturnValue(instance);
 
     const first = await tenantPools.acquireTenant(7);
@@ -301,17 +310,17 @@ describe("acquireTenant — budget and LRU eviction (AC-39, I-4)", () => {
 
     const instanceA = fakeInstance({
       pin: 1,
-      headName: BASELINE_NAME,
+      headName: HEAD_NAME,
       used: 0,
     });
     const instanceB = fakeInstance({
       pin: 2,
-      headName: BASELINE_NAME,
+      headName: HEAD_NAME,
       used: 0,
     });
     const instanceC = fakeInstance({
       pin: 3,
-      headName: BASELINE_NAME,
+      headName: HEAD_NAME,
       used: 0,
     });
     knexMock
@@ -354,7 +363,7 @@ describe("acquireTenant — budget and LRU eviction (AC-39, I-4)", () => {
 
     const instanceA = fakeInstance({
       pin: 1,
-      headName: BASELINE_NAME,
+      headName: HEAD_NAME,
       used: 1, // busy: not evictable
     });
     knexMock.mockReturnValueOnce(instanceA);
@@ -378,7 +387,7 @@ describe("acquireTenant — budget and LRU eviction (AC-39, I-4)", () => {
       budgetServer as unknown as Record<string, unknown>,
     );
     const instances = [1, 2, 3].map((id) =>
-      fakeInstance({ pin: id, headName: BASELINE_NAME, used: 0 }),
+      fakeInstance({ pin: id, headName: HEAD_NAME, used: 0 }),
     );
     knexMock
       .mockReturnValueOnce(instances[0])

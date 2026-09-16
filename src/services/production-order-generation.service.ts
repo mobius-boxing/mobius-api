@@ -43,7 +43,7 @@ import { type CompanyScope } from "../utils/daoScope";
 const GUARD_STATUS: Record<GuardCode, number> = {
   NO_QUANTITIES: 422,
   ORDERS_ALREADY_EXIST: 409,
-  SALES_ORDER_WITHOUT_PART: 422,
+  SALES_ORDER_WITHOUT_PRODUCT: 422,
   SALES_ORDER_WITHOUT_ORDER_DATA: 422,
   ORDER_DATA_WITHOUT_NUMBER: 422,
   PURCHASE_ORDER_IMAGE_REQUIRED: 422,
@@ -62,7 +62,7 @@ export interface IGenerationConfig {
 export interface IGuardInput {
   salesOrder: Pick<
     ILockedSalesOrder,
-    | "partId"
+    | "productId"
     | "orderDataId"
     | "orderDataNumber"
     | "quantity"
@@ -109,8 +109,10 @@ export function evaluateGuards(input: IGuardInput): IBlockingReason[] {
   if (promisedQuantities.length === 0) reasons.push(reason("NO_QUANTITIES"));
   if (input.existingOrderCount > 0)
     reasons.push(reason("ORDERS_ALREADY_EXIST"));
-  if (salesOrder.partId == null)
-    reasons.push(reason("SALES_ORDER_WITHOUT_PART"));
+  // D-17: every product sales order is generatable; this guard now fires only
+  // for a sheet-supply pedido (the only other discriminator after B).
+  if (salesOrder.productId == null)
+    reasons.push(reason("SALES_ORDER_WITHOUT_PRODUCT"));
   if (salesOrder.orderDataId == null)
     reasons.push(reason("SALES_ORDER_WITHOUT_ORDER_DATA"));
   if (!salesOrder.orderDataNumber || !String(salesOrder.orderDataNumber).trim())
@@ -266,16 +268,16 @@ export class ProductionOrderGenerationService {
 
         // (a) Every row is validated BEFORE the first number is drawn.
         const context = await this.dao.loadOrderValidationContext(
-          { partId: salesOrder.partId },
+          { productId: salesOrder.productId },
           trx,
         );
         const problems = new Set<string>();
         for (const row of rows) {
           const validation = validateProductionOrder(
-            { partId: row.partId ?? null, quantity: row.quantity ?? 0 },
+            { productId: row.productId ?? null, quantity: row.quantity ?? 0 },
             {
               routeStageCount: context?.routeStageCount ?? 0,
-              partApproved: context?.partApproved ?? false,
+              productApproved: context?.productApproved ?? false,
               customerActive: context?.customerActive ?? false,
               maxQuantity: config.maxQuantity,
             },
@@ -333,7 +335,7 @@ export class ProductionOrderGenerationService {
    *
    * Everything else (quality targets, plate/die flags, palletizado, route
    * override, the QA snapshot) stays at its column default: nothing is copied
-   * from the parte at generation time.
+   * from the product at generation time.
    */
   private buildRows(
     salesOrder: ILockedSalesOrder,
@@ -345,7 +347,7 @@ export class ProductionOrderGenerationService {
       uuid: uuidv4(),
       companyId: salesOrder.companyId,
       orderDataId: salesOrder.orderDataId,
-      partId: salesOrder.partId as number,
+      productId: salesOrder.productId as number,
       quantity: row.quantity,
       deliveryDate: row.deliveryDate ? new Date(row.deliveryDate) : null,
       orderDate: now,

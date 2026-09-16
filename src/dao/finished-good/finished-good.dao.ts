@@ -80,7 +80,7 @@ export class FinishedGoodDAO {
         description: item.description ?? null,
         supplierId: item.supplierId ?? null,
         manufacturerId: item.manufacturerId ?? null,
-        partId: item.partId ?? null,
+        productId: item.productId ?? null,
         stageId: item.stageId ?? null,
         minimumStock: item.minimumStock ?? null,
       })
@@ -125,7 +125,7 @@ export class FinishedGoodDAO {
       "description",
       "supplierId",
       "manufacturerId",
-      "partId",
+      "productId",
       "stageId",
       "minimumStock",
     ] as const) {
@@ -192,7 +192,7 @@ export class FinishedGoodDAO {
       code: record.code,
       name: record.name,
       description: record.description,
-      partId: record.partId,
+      productId: record.productId,
       stageId: record.stageId,
       minimumStock:
         record.minimumStock != null ? parseFloat(record.minimumStock) : null,

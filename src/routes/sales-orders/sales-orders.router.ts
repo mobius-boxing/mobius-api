@@ -93,11 +93,12 @@ export class SalesOrdersRouter {
       this.controller.update.bind(this.controller),
     );
     // Machine-specific approval gate: dispatch to the right catalogue code.
-    // DELIBERATE DIVERGENCE from parts.router.ts:90-92, which falls back to
-    // `parts.approve.part` for an unknown machine. Here an unknown machine is
-    // answered 400 BEFORE requirePermission runs and before any DB access, as
-    // the spec's response table requires; a fallback would turn it into a 403
-    // (or, for a privileged caller, a 200 on the wrong machine).
+    // DELIBERATE DIVERGENCE from the removed-entity router's old dispatch,
+    // which fell back to a default approval code for an unknown machine. Here an
+    // unknown machine is answered 400 BEFORE requirePermission runs and
+    // before any DB access, as the spec's response table requires; a
+    // fallback would turn it into a 403 (or, for a privileged caller, a 200
+    // on the wrong machine).
     this.router.patch(
       "/:uuid/approval/:machine",
       authenticate,

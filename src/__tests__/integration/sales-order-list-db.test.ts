@@ -1,6 +1,7 @@
 /**
  * The pedido list against a REAL database — the edge fixtures no HTTP call can
- * build: a part-typed and a plancha-typed pedido (the create endpoint only
+ * build: an old-image-shaped `partId`-only pedido (I-18 compat — `parts`
+ * still exists in schema A), a plancha-typed pedido (the create endpoint only
  * makes product-typed ones), a pedido whose `orderDataId` is NULL, and a
  * production order that is voided but NOT completed.
  *
@@ -47,17 +48,20 @@ describeIfLocalDb(
 
     let companyId = 0;
     let productUuid = "";
-    let partUuid = "";
     let sheetUuid = "";
 
     let middayProductUuid = "";
 
-    /** pedido uuids, by TPH subtype (plus the mid-day delivery fixture). */
-    const orders: Record<"product" | "part" | "sheet" | "midday", string> = {
+    /** pedido uuids, by TPH subtype (plus the mid-day delivery / legacy-part fixtures). */
+    const orders: Record<
+      "product" | "voided" | "sheet" | "midday" | "legacyPart",
+      string
+    > = {
       product: "",
-      part: "",
+      voided: "",
       sheet: "",
       midday: "",
+      legacyPart: "",
     };
 
     const one = async <T extends Record<string, unknown>>(
@@ -109,6 +113,10 @@ describeIfLocalDb(
          VALUES (gen_random_uuid(), $1, $2, false, true, false) RETURNING id`,
         [companyId, `Ruta ${RUN}`],
       );
+      // I-18 compat fixture only: `parts` still exists in schema A and the
+      // deploy-(N-1) image still writes it, but the NEW DAO under test never
+      // reads it — this row exists purely so the old-image insert shape below
+      // (a sales_order with only `partId`) has a real FK target.
       const part = await one<{ id: number; uuid: string }>(
         `INSERT INTO parts (uuid, "companyId", "productId", "corrugationId", "productionRouteId",
                           code, description, revision)
@@ -122,7 +130,6 @@ describeIfLocalDb(
           "Tapa reforzada",
         ],
       );
-      partUuid = part.uuid;
 
       const sheet = await one<{ id: number; uuid: string }>(
         `INSERT INTO paper_sheets (uuid, "companyId", code, name, description)
@@ -156,7 +163,8 @@ describeIfLocalDb(
           )
         ).uuid;
 
-      // (a) product-typed, one COMPLETED production order.
+      // (a) product-typed, one COMPLETED production order — `productId` is
+      // the new DAO's join key (D-1); `partId` is left NULL.
       const productOrderData = await orderData(`${RUN}-PROD`);
       orders.product = await salesOrder(
         `${RUN}-PROD`,
@@ -164,31 +172,55 @@ describeIfLocalDb(
         [product.id, productOrderData],
       );
       await client.query(
-        `INSERT INTO production_orders (uuid, "companyId", "partId", "orderDataId", number,
+        `INSERT INTO production_orders (uuid, "companyId", "productId", "orderDataId", number,
                                       quantity, "completedAt")
          VALUES (gen_random_uuid(), $1, $2, $3, $4, 100, now())`,
-        [companyId, part.id, productOrderData, `${RUN}-OP-DONE`],
+        [companyId, product.id, productOrderData, `${RUN}-OP-DONE`],
       );
 
-      // (b) part-typed, one production order that is VOIDED but not completed —
-      // voided ≠ cumplida (OrdenDeProduccion.cs:112).
-      const partOrderData = await orderData(`${RUN}-PART`);
-      orders.part = await salesOrder(
-        `${RUN}-PART`,
-        `, "partId", "orderDataId"`,
-        [part.id, partOrderData],
+      // (b) a second product-typed pedido whose only production order is
+      // VOIDED but not completed — voided ≠ cumplida (OrdenDeProduccion.cs:112).
+      // It sits on its own product so the productUuid filter stays single-row.
+      const voidedProduct = await one<{ id: number }>(
+        `INSERT INTO products (uuid, "companyId", "customerId", code, description, revision)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, 1) RETURNING id`,
+        [companyId, customer.id, `SOLPV-${RUN}`, "Tapa reforzada"],
+      );
+      const voidedOrderData = await orderData(`${RUN}-VOID`);
+      orders.voided = await salesOrder(
+        `${RUN}-VOID`,
+        `, "productId", "orderDataId"`,
+        [voidedProduct.id, voidedOrderData],
       );
       await client.query(
-        `INSERT INTO production_orders (uuid, "companyId", "partId", "orderDataId", number,
+        `INSERT INTO production_orders (uuid, "companyId", "productId", "orderDataId", number,
                                       quantity, "completedAt", "voidedAt")
          VALUES (gen_random_uuid(), $1, $2, $3, $4, 100, NULL, now())`,
-        [companyId, part.id, partOrderData, `${RUN}-OP-VOID`],
+        [companyId, voidedProduct.id, voidedOrderData, `${RUN}-OP-VOID`],
       );
 
       // (c) plancha-typed, `orderDataId` NULL — the "no orders" edge case.
       orders.sheet = await salesOrder(`${RUN}-SHEET`, `, "sheetSupplyId"`, [
         sheet.id,
       ]);
+
+      // (e) I-18 old-image compat: a sales_order shaped exactly like the
+      // deploy-(N-1) image writes one — ONLY `partId`, no `productId`. The
+      // NEW DAO must neither error on it nor surface a `part`/`product` ref
+      // for it; it is invisible to every uuid filter this DAO offers.
+      // One OPEN production order keeps it outside both order filters.
+      const legacyOrderData = await orderData(`${RUN}-LEGACY`);
+      orders.legacyPart = await salesOrder(
+        `${RUN}-LEGACY`,
+        `, "partId", "orderDataId"`,
+        [part.id, legacyOrderData],
+      );
+      await client.query(
+        `INSERT INTO production_orders (uuid, "companyId", "productId", "orderDataId", number,
+                                      quantity, "completedAt")
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, 100, NULL)`,
+        [companyId, product.id, legacyOrderData, `${RUN}-OP-LEGACY`],
+      );
 
       // (d) a pedido delivered at MIDDAY, on its own product so the productUuid
       // fixtures above stay single-row. Every other fixture in every suite is
@@ -208,10 +240,10 @@ describeIfLocalDb(
       // One OPEN production order, so this fixture falls outside BOTH order
       // filters and leaves their expectations above single-row.
       await client.query(
-        `INSERT INTO production_orders (uuid, "companyId", "partId", "orderDataId", number,
+        `INSERT INTO production_orders (uuid, "companyId", "productId", "orderDataId", number,
                                       quantity, "completedAt")
          VALUES (gen_random_uuid(), $1, $2, $3, $4, 100, NULL)`,
-        [companyId, part.id, middayOrderData, `${RUN}-OP-OPEN`],
+        [companyId, product2.id, middayOrderData, `${RUN}-OP-OPEN`],
       );
     }, 60000);
 
@@ -275,9 +307,17 @@ describeIfLocalDb(
       return result.data.map((order) => order.number);
     };
 
-    it("returns only the part-typed pedido for partUuid (AC-8)", () =>
+    it("rejects a partUuid filter against the real DB (AC-8, AC-9, D-1, was 'returns only the part-typed pedido')", () =>
       runAsCoreTenant(async () => {
-        expect(await numbersFor({ partUuid })).toEqual([`${RUN}-PART`]);
+        await expect(
+          dao.getAllWithFilters(
+            req({
+              limit: "100",
+              partUuid: "11111111-1111-4111-8111-111111111111",
+            }),
+            companyId,
+          ),
+        ).rejects.toMatchObject({ name: "ValidationError" });
       }));
 
     it("returns only the plancha pedido for sheetSupplyUuid (AC-9, F-1)", () =>
@@ -306,7 +346,7 @@ describeIfLocalDb(
         });
 
         expect(numbers).toEqual([`${RUN}-PROD`]);
-        expect(numbers).not.toContain(`${RUN}-PART`);
+        expect(numbers).not.toContain(`${RUN}-VOID`);
       }));
 
     it("returns the UNION of both order filters when both are true (AC-16)", () =>
@@ -383,7 +423,7 @@ describeIfLocalDb(
         }
       }));
 
-    it("builds the three item descriptions from the real joined rows (AC-34)", () =>
+    it("builds the item descriptions from the real joined rows (AC-34, D-1: parte branch gone)", () =>
       runAsCoreTenant(async () => {
         const result = await dao.getAllWithFilters(
           req({ limit: "100" }),
@@ -396,12 +436,16 @@ describeIfLocalDb(
         expect(byNumber.get(`${RUN}-PROD`)).toBe(
           `Producto: SOLP-${RUN} - Caja exportación - Revisión: 3`,
         );
-        expect(byNumber.get(`${RUN}-PART`)).toBe(
-          `Parte: SOLPT-${RUN} - Tapa reforzada - Revisión: 2`,
+        expect(byNumber.get(`${RUN}-VOID`)).toBe(
+          `Producto: SOLPV-${RUN} - Tapa reforzada - Revisión: 1`,
         );
         expect(byNumber.get(`${RUN}-SHEET`)).toBe(
           `Plancha: SOLPL-${RUN} - Plancha doble B`,
         );
+        // I-18 compat row: only `partId` is set (no `productId`, no
+        // `sheetSupplyId`) — the new DAO never joins `parts`, so this is the
+        // empty string, never the old "Parte: …" form (D-1).
+        expect(byNumber.get(`${RUN}-LEGACY`)).toBe("");
       }));
 
     it("answers an empty page for a pedido with orderDataId = NULL (AC-26)", () =>
@@ -433,11 +477,11 @@ describeIfLocalDb(
         expect(result?.data[0]).toMatchObject({
           number: `${RUN}-OP-DONE`,
           quantity: 100,
-          part: { code: `SOLPT-${RUN}`, description: "Tapa reforzada" },
+          product: { code: `SOLP-${RUN}`, description: "Caja exportación" },
           customer: { name: `Cliente ${RUN}` },
           voidedAt: null,
         });
-        expect(JSON.stringify(result?.data)).not.toMatch(/"id":|"partId":/);
+        expect(JSON.stringify(result?.data)).not.toMatch(/"id":|"productId":/);
       }));
 
     it("refuses another tenant's pedido with a null, not a payload (AC-23)", () =>

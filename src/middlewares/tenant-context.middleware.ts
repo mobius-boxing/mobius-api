@@ -81,7 +81,6 @@ export const ROUTE_PLANE: Record<string, "central" | "tenant" | "mixed"> = {
   "paper-stock": "tenant",
   "paper-supply": "tenant",
   "paper-type": "tenant",
-  parts: "tenant",
   permissions: "tenant",
   product: "tenant",
   "product-type": "tenant",

@@ -13,26 +13,67 @@ import { v4 as uuidv4 } from "uuid";
 import {
   ProductCreateInputDTO,
   ProductUpdateInputDTO,
+  ProductCalculateInputDTO,
 } from "../../dto/input/product";
 import { db } from "../../database/registry";
-import { PartDAO } from "../../dao/part/part.dao";
-import { RbacService } from "../../services/rbac.service";
-import { PartController } from "../part/part.controller";
-import { getIdByUuid } from "../../utils/foreignKeyResolver";
-import { companyFilterScope } from "../../utils/daoScope";
+import {
+  ProductCalculator,
+  type ICalculableProduct,
+} from "../../services/product-calculator/product-calculator.service";
+import {
+  applyCompanyScope,
+  companyFilterScope,
+  type CompanyScope,
+} from "../../utils/daoScope";
+
+/** *Uuid body field → { table it resolves through, numeric column it writes }. */
+const REF_TABLES: Record<string, { table: string; idKey: string }> = {
+  corrugationUuid: { table: "corrugations", idKey: "corrugationId" },
+  productionRouteUuid: {
+    table: "production_routes",
+    idKey: "productionRouteId",
+  },
+  palletizationUuid: { table: "palletizations", idKey: "palletizationId" },
+  modelUuid: { table: "models", idKey: "modelId" },
+  flapTypeUuid: { table: "flap_types", idKey: "flapTypeId" },
+  glueTypeUuid: { table: "glue_types", idKey: "glueTypeId" },
+  strappingTypeUuid: { table: "strapping_types", idKey: "strappingTypeId" },
+  traceTypeUuid: { table: "trace_types", idKey: "traceTypeId" },
+  complementUuid: { table: "complements", idKey: "complementId" },
+};
+
+/** The 8 cascade fields `boxWeight` recomputes from (I-6 trigger keys, minus corrugationUuid). */
+const BOX_WEIGHT_TRIGGER_KEYS = [
+  "boxSurface",
+  "grammage",
+  "corrugationUuid",
+] as const;
 
 export class ProductController implements IBaseController {
   private _productDAO: ProductDAO = new ProductDAO();
+  private calculator = new ProductCalculator();
 
   /**
-   * Map-driven FK resolution (client sends UUIDs; numeric ids pass through
-   * untouched for internal callers) — shared by create and update.
-   * Returns false when it already responded with a 400.
+   * Map-driven FK resolution for the fields that keep their legacy plain-Id
+   * naming (D-12: customerId/productTypeId/boxTypeId hold uuids). Mutates
+   * `data` in place — the same shape the DTO constructor expects. Returns
+   * false when it already responded with a 400. Company-scoped (L-009/I-9,
+   * D-30 review fix): another tenant's uuid answers the same "Invalid X" 400
+   * a nonexistent one would, never resolving to a foreign-company row.
    */
-  private async resolveProductRefs(data: any, res: Response): Promise<boolean> {
+  private async resolveLegacyRefs(
+    data: any,
+    companyScope: CompanyScope | undefined,
+    res: Response,
+  ): Promise<boolean> {
     const resolvers: Array<{
       key: "customerId" | "productTypeId" | "boxTypeId";
-      dao: { getIdByUuid(uuid: string): Promise<number | null> };
+      dao: {
+        getIdByUuid(
+          uuid: string,
+          companyId?: CompanyScope,
+        ): Promise<number | null>;
+      };
       label: string;
     }> = [
       { key: "customerId", dao: new CustomerDAO(), label: "customer" },
@@ -51,7 +92,7 @@ export class ProductController implements IBaseController {
         continue;
       }
       if (data[key] && typeof data[key] === "string") {
-        const numericId = await dao.getIdByUuid(data[key]);
+        const numericId = await dao.getIdByUuid(data[key], companyScope);
         if (!numericId) {
           res.status(400).json({ success: false, message: `Invalid ${label}` });
           return false;
@@ -60,6 +101,115 @@ export class ProductController implements IBaseController {
       }
     }
     return true;
+  }
+
+  /**
+   * Resolve the folded-recipe `*Uuid` refs to internal ids (C-9/D-1),
+   * company-scoped (L-009/I-9, D-30 review fix — reversed from the original
+   * unscoped read: another tenant's uuid must answer the same 404-shaped
+   * "Referenced X not found" 400 a nonexistent uuid gets, exactly like
+   * `POST /product/calculate`'s corrugation lookup). `corrugationRow` also
+   * carries `theoreticalGrammage` for the boxWeight recompute (I-6).
+   */
+  private async resolveRecipeRefs(
+    inputDTO: Record<string, unknown>,
+    companyScope: CompanyScope | undefined,
+    res: Response,
+  ): Promise<{
+    refs: Record<string, number | null>;
+    corrugationRow: { id: number; theoreticalGrammage: number | null } | null;
+  } | null> {
+    const refs: Record<string, number | null> = {};
+    let corrugationRow: {
+      id: number;
+      theoreticalGrammage: number | null;
+    } | null = null;
+
+    for (const [uuidKey, config] of Object.entries(REF_TABLES)) {
+      if (inputDTO[uuidKey] === undefined) continue;
+      const value = inputDTO[uuidKey] as string | null;
+      if (!value) {
+        refs[config.idKey] = null;
+        continue;
+      }
+      if (uuidKey === "corrugationUuid") {
+        const query = db("tenant")("corrugations")
+          .where("uuid", value)
+          .select("id", "theoreticalGrammage");
+        applyCompanyScope(query, "corrugations", companyScope);
+        const row = await query.first();
+        if (!row) {
+          res.status(400).json({
+            success: false,
+            message: "Referenced corrugations not found",
+          });
+          return null;
+        }
+        refs[config.idKey] = row.id;
+        corrugationRow = {
+          id: row.id,
+          theoreticalGrammage:
+            row.theoreticalGrammage != null
+              ? parseFloat(row.theoreticalGrammage)
+              : null,
+        };
+        continue;
+      }
+      const query = db("tenant")(config.table)
+        .where("uuid", value)
+        .select("id");
+      applyCompanyScope(query, config.table, companyScope);
+      const row = await query.first();
+      if (!row) {
+        res.status(400).json({
+          success: false,
+          message: `Referenced ${config.table.replace(/_/g, " ")} not found`,
+        });
+        return null;
+      }
+      refs[config.idKey] = row.id;
+    }
+    return { refs, corrugationRow };
+  }
+
+  /**
+   * I-6: recompute `boxWeight` only when the payload named `boxSurface`,
+   * `grammage` or `corrugationUuid`. `undefined` means "leave it untouched".
+   */
+  private recomputeBoxWeight(args: {
+    rawBody: Record<string, unknown>;
+    sentBoxSurface: number | undefined;
+    sentGrammage: number | undefined;
+    existingBoxSurface: number | null | undefined;
+    existingGrammage: number | null | undefined;
+    sentCorrugation: { theoreticalGrammage: number | null } | null | undefined;
+    existingCorrugationTheoreticalGrammage: number | null | undefined;
+  }): number | null | undefined {
+    const triggered = BOX_WEIGHT_TRIGGER_KEYS.some(
+      (key) => args.rawBody[key] !== undefined,
+    );
+    if (!triggered) return undefined;
+
+    const effectiveSurface =
+      args.sentBoxSurface !== undefined
+        ? args.sentBoxSurface
+        : (args.existingBoxSurface ?? null);
+    const effectiveGrammageInput =
+      args.sentGrammage !== undefined
+        ? args.sentGrammage
+        : (args.existingGrammage ?? null);
+    // `corrugationUuid` sent (even unchanged) re-reads the corrugation's
+    // theoretical grammage; otherwise the existing one carries over.
+    const corrugationTheoretical =
+      args.sentCorrugation !== undefined
+        ? (args.sentCorrugation?.theoreticalGrammage ?? null)
+        : (args.existingCorrugationTheoreticalGrammage ?? null);
+
+    const effectiveGrammage = this.calculator.effectiveGrammage(
+      effectiveGrammageInput,
+      corrugationTheoretical,
+    );
+    return this.calculator.boxWeight(effectiveSurface, effectiveGrammage);
   }
 
   /**
@@ -168,20 +318,55 @@ export class ProductController implements IBaseController {
 
       data.companyId = companyIdNumeric;
 
-      if (!(await this.resolveProductRefs(data, res))) return;
+      // L-009/I-9 (D-30, review fix): every ref this create resolves is
+      // scoped to the company the product is being created FOR — the target
+      // company for a superAdmin, the caller's own otherwise.
+      if (!(await this.resolveLegacyRefs(data, companyIdNumeric, res))) return;
 
-      const inputDTO = new ProductCreateInputDTO(data).build();
+      let inputDTO: ProductCreateInputDTO;
+      try {
+        inputDTO = new ProductCreateInputDTO(data).build();
+      } catch (e: any) {
+        res.status(400).json({ success: false, message: e.message });
+        return;
+      }
       const validation: IInputValidator = await inputValidator(inputDTO);
       if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
+        res.status(400).json({ success: false, message: validation.message });
+        return;
       }
+
+      const recipeRefs = await this.resolveRecipeRefs(
+        inputDTO as unknown as Record<string, unknown>,
+        companyIdNumeric,
+        res,
+      );
+      if (recipeRefs === null) return;
+      const { refs, corrugationRow } = recipeRefs;
+
+      const boxWeight = this.recomputeBoxWeight({
+        rawBody: data,
+        sentBoxSurface: inputDTO.boxSurface,
+        sentGrammage: inputDTO.grammage,
+        existingBoxSurface: undefined,
+        existingGrammage: undefined,
+        sentCorrugation:
+          data.corrugationUuid !== undefined ? corrugationRow : undefined,
+        existingCorrugationTheoreticalGrammage: undefined,
+      });
+
+      // D-14: route auto-assign only when corrugationUuid is sent AND no
+      // productionRouteUuid was sent — bare fixtures never spawn a route.
+      const autoAssignRoute =
+        data.corrugationUuid !== undefined &&
+        refs.corrugationId != null &&
+        data.productionRouteUuid === undefined;
 
       // SECURITY: uuid is generated server-side; never trust client-supplied uuids.
       const dataToCreate: IProduct = {
         uuid: uuidv4(),
         companyId: inputDTO.companyId,
-        code: inputDTO.code,
+        code: inputDTO.code!,
         clientCode: inputDTO.clientCode,
         description: inputDTO.description,
         customerId: inputDTO.customerId,
@@ -193,70 +378,50 @@ export class ProductController implements IBaseController {
         blueprintFileUuid: inputDTO.blueprintFileUuid,
         sketchFileUuid: inputDTO.sketchFileUuid,
         imageFileUuid: inputDTO.imageFileUuid,
+        ...this.recipeFieldsOf(inputDTO),
+        ...refs,
+        ...(boxWeight !== undefined ? { boxWeight } : {}),
       };
 
-      const result = await this._productDAO.create(dataToCreate);
-
-      // Simple-product atomic create (module 06 ProductoSimpleForm): an
-      // optional initialPart is created right after the product; a part
-      // failure rolls the product back so no partless "simple" product is
-      // left behind. The part inherits the product's description when the
-      // client didn't provide one; its code derives as {producto}/1.
-      let initialPart: any = null;
-      if (data.initialPart !== undefined && data.initialPart !== null) {
-        const productId = await getIdByUuid(result.uuid!, "products");
-        let outcome: Awaited<
-          ReturnType<PartController["createPartFromInput"]>
-        > | null = null;
-        let partError: any = null;
-        if (productId) {
-          const partController = new PartController();
-          const partBody = {
-            ...data.initialPart,
-            productUuid: result.uuid,
-            description: data.initialPart.description ?? inputDTO.description,
-          };
-          try {
-            outcome = await partController.createPartFromInput(
-              partBody,
-              companyIdNumeric,
-              productId,
-              req.user?.email ?? null,
-            );
-          } catch (err) {
-            partError = err;
-          }
-        }
-        if (!outcome || !outcome.ok) {
-          // The compensating delete must ALWAYS run — including when the id
-          // lookup itself failed (a partless "simple" product must not survive).
-          if (productId) {
-            await this._productDAO.delete(productId);
-          } else {
-            await db("tenant")("products").where("uuid", result.uuid).delete();
-          }
-          if (partError) throw partError;
-          if (!productId) {
-            throw new Error(
-              "Product id resolution failed during simple-product create",
-            );
-          }
-          res.status((outcome as any)?.status ?? 400).json({
-            success: false,
-            message: `Initial part: ${(outcome as any)?.message ?? "creation failed"}`,
-          });
-          return;
-        }
-        initialPart = outcome.part;
-      }
+      const result = await this._productDAO.create(dataToCreate, {
+        autoAssignRoute,
+      });
 
       res.status(201).json({
         success: true,
-        data: initialPart ? { ...result, initialPart } : result,
+        data: result,
       });
     } catch (err: any) {
       next(err);
     }
+  }
+
+  /** Every recipe key the DTO carries (everything but the base product fields). */
+  private recipeFieldsOf(
+    inputDTO: ProductCreateInputDTO | ProductUpdateInputDTO,
+  ): Record<string, unknown> {
+    const BASE_KEYS = new Set([
+      "companyId",
+      "code",
+      "clientCode",
+      "description",
+      "customerId",
+      "revision",
+      "vip",
+      "productTypeId",
+      "boxTypeId",
+      "technicalSheetFileUuid",
+      "blueprintFileUuid",
+      "sketchFileUuid",
+      "imageFileUuid",
+      ...Object.keys(REF_TABLES),
+    ]);
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(inputDTO)) {
+      if (BASE_KEYS.has(key) || value === undefined) continue;
+      out[key] = value;
+    }
+    return out;
   }
 
   public async update(
@@ -271,8 +436,12 @@ export class ProductController implements IBaseController {
       const companyId = companyFilterScope(req);
 
       // companyId scope doubles as ownership check (404 if not in user's company).
+      // The id comes from getIdByUuid: mapToInterface strips it (L-005).
       const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
-      if (!existingId) {
+      const existing = existingId
+        ? await this._productDAO.getByUuid(uuid, companyId)
+        : null;
+      if (!existingId || !existing) {
         res.status(404).json({
           success: false,
           message: "Product not found",
@@ -280,16 +449,117 @@ export class ProductController implements IBaseController {
         return;
       }
 
-      if (!(await this.resolveProductRefs(data, res))) return;
-
-      const inputDTO = new ProductUpdateInputDTO(data).build();
-      const validation: IInputValidator = await inputValidator(inputDTO);
-      if (!validation.success) {
-        req.statusCode = 400;
-        return next(new Error(validation.message));
+      // Clearing a reference the product already has is rejected, not silently
+      // dropped (model.md PUT contract).
+      if (
+        Object.prototype.hasOwnProperty.call(data, "corrugationUuid") &&
+        !data.corrugationUuid &&
+        existing.corrugation
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "corrugationUuid cannot be empty",
+        });
+        return;
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(data, "productionRouteUuid") &&
+        !data.productionRouteUuid &&
+        existing.productionRoute
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "productionRouteUuid cannot be empty",
+        });
+        return;
       }
 
-      const result = await this._productDAO.update(existingId, inputDTO);
+      // L-009/I-9 (D-30, review fix): scoped to the same company the
+      // existing-product lookup above already resolved.
+      if (!(await this.resolveLegacyRefs(data, companyId, res))) return;
+
+      let inputDTO: ProductUpdateInputDTO;
+      try {
+        inputDTO = new ProductUpdateInputDTO(data).build();
+      } catch (e: any) {
+        res.status(400).json({ success: false, message: e.message });
+        return;
+      }
+      const validation: IInputValidator = await inputValidator(inputDTO);
+      if (!validation.success) {
+        res.status(400).json({ success: false, message: validation.message });
+        return;
+      }
+
+      const recipeRefs = await this.resolveRecipeRefs(
+        inputDTO as unknown as Record<string, unknown>,
+        companyId,
+        res,
+      );
+      if (recipeRefs === null) return;
+      const { refs, corrugationRow } = recipeRefs;
+
+      const boxWeight = this.recomputeBoxWeight({
+        rawBody: data,
+        sentBoxSurface: inputDTO.boxSurface,
+        sentGrammage: inputDTO.grammage,
+        existingBoxSurface: existing.boxSurface,
+        existingGrammage: existing.grammage,
+        sentCorrugation:
+          data.corrugationUuid !== undefined ? corrugationRow : undefined,
+        existingCorrugationTheoreticalGrammage:
+          existing.corrugation?.theoreticalGrammage,
+      });
+
+      const updatePayload: Partial<IProduct> = {
+        ...this.recipeFieldsOf(inputDTO),
+        ...refs,
+        ...(boxWeight !== undefined ? { boxWeight } : {}),
+      };
+      if (inputDTO.code !== undefined) updatePayload.code = inputDTO.code;
+      if (inputDTO.clientCode !== undefined)
+        updatePayload.clientCode = inputDTO.clientCode;
+      if (inputDTO.description !== undefined)
+        updatePayload.description = inputDTO.description;
+      if (inputDTO.customerId !== undefined)
+        updatePayload.customerId = inputDTO.customerId;
+      if (inputDTO.revision !== undefined)
+        updatePayload.revision = inputDTO.revision;
+      if (inputDTO.vip !== undefined) updatePayload.vip = inputDTO.vip;
+      if (inputDTO.productTypeId !== undefined)
+        updatePayload.productTypeId = inputDTO.productTypeId;
+      if (inputDTO.boxTypeId !== undefined)
+        updatePayload.boxTypeId = inputDTO.boxTypeId;
+      if (inputDTO.technicalSheetFileUuid !== undefined)
+        updatePayload.technicalSheetFileUuid = inputDTO.technicalSheetFileUuid;
+      if (inputDTO.blueprintFileUuid !== undefined)
+        updatePayload.blueprintFileUuid = inputDTO.blueprintFileUuid;
+      if (inputDTO.sketchFileUuid !== undefined)
+        updatePayload.sketchFileUuid = inputDTO.sketchFileUuid;
+      if (inputDTO.imageFileUuid !== undefined)
+        updatePayload.imageFileUuid = inputDTO.imageFileUuid;
+
+      // I-15 carve-out (D-32, review fix): a route-less product that first
+      // gets a corrugationUuid on this PUT, with no productionRouteUuid sent,
+      // gets the same route auto-assign as create — in the SAME transaction
+      // as the UPDATE.
+      const autoAssignRoute =
+        data.corrugationUuid !== undefined &&
+        refs.corrugationId != null &&
+        data.productionRouteUuid === undefined &&
+        !existing.productionRoute;
+
+      // I-3: one UPDATE products, plus at most one production_routes row when
+      // a route-less product first gets a corrugation (I-15 carve-out above).
+      const result = await this._productDAO.update(existingId, updatePayload, {
+        autoAssignRoute,
+        companyId: existing.companyId,
+        description:
+          (inputDTO.description !== undefined
+            ? inputDTO.description
+            : existing.description) ||
+          (inputDTO.code ?? existing.code),
+      });
 
       res.status(200).json({
         success: true,
@@ -380,11 +650,101 @@ export class ProductController implements IBaseController {
   }
 
   /**
+   * POST /product/calculate — stateless (I-14): runs `ProductCalculator`
+   * against today's 8 cascade fields and returns the result without writing
+   * anything. `corrugationUuid` is company-scoped (I-9): another tenant's
+   * uuid answers 404, never 400.
+   */
+  public async calculate(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      let inputDTO: ProductCalculateInputDTO;
+      try {
+        inputDTO = new ProductCalculateInputDTO(req.body).build();
+      } catch (e: any) {
+        res.status(400).json({ success: false, message: e.message });
+        return;
+      }
+
+      const companyScope = companyFilterScope(req);
+      const corrugationQuery = db("tenant")("corrugations")
+        .where("uuid", inputDTO.corrugationUuid)
+        .select("id", "theoreticalGrammage");
+      applyCompanyScope(corrugationQuery, "corrugations", companyScope);
+      const corrugation = await corrugationQuery.first();
+      if (!corrugation) {
+        res
+          .status(404)
+          .json({ success: false, message: "Corrugation not found" });
+        return;
+      }
+
+      const flute = await db("tenant")("corrugation_layers as cl")
+        .join("flute_types as ft", "cl.fluteTypeId", "ft.id")
+        .where("cl.corrugationId", corrugation.id)
+        .whereNotNull("cl.fluteTypeId")
+        .orderBy("cl.position", "asc")
+        .select("ft.length", "ft.width", "ft.height")
+        .first();
+
+      const adjustments = flute
+        ? {
+            length: flute.length != null ? parseFloat(flute.length) : null,
+            width: flute.width != null ? parseFloat(flute.width) : null,
+            height: flute.height != null ? parseFloat(flute.height) : null,
+          }
+        : null;
+      const theoreticalGrammage =
+        corrugation.theoreticalGrammage != null
+          ? parseFloat(corrugation.theoreticalGrammage)
+          : null;
+
+      const values: ICalculableProduct = { ...inputDTO.values };
+      const result = this.calculator.applyEdit(
+        values,
+        inputDTO.field,
+        inputDTO.value,
+        adjustments,
+        theoreticalGrammage,
+      );
+
+      const effectiveGrammage = this.calculator.effectiveGrammage(
+        result.grammage,
+        theoreticalGrammage,
+      );
+      // A save always recomputes the weight (the modal sends corrugationUuid),
+      // so the preview must too, whichever field was edited (I-16).
+      this.calculator.recalculateBoxWeight(result, theoreticalGrammage);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          boxLength: result.boxLength ?? null,
+          boxWidth: result.boxWidth ?? null,
+          boxHeight: result.boxHeight ?? null,
+          externalLength: result.externalLength ?? null,
+          externalWidth: result.externalWidth ?? null,
+          externalHeight: result.externalHeight ?? null,
+          boxSurface: result.boxSurface ?? null,
+          boxWeight: result.boxWeight ?? null,
+          grammage: result.grammage ?? null,
+          effectiveGrammage,
+        },
+      });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
    * PATCH /product/:uuid/approval — { action: 'approve' | 'cancel' }.
    * Pair semantics per module 06 §04: approve clears cancellation and vice
    * versa; the acting user's email is stored as a denormalized snapshot.
-   * With { cascade: true }, the action propagates to the product's parts
-   * (the confirm dialog drives the flag — 04-state-and-lifecycle cascade).
+   * `cascade` (D-18): absent/false accepted for one release; `true` → 400 —
+   * the recipe-row cascade this used to drive no longer exists (D-1, I-22).
    */
   public async setApproval(
     req: Request,
@@ -401,6 +761,13 @@ export class ProductController implements IBaseController {
         });
         return;
       }
+      if (req.body?.cascade === true) {
+        res.status(400).json({
+          success: false,
+          message: "cascade is no longer supported",
+        });
+        return;
+      }
 
       const companyId = companyFilterScope(req);
       const existingId = await this._productDAO.getIdByUuid(uuid, companyId);
@@ -410,79 +777,18 @@ export class ProductController implements IBaseController {
       }
 
       const username = req.user?.email ?? "unknown";
-      const knex = db("tenant");
 
-      // A domain verb: the trigger sees an UPDATE of `products` (and, when it
-      // cascades, of `parts`) and cannot tell approval from an ordinary edit.
+      // A domain verb: the trigger sees an UPDATE of `products` and cannot
+      // tell approval from an ordinary edit.
       await setAuditAction("product.approval");
 
-      // Cascade to parts (04-state-and-lifecycle): approving/cancelling the
-      // product propagates to its parts' FINAL machine when the client
-      // confirms (cascade: true).
-      let cascaded = 0;
-      let result: any;
-      if (req.body?.cascade === true) {
-        // AUTHZ: the cascade writes the parts' final approval machine — the
-        // same write /parts gates behind parts.approve.part. Require it here
-        // too (superAdmin bypasses; legacy roleless admins fall back).
-        const user = req.user;
-        if (
-          !user ||
-          !(await RbacService.userHasPermission(
-            user.userId,
-            user.role,
-            "parts.approve.part",
-          ))
-        ) {
-          res.status(403).json({
-            success: false,
-            message: "Insufficient permissions. Required: parts.approve.part",
-          });
-          return;
-        }
+      const result = await this._productDAO.setApproval(
+        existingId,
+        action,
+        username,
+      );
 
-        const partCount = await knex("parts")
-          .where("productId", existingId)
-          .count("* as count")
-          .first();
-        if (parseInt(partCount?.count as string, 10) > 500) {
-          res.status(400).json({
-            success: false,
-            message:
-              "Cascade limited to 500 parts per operation. Approve parts in bulk from the parts list instead.",
-          });
-          return;
-        }
-
-        const partDAO = new PartDAO();
-        // One transaction, spec order (06 §04): parts first, product LAST —
-        // a failed part approval must not leave an approved product behind.
-        // Approve targets un-approved parts; cancel targets approved parts
-        // only (PENDING parts stay pending).
-        result = await knex.transaction(async (trx: any) => {
-          const ids = await partDAO.cascadeApprovalTrx(
-            trx,
-            existingId,
-            action,
-            username,
-          );
-          cascaded = ids.length;
-          return this._productDAO.setApproval(
-            existingId,
-            action,
-            username,
-            trx,
-          );
-        });
-      } else {
-        result = await this._productDAO.setApproval(
-          existingId,
-          action,
-          username,
-        );
-      }
-
-      res.status(200).json({ success: true, data: result, cascaded });
+      res.status(200).json({ success: true, data: result });
     } catch (err: any) {
       next(err);
     }

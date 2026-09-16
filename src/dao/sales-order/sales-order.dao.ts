@@ -31,6 +31,7 @@ import {
   assertUuidParam,
   parseDateParam,
   parseTriStateParam,
+  FilterValidationError,
 } from "../../utils/query-params";
 import {
   CodeGeneratorService,
@@ -57,7 +58,7 @@ function upperDateBound(raw: string): Date {
 }
 
 // companyId is handled separately (companyFilterScope); customerUuid /
-// productUuid / partUuid / sheetSupplyUuid / salesUserUuid are resolved to
+// productUuid / sheetSupplyUuid / salesUserUuid are resolved to
 // numeric ids in getAllWithFilters and applied inside `applyExtra` — NOT as
 // filter keys here, so no numeric internal id is reachable as a query param on
 // this uuid-only API (create deviation 1, the shape product.dao.ts uses).
@@ -209,10 +210,7 @@ export class SalesOrderDAO {
           knex.raw(
             `CASE WHEN dl.id IS NOT NULL THEN to_jsonb(dl) END as "deliveryLocation"`,
           ),
-          // The two other TPH subtypes, for the item description (column 6).
-          knex.raw(
-            `CASE WHEN prt.id IS NOT NULL THEN to_jsonb(prt) END as "part"`,
-          ),
+          // The other TPH subtype, for the item description (column 6).
           knex.raw(
             `CASE WHEN psh.id IS NOT NULL THEN to_jsonb(psh) END as "sheetSupply"`,
           ),
@@ -227,7 +225,6 @@ export class SalesOrderDAO {
         .leftJoin("delivery_locations as dl", "od.deliveryLocationId", "dl.id")
         // JOINS LIVE ON THE DATA QUERY ONLY (AC-18): the count query runs on the
         // bare table, so no filter, sort or search key may name these tables.
-        .leftJoin("parts as prt", `${this.tableName}.partId`, "prt.id")
         .leftJoin(
           "paper_sheets as psh",
           `${this.tableName}.sheetSupplyId`,
@@ -250,17 +247,7 @@ export class SalesOrderDAO {
     const [row] = found ? await this.withSalesUsers([found]) : [];
     // L-005: re-attach the numeric id explicitly — mapToInterface strips it,
     // and callers that guard on `existing.id` would 404 forever otherwise.
-    // `partId` rides along for the same reason (the PUT immutability check on
-    // a pedido de parte); it is a number, so sanitizeResponse strips it on the
-    // way out, and the spread is conditional so a pedido de producto never
-    // gains a `partId: null` key its callers would see.
-    return row
-      ? {
-          ...this.mapToInterface(row),
-          id: row.id,
-          ...(row.partId ? { partId: row.partId } : {}),
-        }
-      : null;
+    return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
   async getIdByUuid(
@@ -308,9 +295,9 @@ export class SalesOrderDAO {
         customerId: item.customerId,
         // TPH: exactly one discriminator, enforced by the table's CHECK
         // (create_sales_orders_tables.ts:208-209) and decided by the
-        // controller — `PedidoMapper.cs:147-165`.
+        // controller — `PedidoMapper.cs:147-165` (D-1: after B the
+        // discriminator is `productId` XOR `sheetSupplyId`).
         productId: item.productId ?? null,
-        partId: item.partId ?? null,
         orderDataId: orderDataRow.id,
         number,
         // Editar.cs:44-49 — Creacion / CreacionUsuario are system-set.
@@ -443,9 +430,11 @@ export class SalesOrderDAO {
    * - `page`, `limit`, `sortBy`, `sortOrder`, `search` — reserved (query builder)
    * - `uuid`, `number`, `purchaseOrder` — column filters (`number` is a
    *   case-insensitive SUBSTRING, PedidoRepository.cs:69-72)
-   * - `customerUuid`, `productUuid`, `partUuid`, `sheetSupplyUuid`,
+   * - `customerUuid`, `productUuid`, `sheetSupplyUuid`,
    *   `salesUserUuid` — resolved to numeric ids here and applied as predicates;
    *   their numeric counterparts are NOT query params
+   * - `partUuid` → 400 `partUuid is not supported` (L-007, AC-9): `parts` is
+   *   gone, so a value here can only be a stale client, never a real filter.
    * - `deliveryDateFrom`, `deliveryDateTo` — inclusive bounds (a date-only
    *   `deliveryDateTo` covers the whole day)
    * - `fulfilled`, `voided`, `onlyApproved`, `withoutProductionOrders`,
@@ -479,12 +468,19 @@ export class SalesOrderDAO {
       "allProductionOrdersFulfilled",
     );
 
+    // AC-9/L-007: `parts` is gone — a `partUuid` filter is rejected outright,
+    // never silently dropped (matches the `partUuid` body-field rejection on
+    // create/update below).
+    if (parsedQuery.filters.partUuid !== undefined) {
+      throw new FilterValidationError("partUuid is not supported");
+    }
+
     // Column filters whose VALUE needs validating; they stay in the config.
     parseDateParam("deliveryDateFrom", parsedQuery.filters.deliveryDateFrom);
     parseDateParam("deliveryDateTo", parsedQuery.filters.deliveryDateTo);
 
     // uuid filters resolve to numeric ids before the query is built; a
-    // non-existent uuid pins the filter to the impossible id -1 (part.dao.ts
+    // non-existent uuid pins the filter to the impossible id -1 (product.dao.ts
     // pattern). The resolved ids are applied inside `applyExtra` below, never
     // through the filter config — that is what keeps `?customerId=1` and its
     // four siblings unreachable on a uuid-only API.
@@ -505,7 +501,6 @@ export class SalesOrderDAO {
 
     await resolveUuid("customerUuid", "customerId", erpIdByUuid("customers"));
     await resolveUuid("productUuid", "productId", erpIdByUuid("products"));
-    await resolveUuid("partUuid", "partId", erpIdByUuid("parts"));
     // Plancha pedidos point at the board catalogue (`paper_sheets`), the only
     // uuid-keyed sheet table in the schema; `sales_orders.sheetSupplyId` is
     // FK-less because the supplies module has not landed yet.
@@ -692,8 +687,7 @@ export class SalesOrderDAO {
 
     const [rows, totalResult] = await Promise.all([
       scoped()
-        .leftJoin("parts as part", "production_orders.partId", "part.id")
-        .leftJoin("products as prod", "part.productId", "prod.id")
+        .leftJoin("products as prod", "production_orders.productId", "prod.id")
         .leftJoin("customers as cust", "prod.customerId", "cust.id")
         .select(
           "production_orders.uuid",
@@ -705,9 +699,9 @@ export class SalesOrderDAO {
           "production_orders.completedAt",
           "production_orders.voidedAt",
           // Aliased, never selected as numeric ids (uuid-only surface).
-          "part.uuid as partUuid",
-          "part.code as partCode",
-          "part.description as partDescription",
+          "prod.uuid as productUuid",
+          "prod.code as productCode",
+          "prod.description as productDescription",
           "cust.uuid as customerUuid",
           "cust.name as customerName",
         )
@@ -725,11 +719,11 @@ export class SalesOrderDAO {
         orderDate: row.orderDate ?? null,
         deliveryDate: row.deliveryDate ?? null,
         quantity: toNumberOut(row.quantity) ?? 0,
-        part: row.partUuid
+        product: row.productUuid
           ? {
-              uuid: row.partUuid,
-              code: row.partCode ?? null,
-              description: row.partDescription ?? null,
+              uuid: row.productUuid,
+              code: row.productCode ?? null,
+              description: row.productDescription ?? null,
             }
           : null,
         customer: row.customerUuid
@@ -802,17 +796,15 @@ export class SalesOrderDAO {
 }
 
 /**
- * Grid column 6, verbatim from the three TPH subtype overrides:
- * `PedidoDeProducto.cs:19`, `PedidoDeParte.cs:18`, `PedidoDePlancha.cs:20`.
- * A pedido always has exactly one of the three (the table's CHECK constraint),
- * but a row with none of them prints the empty string rather than throwing.
+ * Grid column 6, verbatim from the TPH subtype overrides: `PedidoDeProducto.cs:19`,
+ * `PedidoDePlancha.cs:20`. The parte branch (`PedidoDeParte.cs:18`, D-1) is
+ * gone — folded products print their own revision, never the old subtype's
+ * (U-7). A pedido always has exactly one of the two (the table's CHECK
+ * constraint), but a row with neither prints the empty string rather than throwing.
  */
 function itemDescriptionOf(record: any): string {
   if (record.product) {
     return `Producto: ${record.product.code} - ${record.product.description} - Revisión: ${record.product.revision}`;
-  }
-  if (record.part) {
-    return `Parte: ${record.part.code} - ${record.part.description} - Revisión: ${record.part.revision}`;
   }
   if (record.sheetSupply) {
     return `Plancha: ${record.sheetSupply.code} - ${record.sheetSupply.description}`;

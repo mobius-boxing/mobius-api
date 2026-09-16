@@ -25,7 +25,7 @@ import { companyFilterScope } from "../../utils/daoScope";
 /**
  * Production routes (module 12). Custom controller: nested-tree resolution,
  * two-tier validation (criticals block, warnings returned), Clonar /
- * CopiarEtapas, single-default invariant, delete guard on part references.
+ * CopiarEtapas, single-default invariant, delete guard on product references.
  */
 export class ProductionRouteController {
   private dao = new ProductionRouteDAO();
@@ -350,12 +350,14 @@ export class ProductionRouteController {
           .json({ success: false, message: "Production route not found" });
         return;
       }
-      // Spec 04: Procusto never hard-deletes a route parts still use.
-      if (await this.dao.isReferencedByParts(existing.id)) {
-        res.status(400).json({
+      // Spec 04 / D-22: Procusto never hard-deletes a route products still use.
+      const referencing = await this.dao.countProductsReferencing(existing.id);
+      if (referencing.count > 0) {
+        res.status(409).json({
           success: false,
-          message:
-            "Cannot delete route: parts still reference it. Reassign them first.",
+          message: `Cannot delete route: ${referencing.count} product(s) still reference it. Reassign them first.`,
+          count: referencing.count,
+          productCodes: referencing.codes,
         });
         return;
       }

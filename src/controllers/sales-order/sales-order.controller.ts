@@ -3,7 +3,6 @@ import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { SalesOrderDAO } from "../../dao/sales-order/sales-order.dao";
 import { CustomerDAO } from "../../dao/customer/customer.dao";
 import { ProductDAO } from "../../dao/product/product.dao";
-import { PartDAO } from "../../dao/part/part.dao";
 import { DeliveryLocationDAO } from "../../dao/delivery-location/delivery-location.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { ISalesOrder } from "../../interfaces/sales-order/sales-order.interfaces";
@@ -28,7 +27,7 @@ import {
   SalesOrderLifecycleDAO,
   VoidAction,
 } from "../../dao/sales-order/sales-order-lifecycle.dao";
-import { companyFilterScope, type CompanyScope } from "../../utils/daoScope";
+import { companyFilterScope } from "../../utils/daoScope";
 
 /** The nested read's page-size cap, identical to `queryBuilder.ts:34`. */
 const MAX_PAGE_SIZE = 100;
@@ -83,7 +82,6 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
 
   private customerDAO = new CustomerDAO();
   private productDAO = new ProductDAO();
-  private partDAO = new PartDAO();
   private deliveryLocationDAO = new DeliveryLocationDAO();
   private userDAO = new UserDAO();
   private lifecycleDAO = new SalesOrderLifecycleDAO();
@@ -273,46 +271,6 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     return user.id;
   }
 
-  /**
-   * The parte path of the create (`PedidoDeParteForm.cs:142-153`): the parte is
-   * picked over every parte of the company, and the cliente is DERIVED from
-   * parte → producto → cliente (`PedidoDeParteMapper.cs:19`) — never taken from
-   * the body. A `customerUuid` sent anyway must agree with the derived one.
-   * Returns the derived customer uuid, or false after writing the error body.
-   */
-  private async resolvePartSubtype(
-    inputDTO: SalesOrderCreateInputDTO,
-    companyScope: CompanyScope | undefined,
-    res: Response,
-  ): Promise<{ partId: number; customerUuid: string } | false> {
-    // L-009: a parte from another company behaves as not-found, never as a
-    // CHECK-constraint 500.
-    const part = await this.partDAO.getByUuid(inputDTO.partUuid!, companyScope);
-    if (!part?.id) {
-      res.status(404).json({ success: false, message: "Part not found" });
-      return false;
-    }
-    const derivedCustomerUuid = part.product?.customer?.uuid;
-    if (!derivedCustomerUuid) {
-      res.status(400).json({
-        success: false,
-        message: "Part's product has no customer",
-      });
-      return false;
-    }
-    if (
-      inputDTO.sent("customerUuid") &&
-      !sameUuid(inputDTO.customerUuid, derivedCustomerUuid)
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Customer does not belong to the selected part",
-      });
-      return false;
-    }
-    return { partId: part.id, customerUuid: derivedCustomerUuid };
-  }
-
   // ── Create ───────────────────────────────────────────────────────────────
   protected async beforeCreate(
     inputDTO: SalesOrderCreateInputDTO,
@@ -322,20 +280,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     if (!(await this.enforceFieldPermissions(inputDTO, req, res))) return null;
 
     const companyScope = companyFilterScope(req);
-
-    // Exactly one discriminator reaches here (the DTO's XOR rule).
-    let partId: number | null = null;
-    let customerUuid = inputDTO.customerUuid;
-    if (inputDTO.partUuid) {
-      const subtype = await this.resolvePartSubtype(
-        inputDTO,
-        companyScope,
-        res,
-      );
-      if (subtype === false) return null;
-      partId = subtype.partId;
-      customerUuid = subtype.customerUuid;
-    }
+    const customerUuid = inputDTO.customerUuid;
 
     // L-009: a customer uuid from another company behaves as not-found.
     const customer = await this.customerDAO.getByUuid(
@@ -347,32 +292,29 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
       return null;
     }
 
-    let productId: number | null = null;
-    if (partId === null) {
-      productId = await this.productDAO.getIdByUuid(
-        inputDTO.productUuid!,
-        companyScope,
-      );
-      const product = productId
-        ? await this.productDAO.getWithDetails(
-            inputDTO.productUuid!,
-            companyScope,
-          )
-        : null;
-      if (!productId || !product) {
-        res.status(404).json({ success: false, message: "Product not found" });
-        return null;
-      }
-      // D-1: the cliente is picked first and the product list is filtered by
-      // it, but the pairing is still enforced here — the UI is not the guard
-      // (AC-8).
-      if (!sameUuid(product.customer?.uuid, inputDTO.customerUuid)) {
-        res.status(400).json({
-          success: false,
-          message: "Product does not belong to the selected customer",
-        });
-        return null;
-      }
+    const productId = await this.productDAO.getIdByUuid(
+      inputDTO.productUuid!,
+      companyScope,
+    );
+    const product = productId
+      ? await this.productDAO.getWithDetails(
+          inputDTO.productUuid!,
+          companyScope,
+        )
+      : null;
+    if (!productId || !product) {
+      res.status(404).json({ success: false, message: "Product not found" });
+      return null;
+    }
+    // D-1: the cliente is picked first and the product list is filtered by
+    // it, but the pairing is still enforced here — the UI is not the guard
+    // (AC-8).
+    if (!sameUuid(product.customer?.uuid, inputDTO.customerUuid)) {
+      res.status(400).json({
+        success: false,
+        message: "Product does not belong to the selected customer",
+      });
+      return null;
     }
 
     const deliveryLocationId = await this.resolveDeliveryLocationId(
@@ -395,7 +337,6 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
       companyId: customer.companyId,
       customerId: customer.id,
       productId,
-      partId,
       // D-7: default the vendedor from the customer, always editable.
       salesUserId:
         salesUserId === undefined
@@ -447,24 +388,6 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
       });
       return null;
     }
-    // The parte is the other discriminator and equally immutable. The response
-    // surface carries no `part` reference, so the comparison runs on the
-    // numeric id `getByUuid` re-attaches; an unknown or cross-company uuid
-    // resolves to null and therefore differs (L-009).
-    if (inputDTO.sent("partUuid")) {
-      const sentPartId = await this.partDAO.getIdByUuid(
-        inputDTO.partUuid!,
-        companyScope,
-      );
-      if (!sentPartId || sentPartId !== (existing.partId ?? null)) {
-        res.status(400).json({
-          success: false,
-          message: "Part cannot be changed",
-        });
-        return null;
-      }
-    }
-
     if (
       inputDTO.sent("deliveryDate") &&
       this.deliveryDateChanged(inputDTO.deliveryDate, existing.deliveryDate) &&

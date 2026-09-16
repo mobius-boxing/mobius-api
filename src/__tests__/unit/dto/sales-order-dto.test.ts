@@ -88,60 +88,6 @@ describe("SalesOrderCreateInputDTO", () => {
     );
   });
 
-  // ── AC-2: exactly one TPH discriminator (PedidoMapper.cs:147-165) ─────────
-  it("accepts partUuid alone and derives nothing else (AC-2)", () => {
-    const dto = new SalesOrderCreateInputDTO({
-      partUuid: PART,
-      quantity: 100,
-    }).build();
-
-    expect(dto.partUuid).toBe(PART);
-    expect(dto.productUuid).toBeUndefined();
-    expect(dto.customerUuid).toBeUndefined();
-  });
-
-  it("rejects productUuid AND partUuid together, naming both (AC-2)", () => {
-    expect(() =>
-      new SalesOrderCreateInputDTO(validBody({ partUuid: PART })).build(),
-    ).toThrow(/productUuid.*partUuid/);
-  });
-
-  it("rejects neither productUuid nor partUuid, naming both (AC-2)", () => {
-    expect(() =>
-      new SalesOrderCreateInputDTO({
-        customerUuid: CUSTOMER,
-        quantity: 100,
-      }).build(),
-    ).toThrow(/productUuid.*partUuid/);
-  });
-
-  it("rejects a blank partUuid as no discriminator at all (AC-2)", () => {
-    expect(() =>
-      new SalesOrderCreateInputDTO({ partUuid: "   ", quantity: 100 }).build(),
-    ).toThrow(/productUuid.*partUuid/);
-  });
-
-  it("accepts partUuid with a customerUuid the controller then checks (AC-4)", () => {
-    const dto = new SalesOrderCreateInputDTO({
-      partUuid: PART,
-      customerUuid: CUSTOMER,
-      quantity: 100,
-    }).build();
-
-    expect(dto.partUuid).toBe(PART);
-    expect(dto.customerUuid).toBe(CUSTOMER);
-  });
-
-  it("rejects an emptied customerUuid on the parte path (AC-4)", () => {
-    expect(() =>
-      new SalesOrderCreateInputDTO({
-        partUuid: PART,
-        customerUuid: "",
-        quantity: 100,
-      }).build(),
-    ).toThrow(/customerUuid/);
-  });
-
   it("rejects a missing customerUuid naming the field (AC-7)", () => {
     const body = validBody();
     delete (body as Record<string, unknown>).customerUuid;
@@ -149,6 +95,69 @@ describe("SalesOrderCreateInputDTO", () => {
     expect(() => new SalesOrderCreateInputDTO(body).build()).toThrow(
       /customerUuid/,
     );
+  });
+
+  // ── AC-9: `parts` removed — partUuid is unsupported, not a discriminator ──
+  // (formerly AC-2's TPH-discriminator suite; every case below sent partUuid
+  // and is now rejected outright instead of accepted as the parte leg.)
+  it("rejects partUuid alone instead of deriving anything from it (AC-9, was AC-2)", () => {
+    expect(() =>
+      new SalesOrderCreateInputDTO({
+        partUuid: PART,
+        quantity: 100,
+      }).build(),
+    ).toThrow("partUuid is not supported");
+  });
+
+  it("rejects partUuid outright, naming the field (AC-9, D-1, L-007)", () => {
+    expect(() =>
+      new SalesOrderCreateInputDTO(validBody({ partUuid: PART })).build(),
+    ).toThrow("partUuid is not supported");
+  });
+
+  it("rejects neither productUuid nor partUuid, naming productUuid (AC-9, was AC-2)", () => {
+    expect(() =>
+      new SalesOrderCreateInputDTO({
+        customerUuid: CUSTOMER,
+        quantity: 100,
+      }).build(),
+    ).toThrow(/productUuid/);
+  });
+
+  it("rejects a blank partUuid the same as a filled one — presence alone is unsupported (AC-9, was AC-2)", () => {
+    expect(() =>
+      new SalesOrderCreateInputDTO({ partUuid: "   ", quantity: 100 }).build(),
+    ).toThrow("partUuid is not supported");
+  });
+
+  it("rejects partUuid even alongside a customerUuid the controller would otherwise check (AC-9, was AC-4)", () => {
+    expect(() =>
+      new SalesOrderCreateInputDTO({
+        partUuid: PART,
+        customerUuid: CUSTOMER,
+        quantity: 100,
+      }).build(),
+    ).toThrow("partUuid is not supported");
+  });
+
+  it("rejects partUuid AND an emptied customerUuid together, naming both (AC-9, was AC-4)", () => {
+    expect(() =>
+      new SalesOrderCreateInputDTO({
+        partUuid: PART,
+        customerUuid: "",
+        quantity: 100,
+      }).build(),
+    ).toThrow(/partUuid is not supported/);
+  });
+
+  it("rejects partUuid even without productUuid (AC-9)", () => {
+    expect(() =>
+      new SalesOrderCreateInputDTO({
+        customerUuid: CUSTOMER,
+        partUuid: PART,
+        quantity: 100,
+      }).build(),
+    ).toThrow("partUuid is not supported");
   });
 
   // ── AC-9: server-generated / unsupported keys ────────────────────────────
@@ -159,6 +168,7 @@ describe("SalesOrderCreateInputDTO", () => {
   });
 
   it.each([
+    "partUuid",
     "sheetSupplyUuid",
     "quotationUuid",
     "paymentTermUuid",
@@ -236,23 +246,23 @@ describe("SalesOrderUpdateInputDTO", () => {
     ).toThrow(/customerUuid/);
   });
 
-  // ── AC-5: the parte is the other immutable reference ─────────────────────
-  it("keeps partUuid so the controller can answer AC-5", () => {
-    const dto = new SalesOrderUpdateInputDTO({ partUuid: PART }).build();
-
-    expect(dto.partUuid).toBe(PART);
+  // ── AC-9: partUuid is rejected on update too (parts removed, D-1) ─────────
+  it("rejects partUuid on update (AC-9, was AC-5 'keeps partUuid')", () => {
+    expect(() =>
+      new SalesOrderUpdateInputDTO({ partUuid: PART }).build(),
+    ).toThrow("partUuid is not supported");
   });
 
-  it("rejects an emptied partUuid (AC-5)", () => {
+  it("rejects an emptied partUuid too — presence alone is unsupported (AC-9, was AC-5)", () => {
     expect(() =>
       new SalesOrderUpdateInputDTO({ partUuid: "" }).build(),
-    ).toThrow(/partUuid/);
+    ).toThrow("partUuid is not supported");
   });
 
-  it("does not require a discriminator on a partial update (AC-5)", () => {
-    const dto = new SalesOrderUpdateInputDTO({ partUuid: PART }).build();
+  it("does not require a discriminator on a partial update naming only productUuid (AC-5 analog)", () => {
+    const dto = new SalesOrderUpdateInputDTO({ productUuid: PRODUCT }).build();
 
-    expect(Object.keys({ ...dto })).toEqual(["partUuid"]);
+    expect(Object.keys({ ...dto })).toEqual(["productUuid"]);
   });
 
   it("strips unset keys so a partial update never nulls a column", () => {

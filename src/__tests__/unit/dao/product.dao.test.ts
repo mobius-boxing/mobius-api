@@ -202,6 +202,83 @@ describe("ProductDAO", () => {
     });
   });
 
+  describe("update — I-15 route auto-assign carve-out (D-32)", () => {
+    it("auto-assigns the company's default global route when autoAssignRoute is set and none was sent", async () => {
+      const testData = createTestProduct();
+      mockQueryBuilder.first.mockResolvedValueOnce({ id: 55 }); // default route lookup
+      mockQueryBuilder.returning.mockResolvedValue([testData]);
+
+      await dao.update(
+        testData.id,
+        { corrugationId: 9 },
+        { autoAssignRoute: true, companyId: 3, description: "Caja" },
+      );
+
+      expect(mockKnex).toHaveBeenCalledWith("production_routes");
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith({
+        companyId: 3,
+        isDefault: true,
+        isGlobal: true,
+        active: true,
+      });
+      expect(mockQueryBuilder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ productionRouteId: 55 }),
+      );
+    });
+
+    it("creates a private RUTA PROPIA when no default route exists", async () => {
+      const testData = createTestProduct();
+      mockQueryBuilder.first.mockResolvedValueOnce(null); // no default route
+      mockQueryBuilder.returning
+        .mockResolvedValueOnce([{ id: 77 }]) // route insert
+        .mockResolvedValueOnce([testData]); // product update
+
+      await dao.update(
+        testData.id,
+        { corrugationId: 9 },
+        { autoAssignRoute: true, companyId: 3, description: "Caja" },
+      );
+
+      expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          companyId: 3,
+          name: "Caja (RUTA PROPIA)",
+          isGlobal: false,
+        }),
+      );
+      expect(mockQueryBuilder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ productionRouteId: 77 }),
+      );
+    });
+
+    it("mutation-check: touches no production_routes row when autoAssignRoute is not set", async () => {
+      const testData = createTestProduct();
+      mockQueryBuilder.returning.mockResolvedValue([testData]);
+
+      await dao.update(testData.id, { corrugationId: 9 });
+
+      const tablesQueried = mockKnex.mock.calls.map((call) => call[0]);
+      expect(tablesQueried).not.toContain("production_routes");
+    });
+
+    it("mutation-check: does not auto-assign when the payload already carries a productionRouteId", async () => {
+      const testData = createTestProduct();
+      mockQueryBuilder.returning.mockResolvedValue([testData]);
+
+      await dao.update(
+        testData.id,
+        { corrugationId: 9, productionRouteId: 12 },
+        { autoAssignRoute: true, companyId: 3 },
+      );
+
+      const tablesQueried = mockKnex.mock.calls.map((call) => call[0]);
+      expect(tablesQueried).not.toContain("production_routes");
+      expect(mockQueryBuilder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ productionRouteId: 12 }),
+      );
+    });
+  });
+
   describe("delete", () => {
     it("should delete product by numeric ID and return true", async () => {
       mockQueryBuilder.delete.mockResolvedValue(1);

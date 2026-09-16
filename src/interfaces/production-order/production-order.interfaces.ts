@@ -43,12 +43,17 @@ export type LifecycleMachine = (typeof LIFECYCLE_MACHINES)[number];
 export const LIFECYCLE_ACTIONS = ["set", "cancel"] as const;
 export type LifecycleAction = (typeof LIFECYCLE_ACTIONS)[number];
 
-/** Generation guards G2…G10 (G1 is a plain 404 and carries no Procusto text). */
+/**
+ * Generation guards G2…G10 (G1 is a plain 404 and carries no Procusto text).
+ * D-8: `SALES_ORDER_WITHOUT_PART` → `SALES_ORDER_WITHOUT_PRODUCT` — the
+ * product is now the manufacturable unit (D-1); the guard fires only for a
+ * sheet-supply pedido (D-17).
+ */
 export const GUARD_MESSAGES = {
   NO_QUANTITIES: "Se debe especificar al menos una cantidad!",
   ORDERS_ALREADY_EXIST: "El pedido ya tiene órdenes de producción asociadas",
-  SALES_ORDER_WITHOUT_PART:
-    "El pedido no tiene parte asociada. No se generarán órdenes",
+  SALES_ORDER_WITHOUT_PRODUCT:
+    "El pedido no tiene producto asociado. No se generarán órdenes",
   SALES_ORDER_WITHOUT_ORDER_DATA:
     "El pedido no tiene datos de pedido asociados",
   ORDER_DATA_WITHOUT_NUMBER: "El pedido no tiene número",
@@ -62,12 +67,16 @@ export const GUARD_MESSAGES = {
 
 export type GuardCode = keyof typeof GUARD_MESSAGES;
 
-/** `OrdenDeProduccion.Problemas()` V1…V6 (DomainModel/OrdenDeProduccion.cs:332-360). */
+/**
+ * `OrdenDeProduccion.Problemas()` V1…V6 (DomainModel/OrdenDeProduccion.cs:332-360).
+ * D-8: V1/V4 reworded from "parte" to "producto" — a parity divergence, not a
+ * typo fix; the rest are byte-identical.
+ */
 export const VALIDATION_MESSAGES = {
-  V1: "Debe especificar una parte!",
+  V1: "Debe especificar un producto!",
   V2: "La ruta de la orden debe tener etapas!",
   V3: "Debe especificar una cantidad mayor que cero!",
-  V4: "La parte no está aprobada!",
+  V4: "El producto no está aprobado!",
   V5: "El cliente asociado al producto no está activo!",
   /** `{max}` is the CantidadMaximaEnOrdenes value, rendered as-is. */
   V6: (max: number): string =>
@@ -76,9 +85,9 @@ export const VALIDATION_MESSAGES = {
 
 /** Non-blocking advice; never turns a 201 into a 4xx. */
 export const WARNING_MESSAGES = {
-  /** OrdenDeProduccionForm.cs:634 */
-  partProductMismatch: (orderProduct: string, salesOrderProduct: string) =>
-    `La parte seleccionada corresponde al producto [${orderProduct}], pero el pedido corresponde al producto [${salesOrderProduct}].`,
+  /** OrdenDeProduccionForm.cs:634; D-8 `partProductMismatch` → `productMismatch`. */
+  productMismatch: (orderProduct: string, salesOrderProduct: string) =>
+    `El producto seleccionado [${orderProduct}] no coincide con el producto del pedido [${salesOrderProduct}].`,
   /** OrdenDeProduccionForm.cs:639 */
   quantityAboveSalesOrder:
     "La cantidad registrada en la orden de producción es mayor que la cantidad del pedido.",
@@ -125,7 +134,7 @@ export interface IProductionOrder {
   // plus the global sanitize middleware.
   id?: number;
   companyId?: number;
-  partId?: number;
+  productId?: number;
   orderDataId?: number | null;
   routeId?: number | null;
   palletizationId?: number | null;
@@ -185,7 +194,6 @@ export interface IProductionOrder {
   legacyId?: number | null;
 
   // Related entities (populated by DAO joins, uuid-only outward).
-  part?: IProductionOrderRef | null;
   product?: IProductionOrderRef | null;
   customer?: IProductionOrderRef | null;
   orderData?: IProductionOrderRef | null;
@@ -203,11 +211,11 @@ export interface IProductionOrder {
 
 /** What `validateProductionOrder` inspects beyond the row itself. */
 export interface IProductionOrderValidationContext {
-  /** Rows in the effective route (`order.routeId ?? part.productionRouteId`). */
+  /** Rows in the effective route (`order.routeId ?? product.productionRouteId`). */
   routeStageCount: number;
-  /** `parts.partApprovalAt IS NOT NULL`. */
-  partApproved: boolean;
-  /** `customers.active` for `parts.productId → products.customerId`. */
+  /** `products.productApprovalAt IS NOT NULL`. */
+  productApproved: boolean;
+  /** `customers.active` for `products.customerId`. */
   customerActive: boolean;
   /** Config `CantidadMaximaEnOrdenes`; 0 (or less) disables V6. */
   maxQuantity: number;
@@ -215,6 +223,6 @@ export interface IProductionOrderValidationContext {
 
 /** The subset of a row the validator reads. */
 export interface IProductionOrderValidationInput {
-  partId?: number | null;
+  productId?: number | null;
   quantity?: number | null;
 }

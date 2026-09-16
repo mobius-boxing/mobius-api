@@ -644,7 +644,8 @@ CREATE TABLE public.finished_goods (
     "minimumStock" numeric(14,4),
     "legacyId" integer,
     "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    "productId" integer
 );
 
 CREATE SEQUENCE public.finished_goods_id_seq
@@ -1438,10 +1439,11 @@ CREATE TABLE public.production_orders (
     "createdByUser" text,
     "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     "legacyId" integer,
-    "partId" integer NOT NULL,
+    "partId" integer,
     "orderDataId" integer,
     "routeId" integer,
-    "palletizationId" integer
+    "palletizationId" integer,
+    "productId" integer
 );
 
 CREATE SEQUENCE public.production_orders_id_seq
@@ -1571,7 +1573,72 @@ CREATE TABLE public.products (
     "productApprovalBy" text,
     "productCancellationAt" timestamp with time zone,
     "productCancellationBy" text,
-    "legacyId" integer
+    "legacyId" integer,
+    "boxLength" double precision,
+    "boxWidth" double precision,
+    "boxHeight" double precision,
+    "externalLength" double precision,
+    "externalWidth" double precision,
+    "externalHeight" double precision,
+    "sheetLength" double precision,
+    "sheetWidth" double precision,
+    "additionalSheetLength" double precision,
+    "preferredWidth" double precision,
+    flap double precision,
+    "lowerFlap" double precision,
+    "upperFlap" double precision,
+    "flapOverlap" double precision,
+    "corrugationScoreLines" text,
+    "printScoreLines" text,
+    "symmetricScoreLines" boolean DEFAULT false NOT NULL,
+    "colorCount" integer,
+    "printSides" double precision,
+    inks text,
+    "labelsPerPallet" smallint,
+    "labelText" text,
+    "printCode" boolean DEFAULT false NOT NULL,
+    "printDate" boolean DEFAULT false NOT NULL,
+    "printRecyclable" boolean DEFAULT false NOT NULL,
+    "printWarranty" boolean DEFAULT false NOT NULL,
+    "printLogo" boolean DEFAULT false NOT NULL,
+    "printNationalIndustry" boolean DEFAULT false NOT NULL,
+    "printExport" boolean DEFAULT false NOT NULL,
+    "compressionTest" double precision,
+    "burstTest" double precision,
+    "cobbTest" double precision,
+    ect double precision,
+    grammage double precision,
+    "lengthUpperTolerance" double precision,
+    "lengthLowerTolerance" double precision,
+    "widthUpperTolerance" double precision,
+    "widthLowerTolerance" double precision,
+    "overrunPercentage" double precision,
+    "underrunPercentage" double precision,
+    "corrugationOverproduction" double precision,
+    "allowsRotation" boolean DEFAULT false NOT NULL,
+    "allowsPartialRotation" boolean DEFAULT false NOT NULL,
+    "mandatoryRotation" boolean DEFAULT false NOT NULL,
+    "boxSurface" double precision,
+    "boxWeight" double precision,
+    "averageWeight" double precision,
+    "allowsGluing" boolean DEFAULT false NOT NULL,
+    "claspClosure" text,
+    "associatedQuantity" double precision,
+    "foodSafetyNumber" text,
+    "blueprintRef" text,
+    notes text,
+    "quotingNotes" text,
+    "registeredAt" timestamp with time zone,
+    "corrugationId" integer,
+    "productionRouteId" integer,
+    "palletizationId" integer,
+    "modelId" integer,
+    "flapTypeId" integer,
+    "glueTypeId" integer,
+    "strappingTypeId" integer,
+    "traceTypeId" integer,
+    "complementId" integer,
+    "partLegacyId" integer
 );
 
 CREATE SEQUENCE public.products_id_seq
@@ -1656,7 +1723,7 @@ CREATE TABLE public.sales_orders (
     "legacyId" integer,
     "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT sales_orders_tph_check CHECK ((num_nonnulls("productId", "partId", "sheetSupplyId") = 1))
+    CONSTRAINT sales_orders_tph_check CHECK (((num_nonnulls("productId", "sheetSupplyId") = 1) OR ("partId" IS NOT NULL)))
 );
 
 CREATE SEQUENCE public.sales_orders_id_seq
@@ -2742,6 +2809,8 @@ CREATE INDEX glue_types_companyid_index ON public.glue_types USING btree ("compa
 
 CREATE INDEX idx_parts_approval_at ON public.parts USING btree ("partApprovalAt") WHERE ("partApprovalAt" IS NOT NULL);
 
+CREATE INDEX idx_products_approval_at ON public.products USING btree ("productApprovalAt") WHERE ("productApprovalAt" IS NOT NULL);
+
 CREATE INDEX idx_sales_orders_commercial_approved_at ON public.sales_orders USING btree ("commercialApprovedAt") WHERE ("commercialApprovedAt" IS NOT NULL);
 
 CREATE INDEX idx_sales_orders_voided_at ON public.sales_orders USING btree ("voidedAt") WHERE ("voidedAt" IS NOT NULL);
@@ -2880,6 +2949,8 @@ CREATE INDEX production_orders_orderdataid_index ON public.production_orders USI
 
 CREATE INDEX production_orders_partid_index ON public.production_orders USING btree ("partId");
 
+CREATE INDEX production_orders_productid_index ON public.production_orders USING btree ("productId");
+
 CREATE INDEX production_route_stage_machines_machineid_index ON public.production_route_stage_machines USING btree ("machineId");
 
 CREATE INDEX production_route_stage_supplies_legacyid_index ON public.production_route_stage_supplies USING btree ("legacyId");
@@ -2904,9 +2975,17 @@ CREATE INDEX products_code_index ON public.products USING btree (code);
 
 CREATE INDEX products_company_id_index ON public.products USING btree ("companyId");
 
+CREATE INDEX products_corrugationid_index ON public.products USING btree ("corrugationId");
+
 CREATE INDEX products_customer_id_index ON public.products USING btree ("customerId");
 
 CREATE INDEX products_legacyid_index ON public.products USING btree ("legacyId");
+
+CREATE INDEX products_modelid_index ON public.products USING btree ("modelId");
+
+CREATE INDEX products_partlegacyid_index ON public.products USING btree ("partLegacyId");
+
+CREATE INDEX products_productionrouteid_index ON public.products USING btree ("productionRouteId");
 
 CREATE INDEX products_producttypeid_index ON public.products USING btree ("productTypeId");
 
@@ -3064,6 +3143,9 @@ ALTER TABLE ONLY public.finished_goods
     ADD CONSTRAINT finished_goods_manufacturerid_foreign FOREIGN KEY ("manufacturerId") REFERENCES public.manufacturers(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY public.finished_goods
+    ADD CONSTRAINT finished_goods_productid_foreign FOREIGN KEY ("productId") REFERENCES public.products(id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY public.finished_goods
     ADD CONSTRAINT finished_goods_supplierid_foreign FOREIGN KEY ("supplierId") REFERENCES public.suppliers(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY public.machines
@@ -3199,6 +3281,9 @@ ALTER TABLE ONLY public.production_orders
     ADD CONSTRAINT production_orders_partid_foreign FOREIGN KEY ("partId") REFERENCES public.parts(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY public.production_orders
+    ADD CONSTRAINT production_orders_productid_foreign FOREIGN KEY ("productId") REFERENCES public.products(id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY public.production_orders
     ADD CONSTRAINT production_orders_routeid_foreign FOREIGN KEY ("routeId") REFERENCES public.production_routes(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY public.production_route_stage_machines
@@ -3223,10 +3308,31 @@ ALTER TABLE ONLY public.products
     ADD CONSTRAINT products_boxtypeid_foreign FOREIGN KEY ("boxTypeId") REFERENCES public.box_types(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_complementid_foreign FOREIGN KEY ("complementId") REFERENCES public.complements(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_corrugationid_foreign FOREIGN KEY ("corrugationId") REFERENCES public.corrugations(id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY public.products
     ADD CONSTRAINT products_customer_id_foreign FOREIGN KEY ("customerId") REFERENCES public.customers(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_flaptypeid_foreign FOREIGN KEY ("flapTypeId") REFERENCES public.flap_types(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_gluetypeid_foreign FOREIGN KEY ("glueTypeId") REFERENCES public.glue_types(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.products
     ADD CONSTRAINT products_imagefileuuid_foreign FOREIGN KEY ("imageFileUuid") REFERENCES public.files(uuid) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_modelid_foreign FOREIGN KEY ("modelId") REFERENCES public.models(id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_palletizationid_foreign FOREIGN KEY ("palletizationId") REFERENCES public.palletizations(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_productionrouteid_foreign FOREIGN KEY ("productionRouteId") REFERENCES public.production_routes(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY public.products
     ADD CONSTRAINT products_producttypeid_foreign FOREIGN KEY ("productTypeId") REFERENCES public.product_types(id) ON DELETE SET NULL;
@@ -3235,7 +3341,13 @@ ALTER TABLE ONLY public.products
     ADD CONSTRAINT products_sketchfileuuid_foreign FOREIGN KEY ("sketchFileUuid") REFERENCES public.files(uuid) ON DELETE SET NULL;
 
 ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_strappingtypeid_foreign FOREIGN KEY ("strappingTypeId") REFERENCES public.strapping_types(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.products
     ADD CONSTRAINT products_technicalsheetfileuuid_foreign FOREIGN KEY ("technicalSheetFileUuid") REFERENCES public.files(uuid) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_tracetypeid_foreign FOREIGN KEY ("traceTypeId") REFERENCES public.trace_types(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY public.sales_order_approval_events
     ADD CONSTRAINT sales_order_approval_events_salesorderid_foreign FOREIGN KEY ("salesOrderId") REFERENCES public.sales_orders(id) ON DELETE CASCADE;

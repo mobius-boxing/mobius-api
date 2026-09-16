@@ -653,16 +653,26 @@ export class ProductionRouteDAO {
     return deleted > 0;
   }
 
-  /** True when any part references this route (delete guard, spec 04). */
-  async isReferencedByParts(id: number): Promise<boolean> {
+  /** D-22 delete pre-check: how many products reference this route (max 10 codes). */
+  async countProductsReferencing(
+    id: number,
+  ): Promise<{ count: number; codes: string[] }> {
     const knex = db("tenant");
-    const hasParts = await knex.schema.hasTable("parts");
-    if (!hasParts) return false;
-    const row = await knex("parts")
-      .where("productionRouteId", id)
-      .select("id")
-      .first();
-    return !!row;
+    const [totalResult, rows] = await Promise.all([
+      knex("products")
+        .where("productionRouteId", id)
+        .count("* as count")
+        .first(),
+      knex("products")
+        .where("productionRouteId", id)
+        .orderBy("id", "asc")
+        .limit(10)
+        .select("code"),
+    ]);
+    return {
+      count: parseInt(totalResult?.count as string) || 0,
+      codes: rows.map((row: { code: string | null }) => row.code ?? ""),
+    };
   }
 
   // ── Clone / copy-stages (Clonar / CopiarEtapas) ───────────────────────────

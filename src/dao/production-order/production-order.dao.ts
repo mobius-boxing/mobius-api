@@ -28,16 +28,17 @@ import {
   assertUuidParam,
   parseDateParam,
   parseEnumParam,
+  FilterValidationError,
 } from "../../utils/query-params";
 
 /**
  * companyId arrives as a UUID and is applied as a join in `applyExtra`;
- * partUuid / orderDataUuid / salesOrderUuid are pre-resolved into the numeric
+ * productUuid / orderDataUuid / salesOrderUuid are pre-resolved into the numeric
  * filters below, and customerUuid plus the three lifecycle-state and four
- * date-range params are `applyExtra` predicates (part.dao.ts:653-728 pattern).
+ * date-range params are `applyExtra` predicates (product.dao.ts pattern).
  * The derived reads (`habilitada`, `cumplida`, `anulada`) are NOT filters —
  * they are computed, and `schedulingState`/`completionState`/`voidState` are
- * the queryable form.
+ * the queryable form. `partUuid` → 400 (AC-9, L-007): `parts` is gone (D-1).
  */
 const PRODUCTION_ORDER_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
@@ -46,12 +47,12 @@ const PRODUCTION_ORDER_FILTERS: FilterConfigs = {
 
 /**
  * Resolved internal ids. Deliberately NOT in PRODUCTION_ORDER_FILTERS: this is
- * a uuid-only surface, and a client-supplied `?partId=5` would be sequential-id
+ * a uuid-only surface, and a client-supplied `?productId=5` would be sequential-id
  * enumeration. `resolveUuidFilter` puts values here and `applyResolvedIds`
  * applies them to BOTH the data and the count builder — a resolved id that
  * reaches only one of them makes `totalCount` disagree with `data`.
  */
-const RESOLVED_ID_KEYS = ["partId", "orderDataId"] as const;
+const RESOLVED_ID_KEYS = ["productId", "orderDataId"] as const;
 
 /**
  * The value sets of the three lifecycle-state params. They are the queryable
@@ -141,7 +142,7 @@ const SCALAR_COLUMNS = [
   "cobbMin",
   "cobbAvg",
   "avgBurst",
-  "partId",
+  "productId",
   "orderDataId",
   "routeId",
   "palletizationId",
@@ -174,7 +175,7 @@ const FLOAT_COLUMNS = [
 /** What the row-level validator needs, resolved in one round trip. */
 export interface IOrderValidationContextRow {
   routeStageCount: number;
-  partApproved: boolean;
+  productApproved: boolean;
   customerActive: boolean;
   productId: number | null;
   productCode: string | null;
@@ -185,7 +186,6 @@ export interface ILockedSalesOrder {
   id: number;
   uuid: string;
   companyId: number;
-  partId: number | null;
   orderDataId: number | null;
   quantity: number;
   deliveryDate: Date | null;
@@ -210,9 +210,6 @@ export class ProductionOrderDAO {
       .select(
         `${this.tableName}.*`,
         knex.raw(
-          `CASE WHEN part.id IS NOT NULL THEN to_jsonb(part) END as "part"`,
-        ),
-        knex.raw(
           `CASE WHEN prod.id IS NOT NULL THEN to_jsonb(prod) END as "product"`,
         ),
         knex.raw(
@@ -231,8 +228,7 @@ export class ProductionOrderDAO {
           `CASE WHEN pall.id IS NOT NULL THEN to_jsonb(pall) END as "palletization"`,
         ),
       )
-      .leftJoin("parts as part", `${this.tableName}.partId`, "part.id")
-      .leftJoin("products as prod", "part.productId", "prod.id")
+      .leftJoin("products as prod", `${this.tableName}.productId`, "prod.id")
       .leftJoin("customers as cust", "prod.customerId", "cust.id")
       .leftJoin("order_data as od", `${this.tableName}.orderDataId`, "od.id")
       .leftJoin("sales_orders as so", "so.orderDataId", "od.id")
@@ -263,14 +259,17 @@ export class ProductionOrderDAO {
     // L-005: re-attach the numeric ids explicitly — mapToInterface strips them,
     // and callers that guard on `existing.id` would 404 forever otherwise. The
     // FK ids come back too because `beforeUpdate` re-runs the validator over
-    // the MERGED row: a PUT that does not resend `partUuid` must still know
-    // which part the order has, or every partial update fails V1. All five keys
-    // are removed again by the global uuid-only response sanitizer.
+    // the MERGED row: a PUT that does not resend `productUuid` must still know
+    // which product the order has, or every partial update fails V1. All five
+    // keys are removed again by the global uuid-only response sanitizer.
     //
     // A NULL fk is left OFF the object rather than set to null: the sanitizer
     // only drops `*Id` keys whose value is a NUMBER, so `orderDataId: null`
     // would survive it and reappear on the public surface.
-    const internal: Record<string, number> = { id: row.id, partId: row.partId };
+    const internal: Record<string, number> = {
+      id: row.id,
+      productId: row.productId,
+    };
     for (const key of ["orderDataId", "routeId", "palletizationId"] as const) {
       if (row[key] != null) internal[key] = row[key];
     }
@@ -493,7 +492,6 @@ export class ProductionOrderDAO {
       id: row.id,
       uuid: row.uuid,
       companyId: row.companyId,
-      partId: row.partId ?? null,
       orderDataId: row.orderDataId ?? null,
       quantity: toNumberOut(row.quantity) ?? 0,
       deliveryDate: row.deliveryDate ?? null,
@@ -564,31 +562,31 @@ export class ProductionOrderDAO {
   }
 
   /**
-   * Everything `validateProductionOrder` needs about the part and its effective
-   * route, in one round trip. Returns null when the part does not exist — the
-   * caller turns that into V1's "no part" problem rather than a 500.
+   * Everything `validateProductionOrder` needs about the product and its
+   * effective route, in one round trip. Returns null when the product does
+   * not exist — the caller turns that into V1's "no product" problem rather
+   * than a 500.
    */
   async loadOrderValidationContext(
-    args: { partId: number | null; routeId?: number | null },
+    args: { productId: number | null; routeId?: number | null },
     trx?: any,
   ): Promise<IOrderValidationContextRow | null> {
-    if (!args.partId) return null;
+    if (!args.productId) return null;
     const knex = trx ?? db("tenant");
-    const part = await knex("parts")
-      .where("parts.id", args.partId)
-      .leftJoin("products as prod", "parts.productId", "prod.id")
-      .leftJoin("customers as cust", "prod.customerId", "cust.id")
+    const product = await knex("products")
+      .where("products.id", args.productId)
+      .leftJoin("customers as cust", "products.customerId", "cust.id")
       .select(
-        "parts.partApprovalAt as partApprovalAt",
-        "parts.productionRouteId as productionRouteId",
-        "prod.id as productId",
-        "prod.code as productCode",
+        "products.productApprovalAt as productApprovalAt",
+        "products.productionRouteId as productionRouteId",
+        "products.id as productId",
+        "products.code as productCode",
         "cust.active as customerActive",
       )
       .first();
-    if (!part) return null;
+    if (!product) return null;
 
-    const effectiveRouteId = args.routeId ?? part.productionRouteId ?? null;
+    const effectiveRouteId = args.routeId ?? product.productionRouteId ?? null;
     const stages = effectiveRouteId
       ? await knex("production_route_stages")
           .where("routeId", effectiveRouteId)
@@ -598,11 +596,11 @@ export class ProductionOrderDAO {
 
     return {
       routeStageCount: toCountOut(stages?.count),
-      partApproved: part.partApprovalAt != null,
-      // A part with no product/customer has nothing to be inactive.
-      customerActive: part.customerActive !== false,
-      productId: part.productId ?? null,
-      productCode: part.productCode ?? null,
+      productApproved: product.productApprovalAt != null,
+      // A product with no customer has nothing to be inactive.
+      customerActive: product.customerActive !== false,
+      productId: product.productId ?? null,
+      productCode: product.productCode ?? null,
     };
   }
 
@@ -620,12 +618,17 @@ export class ProductionOrderDAO {
     const companyId = scopedCompanyId ?? companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
+    // AC-9/L-007: `parts` is gone — a `partUuid` filter is rejected outright,
+    // never silently dropped.
+    if (parsedQuery.filters.partUuid !== undefined) {
+      throw new FilterValidationError("partUuid is not supported");
+    }
     await this.resolveUuidFilter(
       knex,
       parsedQuery,
-      "partUuid",
-      "parts",
-      "partId",
+      "productUuid",
+      "products",
+      "productId",
     );
     await this.resolveUuidFilter(
       knex,
@@ -717,12 +720,11 @@ export class ProductionOrderDAO {
 
       if (customerUuid) {
         q.whereIn(
-          `${table}.partId`,
-          knex("parts")
-            .join("products", "parts.productId", "products.id")
+          `${table}.productId`,
+          knex("products")
             .join("customers", "products.customerId", "customers.id")
             .where("customers.uuid", customerUuid)
-            .select("parts.id"),
+            .select("products.id"),
         );
       }
       applyCompanyScope(q, table, companyId);
@@ -822,7 +824,6 @@ export class ProductionOrderDAO {
       updatedAt: record.updatedAt ?? null,
       legacyId: record.legacyId ?? null,
 
-      part: pickRef(record.part, ["code", "description"]),
       product: pickRef(record.product, ["code", "description"]),
       customer: pickRef(record.customer, ["name", "code"]),
       orderData: pickRef(record.orderData, ["number"]),

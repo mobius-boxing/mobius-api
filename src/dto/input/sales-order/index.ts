@@ -1,8 +1,5 @@
 import { toNumberInput as num } from "../../../utils/numbers";
-import {
-  collect,
-  FieldValidationError,
-} from "../shared/ValidationError";
+import { collect, FieldValidationError } from "../shared/ValidationError";
 
 /**
  * Pedido DTOs — module 18 sub-area D.
@@ -12,12 +9,13 @@ import {
  * rule). Messages always name the offending field.
  *
  * `number` is server-generated (CodeGeneratorService, D-5): a body carrying it
- * is a 400, never a silent drop (L-007). The five references below belong to
- * modules that are out of scope here (PedidoDePlancha, quoting, payment terms,
- * currencies, OC image), so they are rejected rather than
- * accepted-and-ignored.
+ * is a 400, never a silent drop (L-007). `partUuid` (the parte discriminator,
+ * `parts` removed — D-1) and the five references below (PedidoDePlancha,
+ * quoting, payment terms, currencies, OC image) belong to modules that are
+ * out of scope here, so they are rejected rather than accepted-and-ignored.
  */
 const UNSUPPORTED_REFERENCES = [
+  "partUuid",
   "sheetSupplyUuid",
   "quotationUuid",
   "paymentTermUuid",
@@ -40,13 +38,12 @@ const BOOLEAN_FIELDS = ["needsAdvanceInvoice", "invoiceSent"] as const;
 export class SalesOrderCreateInputDTO {
   // SECURITY: foreign keys arrive as UUIDs.
   customerUuid?: string;
-  productUuid?: string;
   /**
-   * The second TPH discriminator (`DBPedido.cs:33,35`): a pedido carries a
-   * producto XOR a parte. On the parte path the cliente is DERIVED by the
-   * controller from parte → producto → cliente (`PedidoDeParteMapper.cs:19`).
+   * After D-1, `productUuid` is the only discriminator besides the
+   * unsupported `sheetSupplyUuid`/`partUuid` (`DBPedido.cs:33,35` — the parte
+   * leg is gone with `parts`).
    */
-  partUuid?: string;
+  productUuid?: string;
   deliveryLocationUuid?: string | null;
   salesUserUuid?: string | null;
 
@@ -83,7 +80,6 @@ export class SalesOrderCreateInputDTO {
 
     if (body.customerUuid !== undefined) this.customerUuid = body.customerUuid;
     if (body.productUuid !== undefined) this.productUuid = body.productUuid;
-    if (body.partUuid !== undefined) this.partUuid = body.partUuid;
     if (body.deliveryLocationUuid !== undefined)
       this.deliveryLocationUuid = body.deliveryLocationUuid || null;
     if (body.salesUserUuid !== undefined)
@@ -111,10 +107,7 @@ export class SalesOrderCreateInputDTO {
 
   protected rejectServerOwnedFields(): void {
     if (this.providedKeys.has("number")) {
-      throw new FieldValidationError(
-        "number",
-        "number is server-generated",
-      );
+      throw new FieldValidationError("number", "number is server-generated");
     }
     for (const key of UNSUPPORTED_REFERENCES) {
       if (this.providedKeys.has(key)) {
@@ -164,20 +157,17 @@ export class SalesOrderCreateInputDTO {
   }
 
   /** True when the key arrived with a non-blank value. */
-  protected filled(key: "customerUuid" | "productUuid" | "partUuid"): boolean {
+  protected filled(key: "customerUuid" | "productUuid"): boolean {
     return String(this[key] ?? "").trim() !== "";
   }
 
   /**
-   * Rules and messages are UNCHANGED — every string below is what this DTO
-   * threw before, down to the Procusto source references. What changed is that
-   * they are keyed to a field and aggregated, so a sales order with a bad
-   * quantity AND a missing customer reports both, each against its own input,
-   * instead of one bare sentence with nothing to attach it to.
-   *
-   * The discriminator rule (exactly one of productUuid/partUuid) is reported
-   * against `productUuid`: it is a cross-field rule with no field of its own,
-   * and the product select is the one the user picks first.
+   * Rules and messages are UNCHANGED (bar the removed parte leg, D-1) — every
+   * string below is what this DTO threw before, down to the Procusto source
+   * references. What changed is that they are keyed to a field and
+   * aggregated, so a sales order with a bad quantity AND a missing customer
+   * reports both, each against its own input, instead of one bare sentence
+   * with nothing to attach it to.
    */
   public build(): this {
     collect((field) => {
@@ -191,35 +181,13 @@ export class SalesOrderCreateInputDTO {
   }
 
   protected validateDiscriminator(): void {
-    // One row per pedido, exactly one discriminator — the table's CHECK
-    // (create_sales_orders_tables.ts:208-209) mirrors `PedidoMapper.cs:147-165`.
-    // PedidoDeProducto.cs:48-51 "Debe especificar un producto!" /
-    // PedidoDeParte.cs:41-45 "Debe especificar una parte!".
-    if (this.filled("productUuid") && this.filled("partUuid")) {
-      throw new FieldValidationError(
-        "productUuid",
-        "exactly one of productUuid or partUuid is allowed",
-      );
+    // One row per pedido — the table's CHECK (create_sales_orders_tables.ts:208-209)
+    // mirrors `PedidoMapper.cs:147-165`. `productUuid` is the sole discriminator
+    // left (D-1); PedidoDeProducto.cs:48-51 "Debe especificar un producto!".
+    if (!this.filled("productUuid")) {
+      throw new FieldValidationError("productUuid", "productUuid is required");
     }
-    if (!this.filled("productUuid") && !this.filled("partUuid")) {
-      throw new FieldValidationError(
-        "productUuid",
-        "exactly one of productUuid or partUuid is required",
-      );
-    }
-    if (this.filled("partUuid")) {
-      // PedidoDeParteMapper.cs:19 — the cliente is derived from the parte, so a
-      // blank explicit customerUuid is a mistake, not a request to derive.
-      if (
-        this.providedKeys.has("customerUuid") &&
-        !this.filled("customerUuid")
-      ) {
-        throw new FieldValidationError(
-          "customerUuid",
-          "customerUuid cannot be empty",
-        );
-      }
-    } else if (!this.filled("customerUuid")) {
+    if (!this.filled("customerUuid")) {
       // D-1: Mobius picks the cliente first, so customerUuid is required on the
       // producto path even though Procusto derives it from the product.
       throw new FieldValidationError(
@@ -232,10 +200,10 @@ export class SalesOrderCreateInputDTO {
 
 export class SalesOrderUpdateInputDTO extends SalesOrderCreateInputDTO {
   protected validateDiscriminator(): void {
-    // customerUuid / productUuid / partUuid stay accepted on PUT so the
-    // controller can answer 400 "cannot be changed" for a DIFFERENT value and
-    // 200 for the same one (AC-13); emptying them is meaningless either way.
-    for (const key of ["customerUuid", "productUuid", "partUuid"] as const) {
+    // customerUuid / productUuid stay accepted on PUT so the controller can
+    // answer 400 "cannot be changed" for a DIFFERENT value and 200 for the
+    // same one (AC-13); emptying them is meaningless either way.
+    for (const key of ["customerUuid", "productUuid"] as const) {
       if (this.providedKeys.has(key) && !String(this[key] ?? "").trim()) {
         throw new FieldValidationError(key, `${key} cannot be empty`);
       }

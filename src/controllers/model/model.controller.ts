@@ -26,9 +26,9 @@ export class ModelController extends BaseCrudController<IModel> {
   protected dao = new ModelDAO();
   protected options: BaseCrudOptions = {
     entityLabel: "Model",
-    // DB backstop for the 409 pre-check below (parts.modelId RESTRICT).
+    // DB backstop for the 409 pre-check below (products.modelId RESTRICT).
     fkCatchOnDelete: true,
-    fkCatchMessage: "Cannot delete model: parts still reference it.",
+    fkCatchMessage: "Cannot delete model: products still reference it.",
   };
 
   private flapTypeDAO = new FlapTypeDAO();
@@ -204,7 +204,7 @@ export class ModelController extends BaseCrudController<IModel> {
     }
   }
 
-  /** D-8: deleting a Modelo referenced by Parts answers 409 with the count. */
+  /** D-22: deleting a Modelo referenced by products answers 409 with the count. */
   public async delete(
     req: Request,
     res: Response,
@@ -219,13 +219,13 @@ export class ModelController extends BaseCrudController<IModel> {
         return;
       }
 
-      const referencing = await this.dao.countPartsReferencing(existingId);
+      const referencing = await this.dao.countProductsReferencing(existingId);
       if (referencing.count > 0) {
         res.status(409).json({
           success: false,
-          message: `Cannot delete model: ${referencing.count} part(s) still reference it.`,
+          message: `Cannot delete model: ${referencing.count} product(s) still reference it.`,
           count: referencing.count,
-          partCodes: referencing.codes,
+          productCodes: referencing.codes,
         });
         return;
       }

@@ -255,24 +255,44 @@ describeIfLocalDb("sales_orders / order_data schema (AC-1…AC-4)", () => {
       });
     });
 
-    it("rejects productId AND partId together (AC-3)", async () => {
-      await expect(
-        inRollback(async (insert) => {
-          const part = await client.query<{ id: number }>(
-            `SELECT id FROM parts WHERE "companyId" = $1 ORDER BY id LIMIT 1`,
-            [companyId],
-          );
-          // Use a literal id when no part exists — the CHECK fires on
-          // non-nullness, and the FK is only evaluated after it passes.
-          await insert(insertOrder(', "productId", "partId"', ", $4, $5"), [
-            companyId,
-            customerId,
-            "TPHBAD01",
-            productId,
-            part.rows[0]?.id ?? 1,
-          ]);
-        }),
-      ).rejects.toThrow(/sales_orders_tph_check/);
+    // remove-composite-products migration A relaxes the CHECK to
+    // `num_nonnulls("productId","sheetSupplyId") = 1 OR "partId" IS NOT NULL`
+    // (D-15/I-4): the deploy-(N−1) image still writes `partId` alone, and a
+    // row carrying BOTH `productId` and `partId` (e.g. the fold's own
+    // backfill, mid-write) must not be rejected either. Only the contract
+    // migration (commit 2) tightens the CHECK back to `productId` XOR
+    // `sheetSupplyId` — see I-4's "before B" clause.
+    it("accepts productId AND partId together during the expand window (AC-3, I-4, was 'rejects…together')", async () => {
+      const part = await client.query<{ id: number }>(
+        `SELECT id FROM parts WHERE "companyId" = $1 ORDER BY id LIMIT 1`,
+        [companyId],
+      );
+      if (!part.rows[0]?.id) return; // no seeded part in this scratch db — nothing to assert
+      await inRollback(async (insert) => {
+        await insert(insertOrder(', "productId", "partId"', ", $4, $5"), [
+          companyId,
+          customerId,
+          "TPHBOTH1",
+          productId,
+          part.rows[0].id,
+        ]);
+      });
+    });
+
+    it("accepts partId alone — the deploy-(N-1) old image's insert shape still works (AC-3, I-18)", async () => {
+      const part = await client.query<{ id: number }>(
+        `SELECT id FROM parts WHERE "companyId" = $1 ORDER BY id LIMIT 1`,
+        [companyId],
+      );
+      if (!part.rows[0]?.id) return; // no seeded part in this scratch db — nothing to assert
+      await inRollback(async (insert) => {
+        await insert(insertOrder(', "partId"', ", $4"), [
+          companyId,
+          customerId,
+          "TPHPART1",
+          part.rows[0].id,
+        ]);
+      });
     });
 
     it("rejects an order with all three discriminators null (AC-3)", async () => {
