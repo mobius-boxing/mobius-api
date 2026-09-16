@@ -31,14 +31,14 @@ import {
   createMockResponse,
 } from "../../mocks/express.mock";
 
-/** An entity whose own routes enforce a code (`parts.edit`). */
-const CODED_ENTITY = "parts";
+/** An entity whose own routes enforce a code (`products.edit`). */
+const CODED_ENTITY = "products";
 /** An entity with no dedicated code in `ENTITY_READ_PERMISSION` — no company
  * route reaches it at all (`companies` is superAdmin-gated end to end,
  * except one `authenticate`-only read with no code). */
 const ADMIN_ONLY_ENTITY = "companies";
 /** A second coded entity, to prove the `.readonly` pairing generalizes past
- * `parts` — reached only through `box-type.router.ts`'s writes. */
+ * `products` — reached only through `box-type.router.ts`'s writes. */
 const READONLY_ENTITY = "box_types";
 
 type Role = "member" | "admin" | "superAdmin";
@@ -94,7 +94,7 @@ describe("requireEntityHistoryAccess — the fixtures it depends on", () => {
   it("reads the entity kinds from the manifest, not from an assumption", () => {
     // If R-1's map is ever re-derived, these cases must still be one of each
     // kind — otherwise the branch tests below prove nothing.
-    expect(ENTITY_READ_PERMISSION[CODED_ENTITY]).toBe("parts.edit");
+    expect(ENTITY_READ_PERMISSION[CODED_ENTITY]).toBe("products.edit");
     expect(ENTITY_READ_PERMISSION[READONLY_ENTITY]).toBe("box-types.edit");
     expect(ENTITY_READ_PERMISSION[ADMIN_ONLY_ENTITY]).toBeNull();
   });
@@ -114,12 +114,12 @@ describe("requireEntityHistoryAccess — who passes", () => {
   });
 
   it("passes a member holding the entity's own code", async () => {
-    expectPassed(await run("member", CODED_ENTITY, { codes: ["parts.edit"] }));
+    expectPassed(await run("member", CODED_ENTITY, { codes: ["products.edit"] }));
   });
 
   it("passes a member holding only the read-only variant of that code", async () => {
     expectPassed(
-      await run("member", CODED_ENTITY, { codes: ["parts.edit.readonly"] }),
+      await run("member", CODED_ENTITY, { codes: ["products.edit.readonly"] }),
     );
   });
 
@@ -151,7 +151,7 @@ describe("requireEntityHistoryAccess — who is refused", () => {
     expect(result.res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        message: expect.stringContaining("parts.edit") as unknown as string,
+        message: expect.stringContaining("products.edit") as unknown as string,
       }),
     );
   });
@@ -170,14 +170,14 @@ describe("requireEntityHistoryAccess — who is refused", () => {
     );
   });
 
-  it("refuses a member holding box-types.edit.readonly on an entity it doesn't cover (parts)", async () => {
+  it("refuses a member holding box-types.edit.readonly on an entity it doesn't cover (products)", async () => {
     const result = await run("member", CODED_ENTITY, {
       codes: ["box-types.edit.readonly"],
     });
     expectStatus(result, 403);
     expect(result.res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: expect.stringContaining("parts.edit") as unknown as string,
+        message: expect.stringContaining("products.edit") as unknown as string,
       }),
     );
   });
@@ -204,7 +204,7 @@ describe("requireEntityHistoryAccess — who is refused", () => {
 describe("requireEntityHistoryAccess — an unknown table", () => {
   it("refuses a member, revealing nothing about the schema", async () => {
     const result = await run("member", "not_a_table", {
-      codes: ["parts.edit"],
+      codes: ["products.edit"],
     });
     expectStatus(result, 403);
     expect(result.res.json).toHaveBeenCalledWith(
@@ -228,9 +228,9 @@ describe("requireEntityHistoryAccess — an unknown table", () => {
 describe("requireEntityHistoryAccess — the per-request cache", () => {
   it("fills req.permissionCodes so a second gate costs no query", async () => {
     const { req } = await run("member", CODED_ENTITY, {
-      codes: ["parts.edit"],
+      codes: ["products.edit"],
     });
-    expect(req.permissionCodes).toEqual(["parts.edit"]);
+    expect(req.permissionCodes).toEqual(["products.edit"]);
     expect(authz).toHaveBeenCalledTimes(1);
   });
 

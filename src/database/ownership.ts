@@ -5,11 +5,11 @@ import { DbKey } from "./keys";
  *
  * Two layers, because two different questions are being asked (plan R-1):
  *
- * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 85 application tables,
- *   each mapped to the plane that owns its original row set — 15 central, 70
+ * - `DOMAIN_OWNER` is the *pre-fan-out name set*: the 83 application tables,
+ *   each mapped to the plane that owns its original row set — 15 central, 68
  *   tenant (db-per-company D-3). The two names that exist in both planes
  *   (`files`, `audit_logs`) are listed under `core` here and under `tenant` in
- *   `EXTRA_COPIES`, so each plane holds 15 and 72 names respectively.
+ *   `EXTRA_COPIES`, so each plane holds 15 and 70 names respectively.
  * - `TABLE_OWNER` is keyed `(plane, table)` and additionally carries those
  *   per-plane *copies*. That fan-out is what AC-2 asserts, and it is why the
  *   manifest cannot be keyed by table name alone.
@@ -62,7 +62,7 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   nf_credentials: "tenant",
   nf_workflow_credentials: "tenant",
 
-  // ── tenant: ERP (55) — the ERP domain, plus code_sequences / app_config ───
+  // ── tenant: ERP (53) — the ERP domain, plus code_sequences / app_config ───
   app_config: "tenant",
   box_types: "tenant",
   code_sequences: "tenant",
@@ -98,8 +98,6 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   paper_stock: "tenant",
   paper_supplies: "tenant",
   paper_types: "tenant",
-  part_approval_events: "tenant",
-  parts: "tenant",
   product_types: "tenant",
   production_orders: "tenant",
   production_route_stage_machines: "tenant",
@@ -195,8 +193,6 @@ export const TABLE_MODULE: Record<string, "core" | "countdown" | "node-files"> =
     paper_stock: "core",
     paper_supplies: "core",
     paper_types: "core",
-    part_approval_events: "core",
-    parts: "core",
     product_types: "core",
     production_orders: "core",
     production_route_stage_machines: "core",

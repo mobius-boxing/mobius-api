@@ -56,7 +56,7 @@ const auditParentEntry = (table: string): TenantScopeEntry => {
 };
 
 export const TENANT_SCOPE: Readonly<Record<string, TenantScopeEntry>> = {
-  // ── direct: the table's own companyId/company_id (54) ─────────────────────
+  // ── direct: the table's own companyId/company_id (53) ─────────────────────
   app_config: { kind: "direct", column: "companyId" },
   audit_logs: { kind: "direct", column: "companyId" },
   box_types: { kind: "direct", column: "companyId" },
@@ -101,7 +101,6 @@ export const TENANT_SCOPE: Readonly<Record<string, TenantScopeEntry>> = {
   paper_sheets: { kind: "direct", column: "companyId" },
   paper_supplies: { kind: "direct", column: "companyId" },
   paper_types: { kind: "direct", column: "companyId" },
-  parts: { kind: "direct", column: "companyId" },
   product_types: { kind: "direct", column: "companyId" },
   production_orders: { kind: "direct", column: "companyId" },
   production_routes: { kind: "direct", column: "companyId" },
@@ -124,7 +123,7 @@ export const TENANT_SCOPE: Readonly<Record<string, TenantScopeEntry>> = {
   tooling_stock: { kind: "warehouse", column: "warehouseId" },
   warehouse_locations: { kind: "warehouse", column: "warehouse_id" },
 
-  // ── parent: AUDIT_PARENT's map reused verbatim (10) ────────────────────────
+  // ── parent: AUDIT_PARENT's map reused verbatim (9) ─────────────────────────
   corrugation_layers: auditParentEntry("corrugation_layers"),
   paper_class_papers: auditParentEntry("paper_class_papers"),
   countdown_group_members: auditParentEntry("countdown_group_members"),
@@ -132,7 +131,6 @@ export const TENANT_SCOPE: Readonly<Record<string, TenantScopeEntry>> = {
     "countdown_document_assignments",
   ),
   countdown_subcategories: auditParentEntry("countdown_subcategories"),
-  part_approval_events: auditParentEntry("part_approval_events"),
   sales_order_approval_events: auditParentEntry("sales_order_approval_events"),
   production_route_stages: auditParentEntry("production_route_stages"),
   production_route_stage_machines: auditParentEntry(

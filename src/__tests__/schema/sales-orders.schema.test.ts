@@ -77,7 +77,6 @@ const SALES_ORDER_COLUMNS: Record<string, string> = {
   customerId: "integer",
   salesUserId: "integer",
   productId: "integer",
-  partId: "integer",
   sheetSupplyId: "integer",
   orderDataId: "integer",
   quotationId: "integer",
@@ -255,47 +254,23 @@ describeIfLocalDb("sales_orders / order_data schema (AC-1…AC-4)", () => {
       });
     });
 
-    // remove-composite-products migration A relaxes the CHECK to
-    // `num_nonnulls("productId","sheetSupplyId") = 1 OR "partId" IS NOT NULL`
-    // (D-15/I-4): the deploy-(N−1) image still writes `partId` alone, and a
-    // row carrying BOTH `productId` and `partId` (e.g. the fold's own
-    // backfill, mid-write) must not be rejected either. Only the contract
-    // migration (commit 2) tightens the CHECK back to `productId` XOR
-    // `sheetSupplyId` — see I-4's "before B" clause.
-    it("accepts productId AND partId together during the expand window (AC-3, I-4, was 'rejects…together')", async () => {
-      const part = await client.query<{ id: number }>(
-        `SELECT id FROM parts WHERE "companyId" = $1 ORDER BY id LIMIT 1`,
-        [companyId],
-      );
-      if (!part.rows[0]?.id) return; // no seeded part in this scratch db — nothing to assert
-      await inRollback(async (insert) => {
-        await insert(insertOrder(', "productId", "partId"', ", $4, $5"), [
-          companyId,
-          customerId,
-          "TPHBOTH1",
-          productId,
-          part.rows[0].id,
-        ]);
-      });
+    it("rejects productId and sheetSupplyId together (AC-3, I-4)", async () => {
+      await expect(
+        inRollback(async (insert) => {
+          await insert(
+            insertOrder(', "productId", "sheetSupplyId"', ", $4, $4"),
+            [companyId, customerId, "TPHBOTH1", productId],
+          );
+        }),
+      ).rejects.toThrow(/sales_orders_tph_check/);
     });
 
-    it("accepts partId alone — the deploy-(N-1) old image's insert shape still works (AC-3, I-18)", async () => {
-      const part = await client.query<{ id: number }>(
-        `SELECT id FROM parts WHERE "companyId" = $1 ORDER BY id LIMIT 1`,
-        [companyId],
-      );
-      if (!part.rows[0]?.id) return; // no seeded part in this scratch db — nothing to assert
-      await inRollback(async (insert) => {
-        await insert(insertOrder(', "partId"', ", $4"), [
-          companyId,
-          customerId,
-          "TPHPART1",
-          part.rows[0].id,
-        ]);
-      });
+    it("has no partId discriminator after the contract migration (AC-3, I-18)", async () => {
+      const columns = await readColumns("sales_orders");
+      expect(columns).not.toHaveProperty("partId");
     });
 
-    it("rejects an order with all three discriminators null (AC-3)", async () => {
+    it("rejects an order with both discriminators null (AC-3)", async () => {
       await expect(
         inRollback(async (insert) => {
           await insert(insertOrder("", ""), [

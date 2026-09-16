@@ -639,7 +639,6 @@ CREATE TABLE public.finished_goods (
     description text,
     "supplierId" integer,
     "manufacturerId" integer,
-    "partId" integer,
     "stageId" integer,
     "minimumStock" numeric(14,4),
     "legacyId" integer,
@@ -1238,137 +1237,6 @@ CREATE SEQUENCE public.paper_types_id_seq
 
 ALTER SEQUENCE public.paper_types_id_seq OWNED BY public.paper_types.id;
 
-CREATE TABLE public.part_approval_events (
-    id integer NOT NULL,
-    uuid uuid DEFAULT gen_random_uuid() NOT NULL,
-    "partId" integer NOT NULL,
-    "stateMachine" text NOT NULL,
-    action text NOT NULL,
-    "performedBy" text,
-    "performedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT part_approval_events_action_check CHECK ((action = ANY (ARRAY['approve'::text, 'cancel'::text, 'unapprove'::text]))),
-    CONSTRAINT "part_approval_events_stateMachine_check" CHECK (("stateMachine" = ANY (ARRAY['dimensions'::text, 'technical'::text, 'sketch'::text, 'part'::text])))
-);
-
-CREATE SEQUENCE public.part_approval_events_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE public.part_approval_events_id_seq OWNED BY public.part_approval_events.id;
-
-CREATE TABLE public.parts (
-    id integer NOT NULL,
-    uuid uuid DEFAULT gen_random_uuid() NOT NULL,
-    "companyId" integer NOT NULL,
-    code character varying(400),
-    revision integer DEFAULT 0 NOT NULL,
-    "clientCode" text,
-    description text,
-    "boxLength" double precision,
-    "boxWidth" double precision,
-    "boxHeight" double precision,
-    "externalLength" double precision,
-    "externalWidth" double precision,
-    "externalHeight" double precision,
-    "sheetLength" double precision,
-    "sheetWidth" double precision,
-    "additionalSheetLength" double precision,
-    "preferredWidth" double precision,
-    flap double precision,
-    "lowerFlap" double precision,
-    "upperFlap" double precision,
-    "flapOverlap" double precision,
-    "corrugationScoreLines" text,
-    "printScoreLines" text,
-    "symmetricScoreLines" boolean DEFAULT false NOT NULL,
-    "colorCount" integer,
-    "printSides" double precision,
-    inks text,
-    "labelsPerPallet" smallint,
-    "labelText" text,
-    "printCode" boolean DEFAULT false NOT NULL,
-    "printDate" boolean DEFAULT false NOT NULL,
-    "printRecyclable" boolean DEFAULT false NOT NULL,
-    "printWarranty" boolean DEFAULT false NOT NULL,
-    "printLogo" boolean DEFAULT false NOT NULL,
-    "printNationalIndustry" boolean DEFAULT false NOT NULL,
-    "printExport" boolean DEFAULT false NOT NULL,
-    "compressionTest" double precision,
-    "burstTest" double precision,
-    "cobbTest" double precision,
-    ect double precision,
-    grammage double precision,
-    "lengthUpperTolerance" double precision,
-    "lengthLowerTolerance" double precision,
-    "widthUpperTolerance" double precision,
-    "widthLowerTolerance" double precision,
-    "overrunPercentage" double precision,
-    "underrunPercentage" double precision,
-    "corrugationOverproduction" double precision,
-    "allowsRotation" boolean DEFAULT false NOT NULL,
-    "allowsPartialRotation" boolean DEFAULT false NOT NULL,
-    "mandatoryRotation" boolean DEFAULT false NOT NULL,
-    "boxSurface" double precision,
-    "boxWeight" double precision,
-    "averageWeight" double precision,
-    "allowsGluing" boolean DEFAULT false NOT NULL,
-    "claspClosure" text,
-    "associatedQuantity" double precision,
-    "foodSafetyNumber" text,
-    "blueprintRef" text,
-    notes text,
-    "quotingNotes" text,
-    "dataSheetFileUuid" uuid,
-    "sketchFileUuid" uuid,
-    "blueprintFileUuid" uuid,
-    "imageFileUuid" uuid,
-    "productId" integer NOT NULL,
-    "corrugationId" integer NOT NULL,
-    "productionRouteId" integer NOT NULL,
-    "palletizationId" integer,
-    "modelId" integer,
-    "flapTypeId" integer,
-    "glueTypeId" integer,
-    "strappingTypeId" integer,
-    "traceTypeId" integer,
-    "complementId" integer,
-    "dimensionsApprovalAt" timestamp with time zone,
-    "dimensionsApprovalBy" text,
-    "dimensionsCancelledAt" timestamp with time zone,
-    "dimensionsCancelledBy" text,
-    "technicalApprovalAt" timestamp with time zone,
-    "technicalApprovalBy" text,
-    "technicalCancelledAt" timestamp with time zone,
-    "technicalCancelledBy" text,
-    "sketchApprovalAt" timestamp with time zone,
-    "sketchApprovalBy" text,
-    "sketchCancelledAt" timestamp with time zone,
-    "sketchCancelledBy" text,
-    "partApprovalAt" timestamp with time zone,
-    "partApprovalBy" text,
-    "partCancelledAt" timestamp with time zone,
-    "partCancelledBy" text,
-    "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    "createdBy" text,
-    "registeredAt" timestamp with time zone,
-    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    "legacyId" integer
-);
-
-CREATE SEQUENCE public.parts_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE public.parts_id_seq OWNED BY public.parts.id;
-
 CREATE TABLE public.product_types (
     id integer NOT NULL,
     uuid uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -1439,11 +1307,10 @@ CREATE TABLE public.production_orders (
     "createdByUser" text,
     "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     "legacyId" integer,
-    "partId" integer,
     "orderDataId" integer,
     "routeId" integer,
     "palletizationId" integer,
-    "productId" integer
+    "productId" integer NOT NULL
 );
 
 CREATE SEQUENCE public.production_orders_id_seq
@@ -1714,7 +1581,6 @@ CREATE TABLE public.sales_orders (
     "customerId" integer NOT NULL,
     "salesUserId" integer,
     "productId" integer,
-    "partId" integer,
     "sheetSupplyId" integer,
     "orderDataId" integer,
     "quotationId" integer,
@@ -1723,7 +1589,7 @@ CREATE TABLE public.sales_orders (
     "legacyId" integer,
     "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT sales_orders_tph_check CHECK (((num_nonnulls("productId", "sheetSupplyId") = 1) OR ("partId" IS NOT NULL)))
+    CONSTRAINT sales_orders_tph_check CHECK ((num_nonnulls("productId", "sheetSupplyId") = 1))
 );
 
 CREATE SEQUENCE public.sales_orders_id_seq
@@ -2043,10 +1909,6 @@ ALTER TABLE ONLY public.paper_stock ALTER COLUMN id SET DEFAULT nextval('public.
 ALTER TABLE ONLY public.paper_supplies ALTER COLUMN id SET DEFAULT nextval('public.paper_supplies_id_seq'::regclass);
 
 ALTER TABLE ONLY public.paper_types ALTER COLUMN id SET DEFAULT nextval('public.paper_types_id_seq'::regclass);
-
-ALTER TABLE ONLY public.part_approval_events ALTER COLUMN id SET DEFAULT nextval('public.part_approval_events_id_seq'::regclass);
-
-ALTER TABLE ONLY public.parts ALTER COLUMN id SET DEFAULT nextval('public.parts_id_seq'::regclass);
 
 ALTER TABLE ONLY public.product_types ALTER COLUMN id SET DEFAULT nextval('public.product_types_id_seq'::regclass);
 
@@ -2489,21 +2351,6 @@ ALTER TABLE ONLY public.paper_types
 ALTER TABLE ONLY public.paper_types
     ADD CONSTRAINT paper_types_uuid_unique UNIQUE (uuid);
 
-ALTER TABLE ONLY public.part_approval_events
-    ADD CONSTRAINT part_approval_events_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.part_approval_events
-    ADD CONSTRAINT part_approval_events_uuid_unique UNIQUE (uuid);
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_companyid_code_revision_unique UNIQUE ("companyId", code, revision);
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_uuid_unique UNIQUE (uuid);
-
 ALTER TABLE ONLY public.product_types
     ADD CONSTRAINT product_types_code_companyid_unique UNIQUE (code, "companyId");
 
@@ -2807,8 +2654,6 @@ CREATE INDEX glue_types_code_index ON public.glue_types USING btree (code);
 
 CREATE INDEX glue_types_companyid_index ON public.glue_types USING btree ("companyId");
 
-CREATE INDEX idx_parts_approval_at ON public.parts USING btree ("partApprovalAt") WHERE ("partApprovalAt" IS NOT NULL);
-
 CREATE INDEX idx_products_approval_at ON public.products USING btree ("productApprovalAt") WHERE ("productApprovalAt" IS NOT NULL);
 
 CREATE INDEX idx_sales_orders_commercial_approved_at ON public.sales_orders USING btree ("commercialApprovedAt") WHERE ("commercialApprovedAt" IS NOT NULL);
@@ -2923,20 +2768,6 @@ CREATE INDEX paper_types_code_index ON public.paper_types USING btree (code);
 
 CREATE INDEX paper_types_companyid_index ON public.paper_types USING btree ("companyId");
 
-CREATE INDEX part_approval_events_partid_performedat_index ON public.part_approval_events USING btree ("partId", "performedAt");
-
-CREATE INDEX parts_companyid_code_index ON public.parts USING btree ("companyId", code);
-
-CREATE INDEX parts_corrugationid_index ON public.parts USING btree ("corrugationId");
-
-CREATE INDEX parts_legacyid_index ON public.parts USING btree ("legacyId");
-
-CREATE INDEX parts_modelid_index ON public.parts USING btree ("modelId");
-
-CREATE INDEX parts_productid_index ON public.parts USING btree ("productId");
-
-CREATE INDEX parts_productionrouteid_index ON public.parts USING btree ("productionRouteId");
-
 CREATE INDEX product_types_companyid_index ON public.product_types USING btree ("companyId");
 
 CREATE INDEX production_orders_companyid_index ON public.production_orders USING btree ("companyId");
@@ -2946,8 +2777,6 @@ CREATE INDEX production_orders_companyid_number_index ON public.production_order
 CREATE INDEX production_orders_legacyid_index ON public.production_orders USING btree ("legacyId");
 
 CREATE INDEX production_orders_orderdataid_index ON public.production_orders USING btree ("orderDataId");
-
-CREATE INDEX production_orders_partid_index ON public.production_orders USING btree ("partId");
 
 CREATE INDEX production_orders_productid_index ON public.production_orders USING btree ("productId");
 
@@ -3238,47 +3067,11 @@ ALTER TABLE ONLY public.paper_supplies
 ALTER TABLE ONLY public.paper_supplies
     ADD CONSTRAINT paper_supplies_supplier_id_foreign FOREIGN KEY ("supplierId") REFERENCES public.suppliers(id) ON DELETE RESTRICT;
 
-ALTER TABLE ONLY public.part_approval_events
-    ADD CONSTRAINT part_approval_events_partid_foreign FOREIGN KEY ("partId") REFERENCES public.parts(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_complementid_foreign FOREIGN KEY ("complementId") REFERENCES public.complements(id) ON DELETE SET NULL;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_corrugationid_foreign FOREIGN KEY ("corrugationId") REFERENCES public.corrugations(id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_flaptypeid_foreign FOREIGN KEY ("flapTypeId") REFERENCES public.flap_types(id) ON DELETE SET NULL;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_gluetypeid_foreign FOREIGN KEY ("glueTypeId") REFERENCES public.glue_types(id) ON DELETE SET NULL;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_modelid_foreign FOREIGN KEY ("modelId") REFERENCES public.models(id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_palletizationid_foreign FOREIGN KEY ("palletizationId") REFERENCES public.palletizations(id) ON DELETE SET NULL;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_productid_foreign FOREIGN KEY ("productId") REFERENCES public.products(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_productionrouteid_foreign FOREIGN KEY ("productionRouteId") REFERENCES public.production_routes(id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_strappingtypeid_foreign FOREIGN KEY ("strappingTypeId") REFERENCES public.strapping_types(id) ON DELETE SET NULL;
-
-ALTER TABLE ONLY public.parts
-    ADD CONSTRAINT parts_tracetypeid_foreign FOREIGN KEY ("traceTypeId") REFERENCES public.trace_types(id) ON DELETE SET NULL;
-
 ALTER TABLE ONLY public.production_orders
     ADD CONSTRAINT production_orders_orderdataid_foreign FOREIGN KEY ("orderDataId") REFERENCES public.order_data(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY public.production_orders
     ADD CONSTRAINT production_orders_palletizationid_foreign FOREIGN KEY ("palletizationId") REFERENCES public.palletizations(id) ON DELETE SET NULL;
-
-ALTER TABLE ONLY public.production_orders
-    ADD CONSTRAINT production_orders_partid_foreign FOREIGN KEY ("partId") REFERENCES public.parts(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY public.production_orders
     ADD CONSTRAINT production_orders_productid_foreign FOREIGN KEY ("productId") REFERENCES public.products(id) ON DELETE RESTRICT;
@@ -3357,9 +3150,6 @@ ALTER TABLE ONLY public.sales_orders
 
 ALTER TABLE ONLY public.sales_orders
     ADD CONSTRAINT sales_orders_orderdataid_foreign FOREIGN KEY ("orderDataId") REFERENCES public.order_data(id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY public.sales_orders
-    ADD CONSTRAINT sales_orders_partid_foreign FOREIGN KEY ("partId") REFERENCES public.parts(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY public.sales_orders
     ADD CONSTRAINT sales_orders_productid_foreign FOREIGN KEY ("productId") REFERENCES public.products(id) ON DELETE RESTRICT;
@@ -3765,14 +3555,6 @@ CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."pape
 
 DROP TRIGGER IF EXISTS audit_row_change ON public."paper_types";
 CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."paper_types"
-  FOR EACH ROW EXECUTE FUNCTION public.audit_row_change('', '', '', '', '');
-
-DROP TRIGGER IF EXISTS audit_row_change ON public."part_approval_events";
-CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."part_approval_events"
-  FOR EACH ROW EXECUTE FUNCTION public.audit_row_change('', 'parts', 'partId', '', '');
-
-DROP TRIGGER IF EXISTS audit_row_change ON public."parts";
-CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."parts"
   FOR EACH ROW EXECUTE FUNCTION public.audit_row_change('', '', '', '', '');
 
 DROP TRIGGER IF EXISTS audit_row_change ON public."product_types";

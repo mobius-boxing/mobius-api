@@ -25,8 +25,9 @@ import { ownerOf, tablesOf } from "./ownership";
  * `tenant_migration_runs` — all `core`, all audited, none excluded, none
  * fanned out: 84 application tables, 77 distinct audited tables, 78
  * `attachAudit` calls. `user_devices` (device approval, 2026-09-12) adds one
- * more `core` table, audited, none excluded, none fanned out: **85
- * application tables, 78 distinct audited tables, 79 `attachAudit` calls.**
+ * more `core` table, audited, none excluded, none fanned out. Removing the
+ * parts tables leaves **83 application tables, 76 distinct audited tables,
+ * 77 `attachAudit` calls.**
  */
 
 /**
@@ -130,7 +131,6 @@ export const AUDIT_PARENT: Record<string, AuditParent> = {
   // `warehouse_locations` is snake_case throughout, `warehouse_id` included.
   warehouse_locations: { parent: "warehouses", fk: "warehouse_id" },
   countdown_subcategories: { parent: "countdown_categories", fk: "categoryId" },
-  part_approval_events: { parent: "parts", fk: "partId" },
   sales_order_approval_events: { parent: "sales_orders", fk: "salesOrderId" },
   nf_documents: { parent: "nf_workflows", fk: "workflowId" },
   nf_runs: { parent: "nf_workflows", fk: "workflowId" },
@@ -142,8 +142,8 @@ export const AUDIT_PARENT: Record<string, AuditParent> = {
  * Keyed from the start (Amendment 2026-09-01, constraint 2) even though both
  * planes resolve to one physical database today: the split later changes which
  * connection runs the attach, not this code. Counts today are
- * tenant 66 · core 13 (includes `user_devices`, device approval) = 79 calls
- * over 78 distinct tables (`files` appears in both planes).
+ * tenant 64 · core 13 (includes `user_devices`, device approval) = 77 calls
+ * over 76 distinct tables (`files` appears in both planes).
  */
 export const auditedTablesOf = (key: DbKey): string[] =>
   tablesOf(key).filter((table) => !AUDIT_EXCLUDED.has(table));
@@ -238,8 +238,6 @@ export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   order_data: "orders.edit", // written by the sales-orders controller
   pallet_types: "palletizing.edit",
   palletizations: "palletizing.edit",
-  part_approval_events: "parts.edit", // child of `parts`
-  parts: "parts.edit", // `parts.approve.*` gate only the approval PATCH
   permissions: "roles.edit", // permissions.router.ts:24, read-only allowed
   production_orders: "production-orders.edit", // `.generate` gates creation
   production_route_stage_machines: "routes.edit",
@@ -248,7 +246,7 @@ export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   production_routes: "routes.edit", // `routes.delete` gates deletion only
   // The base resource code, matching every other entity here — not the
   // narrower `products.approve.technical` (one PATCH) or `products.delete`
-  // (DELETE only), and not `parts.edit` (the nested `/parts` collection).
+  // (DELETE only).
   products: "products.edit",
   role_permissions: "roles.edit", // child of `roles`
   roles: "roles.edit",
@@ -358,7 +356,6 @@ export const AUDIT_FK_TABLE: Record<string, string> = {
   paperSheetId: "paper_sheets",
   paperSupplyId: "paper_supplies",
   paperTypeId: "paper_types",
-  partId: "parts",
   permissionId: "permissions",
   productId: "products",
   productTypeId: "product_types",

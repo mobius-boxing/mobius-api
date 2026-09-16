@@ -243,13 +243,6 @@ export const PERMISSION_CONCEPTS: IPermissionConcept[] = [
     area: "masters",
   },
   {
-    code: "parts.edit",
-    name: "Partes",
-    description: "Edición de partes",
-    forms: "PartesForm",
-    area: "masters",
-  },
-  {
     code: "routes.edit",
     name: "Rutas de produccion",
     description: "Definición de rutas de producción",
@@ -424,41 +417,11 @@ export const PERMISSION_CONCEPTS: IPermissionConcept[] = [
 ];
 
 /**
- * Mobius-added action gates (enrichment D9, specs/parts/08-approvals.md) —
+ * Mobius-added action gates —
  * RW-only by default; `audit.read` is the one exception, so a role can be
  * granted read access to the audit log without export.
  */
 export const MOBIUS_ADDED_PERMISSIONS: IPermissionConcept[] = [
-  {
-    code: "parts.approve.dimensions",
-    name: "Partes - Aprobación de medidas",
-    description: "Botón de aprobación de medidas de la parte",
-    area: "actions",
-  },
-  {
-    code: "parts.approve.technical",
-    name: "Partes - Aprobación técnica",
-    description: "Botón de aprobación técnica de la parte",
-    area: "actions",
-  },
-  {
-    code: "parts.approve.sketch",
-    name: "Partes - Aprobación de boceto",
-    description: "Botón de aprobación de boceto de la parte",
-    area: "actions",
-  },
-  {
-    code: "parts.approve.part",
-    name: "Partes - Aprobación de parte",
-    description: "Botón de aprobación final de la parte",
-    area: "actions",
-  },
-  {
-    code: "parts.approve.bulk",
-    name: "Partes - Aprobación masiva",
-    description: "Aprobación/desaprobación masiva de partes",
-    area: "actions",
-  },
   {
     code: "countdown.manage",
     name: "Countdown - Administración",

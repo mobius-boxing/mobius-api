@@ -410,15 +410,6 @@ export const GENERATED_CROSS_PLANE_REFS: readonly CrossPlaneRef[] = [
     nullable: false,
   },
   {
-    constraintName: "parts_companyid_foreign",
-    table: "parts",
-    column: "companyId",
-    referencedTable: "companies",
-    referencedColumn: "id",
-    deleteRule: "CASCADE",
-    nullable: false,
-  },
-  {
     constraintName: "product_types_companyid_foreign",
     table: "product_types",
     column: "companyId",

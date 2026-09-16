@@ -544,30 +544,11 @@ describe("AC-3 — every requirePermission/userHasPermission code literal is in 
   });
 
   /**
-   * The T2 router sweep wired every remaining code onto its router or
-   * controller check, so this was empty — I-6's "every catalogue code is
-   * referenced" half held for real. remove-composite-products commit 1
-   * (D-1) deletes every route/controller that referenced the 7 `parts.*`
-   * codes (`routes/parts/`, `controllers/part/`) but — by design (D-15's
-   * expand/contract split) — leaves `permissions-catalog.ts`'s constants and
-   * the seeded `permissions` rows untouched until the commit-2 RBAC
-   * migration merges their grants and deletes them. So at commit 1 these 7
-   * codes are real, seeded, catalogue entries that no route enforces —
-   * exactly what this list exists to name. Commit 2 (T1-D) removes them from
-   * both the catalogue and this list together. Left as an exact-equality
-   * assertion (not `.toHaveLength(0)`) so an unrelated future prune that
-   * forgets to wire a new code's enforcement fails here by name, not just by
-   * count.
+   * Left as an exact-equality assertion (not `.toHaveLength(0)`) so an
+   * unrelated future prune that forgets to wire a new code's enforcement
+   * fails here by name, not just by count.
    */
-  const CODES_NOT_YET_ENFORCED: string[] = [
-    "parts.approve.bulk",
-    "parts.approve.dimensions",
-    "parts.approve.part",
-    "parts.approve.sketch",
-    "parts.approve.technical",
-    "parts.edit",
-    "parts.edit.readonly",
-  ];
+  const CODES_NOT_YET_ENFORCED: string[] = [];
 
   it("names every unenforced catalogue code, exactly — shrink this list as routes are gated", () => {
     const referenced = allReferencedCodes();

@@ -69,12 +69,9 @@ const PRODUCTION_ORDER_COLUMNS: Record<string, string> = {
   createdByUser: "text",
   updatedAt: "timestamp with time zone",
   legacyId: "integer",
-  partId: "integer",
   orderDataId: "integer",
   routeId: "integer",
   palletizationId: "integer",
-  // remove-composite-products migration A (expand, D-15): `productId` added
-  // nullable; `partId` stays until migration B (commit 2) drops it (I-4).
   productId: "integer",
 };
 
@@ -176,24 +173,14 @@ describeIfLocalDb("production_orders schema (AC-1…AC-3)", () => {
     );
 
     expect(byColumn.get("orderDataId")).toBe("order_data");
-    expect(byColumn.get("partId")).toBe("parts");
-    // remove-composite-products (D-1): `productId` points at `products`,
-    // RESTRICT, same as the model's Relationships table.
     expect(byColumn.get("productId")).toBe("products");
     expect([...byColumn.values()]).not.toContain("sales_orders");
   });
 
-  it("declares partId nullable after migration A — dropped only in the contract half (AC-2, I-4, was 'declares partId NOT NULL')", async () => {
+  it("requires productId after the contract migration (AC-2, I-4)", async () => {
     const live = await readColumns();
-    // remove-composite-products migration A (expand, D-15): the previous
-    // image still writes `partId`, so the column and its NOT NULL both
-    // survive the expand deploy; only `ALTER COLUMN "partId" DROP NOT NULL`
-    // runs here. The contract migration (commit 2) drops the column outright.
-    expect(live.partId?.isNullable).toBe("YES");
-    // `productId` is nullable too at this point — it becomes NOT NULL only
-    // in the contract half, once every row has been backfilled (I-5).
-    expect(live.productId?.isNullable).toBe("YES");
-    // orderDataId stays nullable: a standalone OP has no pedido.
+    expect(live).not.toHaveProperty("partId");
+    expect(live.productId?.isNullable).toBe("NO");
     expect(live.orderDataId?.isNullable).toBe("YES");
   });
 

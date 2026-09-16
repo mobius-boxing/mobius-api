@@ -61,8 +61,7 @@ const N = {
   invitations: 18,
   customers: 64,
   paperSupplies: 64,
-  products: 72,
-  parts: 78,
+  products: 78,
   stock: 64,
   salesOrders: 86,
   productionOrders: 92,
@@ -328,16 +327,15 @@ async function runSeed(trx: Knex, companyId: number): Promise<void> {
   {
     const people = await seedPeople(trx, companyId);
     const catalogs = await seedCatalogs(trx, companyId);
-    const commercial = await seedCommercial(trx, companyId, people, catalogs);
     const production = await seedProduction(trx, companyId, catalogs);
-    await seedStock(trx, catalogs);
-    const engineering = await seedEngineering(
+    const commercial = await seedCommercial(
       trx,
       companyId,
+      people,
       catalogs,
-      commercial,
       production,
     );
+    await seedStock(trx, catalogs);
     await seedOrders(
       trx,
       companyId,
@@ -345,7 +343,6 @@ async function runSeed(trx: Knex, companyId: number): Promise<void> {
       catalogs,
       commercial,
       production,
-      engineering,
     );
   }
 }
@@ -1503,6 +1500,7 @@ async function seedCommercial(
   companyId: number,
   people: People,
   catalogs: Catalogs,
+  production: Production,
 ): Promise<Commercial> {
   const customerIds = await insertMany(
     trx,
@@ -1623,10 +1621,15 @@ async function seedCommercial(
         "mostrador",
         "granel",
         "retail",
+        "logística",
+        "e-commerce",
       ],
     ).map((name, i) => {
       const approved = i % 4 !== 0;
       const cancelled = !approved && i % 8 === 0;
+      const boxLength = dec(180, 800, 0);
+      const boxWidth = dec(120, 600, 0);
+      const boxHeight = dec(90, 500, 0);
       return {
         companyId,
         code: `${P}-PROD-${pad(i + 1, 4)}`,
@@ -1641,6 +1644,71 @@ async function seedCommercial(
         productApprovalBy: approved ? ACTOR : null,
         productCancellationAt: cancelled ? daysFrom(-int(1, 60)) : null,
         productCancellationBy: cancelled ? ACTOR : null,
+        boxLength,
+        boxWidth,
+        boxHeight,
+        externalLength: boxLength + dec(4, 12, 1),
+        externalWidth: boxWidth + dec(4, 12, 1),
+        externalHeight: boxHeight + dec(4, 12, 1),
+        sheetLength: dec(700, 2600, 0),
+        sheetWidth: dec(500, 1600, 0),
+        preferredWidth: dec(900, 2400, 0),
+        flap: dec(30, 120, 0),
+        lowerFlap: dec(30, 120, 0),
+        upperFlap: dec(30, 120, 0),
+        flapOverlap: dec(0, 40, 0),
+        corrugationScoreLines: `${boxLength};${boxWidth};${boxLength};${boxWidth}`,
+        printScoreLines: `${boxHeight};${dec(30, 120, 0)}`,
+        symmetricScoreLines: chance(0.5),
+        colorCount: int(0, 4),
+        printSides: int(1, 2),
+        inks: pick(["Negro", "Negro + Rojo", "CMYK", "Pantone 286 C"]),
+        labelsPerPallet: int(1, 8),
+        labelText: `Lote ${pad(i + 1, 4)} — ${COMPANY_NAME}`,
+        printCode: chance(0.7),
+        printDate: chance(0.6),
+        printRecyclable: chance(0.5),
+        printWarranty: chance(0.2),
+        printLogo: chance(0.6),
+        printNationalIndustry: chance(0.4),
+        printExport: chance(0.25),
+        compressionTest: dec(180, 900, 1),
+        burstTest: dec(6, 22, 2),
+        cobbTest: dec(20, 160, 1),
+        ect: dec(3, 14, 2),
+        grammage: dec(380, 1150, 1),
+        lengthUpperTolerance: dec(1, 5, 1),
+        lengthLowerTolerance: dec(1, 5, 1),
+        widthUpperTolerance: dec(1, 5, 1),
+        widthLowerTolerance: dec(1, 5, 1),
+        overrunPercentage: dec(2, 10, 1),
+        underrunPercentage: dec(2, 10, 1),
+        corrugationOverproduction: dec(0, 6, 1),
+        allowsRotation: chance(0.5),
+        allowsPartialRotation: chance(0.3),
+        mandatoryRotation: chance(0.1),
+        boxSurface: dec(0.3, 3.4, 4),
+        boxWeight: dec(0.2, 3.2, 3),
+        averageWeight: dec(0.2, 3.2, 3),
+        allowsGluing: chance(0.6),
+        claspClosure: pick(["Sin cierre", "Pegado", "Grapado", "Cinta"]),
+        associatedQuantity: int(100, 5000),
+        foodSafetyNumber: chance(0.3) ? `BPM-${pad(i + 1, 5)}` : null,
+        blueprintRef: `PL-${pad(i + 1, 5)}`,
+        notes: chance(0.3) ? "Verificar troquel antes de programar." : null,
+        quotingNotes: chance(0.2) ? "Precio sujeto a revisión de papel." : null,
+        corrugationId: pick(catalogs.corrugationIds),
+        productionRouteId: production.routeIds[
+          i % production.routeIds.length
+        ] as number,
+        palletizationId: pick(catalogs.palletizationIds),
+        modelId: pick(catalogs.modelIds),
+        flapTypeId: pick(catalogs.flapTypeIds),
+        glueTypeId: pick(catalogs.glueTypeIds),
+        strappingTypeId: pick(catalogs.strappingTypeIds),
+        traceTypeId: pick(catalogs.traceTypeIds),
+        complementId: chance(0.4) ? pick(catalogs.complementIds) : null,
+        registeredAt: daysFrom(-int(20, 300)),
       };
     }),
   );
@@ -1652,6 +1720,33 @@ async function seedCommercial(
       customerIds[i % customerIds.length] as number,
     );
   });
+
+  await insertMany(
+    trx,
+    "finished_goods",
+    combos(
+      N.catalog,
+      [
+        "Producto terminado",
+        "Semielaborado",
+        "Bulto",
+        "Pallet armado",
+        "Caja armada",
+        "Bandeja armada",
+      ],
+      ["A", "B", "C", "D", "E", "F", "G", "H"],
+    ).map((name, i) => ({
+      companyId,
+      code: `${P}-PTE-${pad(i + 1)}`,
+      name,
+      description: `${name} listo para despacho`,
+      supplierId: pick(catalogs.supplierIds),
+      manufacturerId: pick(catalogs.manufacturerIds),
+      productId: productIds[i % productIds.length] as number,
+      stageId: production.stageIds[i % production.stageIds.length] as number,
+      minimumStock: int(20, 600),
+    })),
+  );
 
   return {
     customerIds,
@@ -1854,180 +1949,6 @@ async function seedStock(trx: Knex, catalogs: Catalogs): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Parts (the engineering record) + finished goods
-// ---------------------------------------------------------------------------
-
-type Engineering = { partIds: number[] };
-
-/** The four independent approval machines a part carries. */
-const PART_MACHINES = ["dimensions", "technical", "sketch", "part"] as const;
-type PartMachine = (typeof PART_MACHINES)[number];
-
-async function seedEngineering(
-  trx: Knex,
-  companyId: number,
-  catalogs: Catalogs,
-  commercial: Commercial,
-  production: Production,
-): Promise<Engineering> {
-  // Staggered so the Parts screen shows the whole approval vocabulary rather
-  // than a column of "pendiente".
-  const approvals = series(N.parts, (i): Record<PartMachine, Date | null> => {
-    const dimensions = i % 3 !== 0 ? daysFrom(-int(10, 220)) : null;
-    const technical = i % 4 !== 0 ? daysFrom(-int(10, 210)) : null;
-    const sketch = i % 5 !== 0 ? daysFrom(-int(10, 200)) : null;
-    const part =
-      dimensions && technical && sketch && i % 6 !== 0
-        ? daysFrom(-int(5, 190))
-        : null;
-    return { dimensions, technical, sketch, part };
-  });
-
-  const partIds = await insertMany(
-    trx,
-    "parts",
-    series(N.parts, (i) => {
-      const boxLength = dec(180, 800, 0);
-      const boxWidth = dec(120, 600, 0);
-      const boxHeight = dec(90, 500, 0);
-      const approval = approvals[i] as Record<PartMachine, Date | null>;
-      return {
-        companyId,
-        code: `${P}-PZA-${pad(i + 1, 4)}`,
-        revision: i % 3,
-        clientCode: `CP-${pad(i + 1, 5)}`,
-        description: `Pieza técnica ${pad(i + 1, 4)} — desarrollo de caja`,
-        boxLength,
-        boxWidth,
-        boxHeight,
-        externalLength: boxLength + dec(4, 12, 1),
-        externalWidth: boxWidth + dec(4, 12, 1),
-        externalHeight: boxHeight + dec(4, 12, 1),
-        sheetLength: dec(700, 2600, 0),
-        sheetWidth: dec(500, 1600, 0),
-        preferredWidth: dec(900, 2400, 0),
-        flap: dec(30, 120, 0),
-        lowerFlap: dec(30, 120, 0),
-        upperFlap: dec(30, 120, 0),
-        flapOverlap: dec(0, 40, 0),
-        corrugationScoreLines: `${boxLength};${boxWidth};${boxLength};${boxWidth}`,
-        printScoreLines: `${boxHeight};${dec(30, 120, 0)}`,
-        symmetricScoreLines: chance(0.5),
-        colorCount: int(0, 4),
-        printSides: int(1, 2),
-        inks: pick(["Negro", "Negro + Rojo", "CMYK", "Pantone 286 C"]),
-        labelsPerPallet: int(1, 8),
-        labelText: `Lote ${pad(i + 1, 4)} — ${COMPANY_NAME}`,
-        printCode: chance(0.7),
-        printDate: chance(0.6),
-        printRecyclable: chance(0.5),
-        printWarranty: chance(0.2),
-        printLogo: chance(0.6),
-        printNationalIndustry: chance(0.4),
-        printExport: chance(0.25),
-        compressionTest: dec(180, 900, 1),
-        burstTest: dec(6, 22, 2),
-        cobbTest: dec(20, 160, 1),
-        ect: dec(3, 14, 2),
-        grammage: dec(380, 1150, 1),
-        lengthUpperTolerance: dec(1, 5, 1),
-        lengthLowerTolerance: dec(1, 5, 1),
-        widthUpperTolerance: dec(1, 5, 1),
-        widthLowerTolerance: dec(1, 5, 1),
-        overrunPercentage: dec(2, 10, 1),
-        underrunPercentage: dec(2, 10, 1),
-        corrugationOverproduction: dec(0, 6, 1),
-        allowsRotation: chance(0.5),
-        allowsPartialRotation: chance(0.3),
-        mandatoryRotation: chance(0.1),
-        boxSurface: dec(0.3, 3.4, 4),
-        boxWeight: dec(0.2, 3.2, 3),
-        averageWeight: dec(0.2, 3.2, 3),
-        allowsGluing: chance(0.6),
-        claspClosure: pick(["Sin cierre", "Pegado", "Grapado", "Cinta"]),
-        associatedQuantity: int(100, 5000),
-        foodSafetyNumber: chance(0.3) ? `BPM-${pad(i + 1, 5)}` : null,
-        blueprintRef: `PL-${pad(i + 1, 5)}`,
-        notes: chance(0.3) ? "Verificar troquel antes de programar." : null,
-        quotingNotes: chance(0.2) ? "Precio sujeto a revisión de papel." : null,
-        productId: commercial.productIds[
-          i % commercial.productIds.length
-        ] as number,
-        corrugationId: pick(catalogs.corrugationIds),
-        productionRouteId: production.routeIds[
-          i % production.routeIds.length
-        ] as number,
-        palletizationId: pick(catalogs.palletizationIds),
-        modelId: pick(catalogs.modelIds),
-        flapTypeId: pick(catalogs.flapTypeIds),
-        glueTypeId: pick(catalogs.glueTypeIds),
-        strappingTypeId: pick(catalogs.strappingTypeIds),
-        traceTypeId: pick(catalogs.traceTypeIds),
-        complementId: chance(0.4) ? pick(catalogs.complementIds) : null,
-        dimensionsApprovalAt: approval.dimensions,
-        dimensionsApprovalBy: approval.dimensions ? ACTOR : null,
-        technicalApprovalAt: approval.technical,
-        technicalApprovalBy: approval.technical ? ACTOR : null,
-        sketchApprovalAt: approval.sketch,
-        sketchApprovalBy: approval.sketch ? ACTOR : null,
-        partApprovalAt: approval.part,
-        partApprovalBy: approval.part ? ACTOR : null,
-        createdBy: ACTOR,
-        registeredAt: daysFrom(-int(20, 300)),
-      };
-    }),
-  );
-
-  // The trail those four machines would have written.
-  const eventRows: Row[] = [];
-  partIds.forEach((partId, i) => {
-    const approval = approvals[i];
-    if (!approval) return;
-    for (const machine of PART_MACHINES) {
-      const at = approval[machine];
-      if (!at) continue;
-      eventRows.push({
-        partId,
-        stateMachine: machine,
-        action: "approve",
-        performedBy: ACTOR,
-        performedAt: at,
-      });
-    }
-  });
-  await insertMany(trx, "part_approval_events", eventRows);
-
-  await insertMany(
-    trx,
-    "finished_goods",
-    combos(
-      N.catalog,
-      [
-        "Producto terminado",
-        "Semielaborado",
-        "Bulto",
-        "Pallet armado",
-        "Caja armada",
-        "Bandeja armada",
-      ],
-      ["A", "B", "C", "D", "E", "F", "G", "H"],
-    ).map((name, i) => ({
-      companyId,
-      code: `${P}-PTE-${pad(i + 1)}`,
-      name,
-      description: `${name} listo para despacho`,
-      supplierId: pick(catalogs.supplierIds),
-      manufacturerId: pick(catalogs.manufacturerIds),
-      partId: partIds[i % partIds.length] as number,
-      stageId: production.stageIds[i % production.stageIds.length] as number,
-      minimumStock: int(20, 600),
-    })),
-  );
-
-  return { partIds };
-}
-
-// ---------------------------------------------------------------------------
 // Sales orders and production orders
 // ---------------------------------------------------------------------------
 
@@ -2038,21 +1959,20 @@ async function seedOrders(
   catalogs: Catalogs,
   commercial: Commercial,
   production: Production,
-  engineering: Engineering,
 ): Promise<void> {
   /** A pedido references exactly one subject — `num_nonnulls(...) = 1`. */
   const subjectOf = (i: number): Row => {
     if (i % 7 === 0) {
       return {
-        productId: null,
-        partId: engineering.partIds[i % engineering.partIds.length] as number,
+        productId: commercial.productIds[
+          i % commercial.productIds.length
+        ] as number,
         sheetSupplyId: null,
       };
     }
     if (i % 11 === 0) {
       return {
         productId: null,
-        partId: null,
         sheetSupplyId: catalogs.paperSheetIds[
           i % catalogs.paperSheetIds.length
         ] as number,
@@ -2062,7 +1982,6 @@ async function seedOrders(
       productId: commercial.productIds[
         i % commercial.productIds.length
       ] as number,
-      partId: null,
       sheetSupplyId: null,
     };
   };
@@ -2209,7 +2128,9 @@ async function seedOrders(
         voidedAt: voided ? daysFrom(-int(1, 40)) : null,
         voidedByUser: voided ? ACTOR : null,
         createdByUser: ACTOR,
-        partId: engineering.partIds[i % engineering.partIds.length] as number,
+        productId: commercial.productIds[
+          i % commercial.productIds.length
+        ] as number,
         orderDataId: poOrderDataIds[i] as number,
         routeId: production.routeIds[i % production.routeIds.length] as number,
         palletizationId: pick(catalogs.palletizationIds),

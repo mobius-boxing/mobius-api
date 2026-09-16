@@ -36,25 +36,25 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * — all `core`, model D-7), plus `user_devices` (device approval, 2026-09-12
  * — also `core`).
  */
-const DOMAIN_TABLE_COUNT = 85;
+const DOMAIN_TABLE_COUNT = 83;
 /** db-per-company model D-3: the pre-fan-out names, per plane. */
 const DOMAIN_COUNTS: Record<DbKey, number> = {
   core: 15,
-  tenant: 70,
+  tenant: 68,
 };
 /** The names each plane holds, fan-out copies included (model placement table). */
 const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
   core: 15,
-  tenant: 72,
+  tenant: 70,
 };
 /**
  * The two names that deliberately live in both planes (AC-2, model D-5/D-6):
  * company logos vs. attachments, and one ledger per database.
  */
 const FANNED_OUT_COPIES: Record<string, number> = { files: 2, audit_logs: 2 };
-/** Tenant tables per catalogue slug: ERP 55 + `files` + `audit_logs` under core. */
+/** Tenant tables per catalogue slug: ERP 53 + `files` + `audit_logs` under core. */
 const MODULE_COUNTS: Record<string, number> = {
-  core: 57,
+  core: 55,
   countdown: 9,
   "node-files": 6,
 };
@@ -104,7 +104,7 @@ describe("TABLE_OWNER manifest (AC-1 a/b/d, AC-2)", () => {
     }
   });
 
-  it("holds 14 central and 72 tenant names, copies included (AC-15)", () => {
+  it("holds 15 central and 70 tenant names, copies included (AC-15)", () => {
     const counts = Object.fromEntries(
       DB_KEYS.map((key) => [key, tablesOf(key).length]),
     );

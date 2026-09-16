@@ -45,12 +45,12 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * `user_devices` (device approval, 2026-09-12; also `core`, audited).
  */
 const AUDITED_COUNTS: Record<DbKey, number> = {
-  tenant: 66,
+  tenant: 64,
   core: 13,
 };
-/** `files` is attached under core + tenant: 79 calls, 78 tables. */
-const ATTACH_CALLS = 79;
-const AUDITED_TABLES = 78;
+/** `files` is attached under core + tenant: 77 calls, 76 tables. */
+const ATTACH_CALLS = 77;
+const AUDITED_TABLES = 76;
 
 /**
  * R-1, corrected post-T2 router sweep (2026-09-14): only entities no company
@@ -259,7 +259,7 @@ describe("audit read manifest (AC-9)", () => {
     expect(auditDbFor("roles")).toBe("core");
     expect(auditDbFor("countdown_documents")).toBe("tenant");
     expect(auditDbFor("nf_workflows")).toBe("tenant");
-    expect(auditDbFor("parts")).toBe("tenant");
+    expect(auditDbFor("products")).toBe("tenant");
     expect(auditDbFor(undefined)).toBe("tenant");
     // `files` is fanned out across both planes, so `ownerOf` declines to answer.
     expect(auditDbFor("files")).toBe("tenant");
