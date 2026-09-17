@@ -3,6 +3,7 @@ import { setAuditAction } from "../../database/audit-context";
 import { IBaseController } from "../../types.d";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { ProductDAO } from "../../dao/product/product.dao";
+import { ModelDAO } from "../../dao/model/model.dao";
 import { CoreClient } from "../../services/core-client.service";
 import { CustomerDAO } from "../../dao/customer/customer.dao";
 import { ProductTypeDAO } from "../../dao/product-type/product-type.dao";
@@ -51,6 +52,7 @@ const BOX_WEIGHT_TRIGGER_KEYS = [
 
 export class ProductController implements IBaseController {
   private _productDAO: ProductDAO = new ProductDAO();
+  private _modelDAO: ModelDAO = new ModelDAO();
   private calculator = new ProductCalculator();
 
   /**
@@ -651,9 +653,11 @@ export class ProductController implements IBaseController {
 
   /**
    * POST /product/calculate — stateless (I-14): runs `ProductCalculator`
-   * against today's 8 cascade fields and returns the result without writing
-   * anything. `corrugationUuid` is company-scoped (I-9): another tenant's
-   * uuid answers 404, never 400.
+   * against the cascade fields plus the model-driven sheet/flap/score-line
+   * cascade (fefco-sheet-calculation) and returns the result without writing
+   * anything. `corrugationUuid`/`modelUuid` are company-scoped (I-9/L-009):
+   * another tenant's uuid answers 404, never 400. `modelUuid` absent/null
+   * keeps today's flute-only behaviour (AC-3).
    */
   public async calculate(
     req: Request,
@@ -672,13 +676,21 @@ export class ProductController implements IBaseController {
       const companyScope = companyFilterScope(req);
       const corrugationQuery = db("tenant")("corrugations")
         .where("uuid", inputDTO.corrugationUuid)
-        .select("id", "theoreticalGrammage");
+        .select("id", "theoreticalGrammage", "caliper");
       applyCompanyScope(corrugationQuery, "corrugations", companyScope);
       const corrugation = await corrugationQuery.first();
       if (!corrugation) {
         res
           .status(404)
           .json({ success: false, message: "Corrugation not found" });
+        return;
+      }
+
+      const model = inputDTO.modelUuid
+        ? await this._modelDAO.getByUuid(inputDTO.modelUuid, companyScope)
+        : null;
+      if (inputDTO.modelUuid && !model) {
+        res.status(404).json({ success: false, message: "Model not found" });
         return;
       }
 
@@ -701,6 +713,8 @@ export class ProductController implements IBaseController {
         corrugation.theoreticalGrammage != null
           ? parseFloat(corrugation.theoreticalGrammage)
           : null;
+      const caliper =
+        corrugation.caliper != null ? parseFloat(corrugation.caliper) : null;
 
       const values: ICalculableProduct = { ...inputDTO.values };
       const result = this.calculator.applyEdit(
@@ -709,6 +723,8 @@ export class ProductController implements IBaseController {
         inputDTO.value,
         adjustments,
         theoreticalGrammage,
+        model,
+        caliper,
       );
 
       const effectiveGrammage = this.calculator.effectiveGrammage(
@@ -732,6 +748,12 @@ export class ProductController implements IBaseController {
           boxWeight: result.boxWeight ?? null,
           grammage: result.grammage ?? null,
           effectiveGrammage,
+          sheetLength: result.sheetLength ?? null,
+          sheetWidth: result.sheetWidth ?? null,
+          lowerFlap: result.lowerFlap ?? null,
+          upperFlap: result.upperFlap ?? null,
+          corrugationScoreLines: result.corrugationScoreLines ?? null,
+          printScoreLines: result.printScoreLines ?? null,
         },
       });
     } catch (err: any) {

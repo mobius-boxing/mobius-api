@@ -65,6 +65,27 @@ import { ProductController } from "../../../controllers/product/product.controll
 const CUSTOMER_UUID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CORRUGATION_UUID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const PRODUCT_UUID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const MODEL_UUID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+// Real-corpus formulas (formula-engine/__tests__/real-corpus.json) — a
+// synthetic-but-real FEFCO 0201-shaped model for the AC-1/2/4 golden tests.
+const FEFCO_MODEL_ROW = {
+  id: 9,
+  uuid: MODEL_UUID,
+  sheetLengthFormula: "2*([Largo externo]+[Base externa]+[t])+[Chapeton]",
+  sheetWidthFormula: "[Base externa]+[Base externa]+[Altura externa]+[t]",
+  corrugationScoreLineFormulas:
+    "Truncate([Ancho externo]/2)|[Altura externa]|Ceiling([Ancho externo]/2)",
+  printScoreLineFormulas:
+    "[Chapeton]|[Base externa]|[Largo externo]|[Base externa]|[Largo externo]",
+  lowerFlapFormula: "Truncate([Base externa]*57.21/100)",
+  upperFlapFormula: "Ceiling([Base externa]/2)",
+  externalLengthDeltaFormula: "5",
+  externalWidthDeltaFormula: "5",
+  externalHeightDeltaFormula: "5",
+  boxSurfaceFormula:
+    "(2*([Largo externo]+[Base externa]+[t])+[Chapeton])*([Base externa]+[Altura externa]+[t])/1000000",
+};
 
 const makeRes = () => {
   const res = { statusCode: 200, body: null };
@@ -353,6 +374,161 @@ describe("AC-6 — POST /product/calculate (I-14, stateless)", () => {
     await controller.calculate(req, res, () => {});
 
     expect(res.statusCode).toBe(200);
+    expect(mockProductDAO.create).not.toHaveBeenCalled();
+    expect(mockProductDAO.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("AC-1/2/4/5 — model-driven sheet/flap/score-line cascade (fefco-sheet-calculation)", () => {
+  const GOLDEN_VALUES = {
+    boxWidth: 400,
+    boxHeight: 300,
+    externalWidth: 405,
+    externalHeight: 305,
+    flap: 30,
+    flapOverlap: 10,
+    grammage: null,
+  };
+
+  it("AC-1: an external edit evaluates the model formulas by hand (golden, IEEE doubles)", async () => {
+    mockQueryBuilder.first
+      .mockResolvedValueOnce({
+        id: 77,
+        theoreticalGrammage: "450",
+        caliper: "5",
+      }) // corrugation
+      .mockResolvedValueOnce(FEFCO_MODEL_ROW) // model
+      .mockResolvedValueOnce(null); // flute
+    const req = makeReq({
+      corrugationUuid: CORRUGATION_UUID,
+      modelUuid: MODEL_UUID,
+      field: "externalLength",
+      value: 505,
+      values: GOLDEN_VALUES,
+    });
+    const res = makeRes();
+
+    await controller.calculate(req, res, () => {});
+
+    expect(res.statusCode).toBe(200);
+    // Hand-evaluated: 2*(505+405+5)+30 = 1860.
+    expect(res.body.data.sheetLength).toBe(1860);
+    // Hand-evaluated: 405+405+305+5 = 1120.
+    expect(res.body.data.sheetWidth).toBe(1120);
+    // Hand-evaluated: Truncate(405*57.21/100) = Truncate(231.7005) = 231.
+    expect(res.body.data.lowerFlap).toBe(231);
+    // Hand-evaluated: Ceiling(405/2) = 203.
+    expect(res.body.data.upperFlap).toBe(203);
+    expect(res.body.data.corrugationScoreLines).toBe("202; 305; 203");
+    expect(res.body.data.printScoreLines).toBe("30; 405; 505; 405; 505");
+    // Hand-evaluated: (2*(505+405+5)+30)*(405+305+5)/1e6 = 1860*715/1e6 = 1.3299.
+    expect(res.body.data.boxSurface).toBeCloseTo(1.3299, 10);
+    expect(res.body.data.boxWeight).toBeCloseTo((1.3299 * 450) / 1000, 10);
+  });
+
+  it("AC-2: mandatoryRotation=true swaps sheet length/width and the score-line destinations", async () => {
+    mockQueryBuilder.first
+      .mockResolvedValueOnce({
+        id: 77,
+        theoreticalGrammage: "450",
+        caliper: "5",
+      })
+      .mockResolvedValueOnce(FEFCO_MODEL_ROW)
+      .mockResolvedValueOnce(null);
+    const req = makeReq({
+      corrugationUuid: CORRUGATION_UUID,
+      modelUuid: MODEL_UUID,
+      field: "mandatoryRotation",
+      value: true,
+      values: { ...GOLDEN_VALUES, boxLength: 500, externalLength: 505 },
+    });
+    const res = makeRes();
+
+    await controller.calculate(req, res, () => {});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.sheetLength).toBe(1120); // swapped: sheetWidthFormula's value
+    expect(res.body.data.sheetWidth).toBe(1860); // swapped: sheetLengthFormula's value
+    expect(res.body.data.corrugationScoreLines).toBe("30; 405; 505; 405; 505"); // swapped: print's lines
+    expect(res.body.data.printScoreLines).toBe("202; 305; 203"); // swapped: corrugation's lines
+    expect(res.body.data.boxSurface).toBeCloseTo(1.3299, 10); // NOT swapped
+  });
+
+  it("AC-4: an empty individual formula leaves its field as sent; surface untouched unless both sheet formulas are present", async () => {
+    mockQueryBuilder.first
+      .mockResolvedValueOnce({
+        id: 77,
+        theoreticalGrammage: "450",
+        caliper: "5",
+      })
+      .mockResolvedValueOnce({
+        ...FEFCO_MODEL_ROW,
+        sheetWidthFormula: "",
+        lowerFlapFormula: "",
+      })
+      .mockResolvedValueOnce(null);
+    const req = makeReq({
+      corrugationUuid: CORRUGATION_UUID,
+      modelUuid: MODEL_UUID,
+      field: "externalLength",
+      value: 505,
+      values: {
+        ...GOLDEN_VALUES,
+        sheetWidth: 999,
+        lowerFlap: 111,
+        boxSurface: 2.5,
+      },
+    });
+    const res = makeRes();
+
+    await controller.calculate(req, res, () => {});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.sheetLength).toBe(1860);
+    expect(res.body.data.sheetWidth).toBe(999); // untouched — sheetWidthFormula empty
+    expect(res.body.data.lowerFlap).toBe(111); // untouched — lowerFlapFormula empty
+    expect(res.body.data.upperFlap).toBe(203);
+    expect(res.body.data.boxSurface).toBe(2.5); // untouched — sheetWidthFormula empty guard
+  });
+
+  it("AC-5: another tenant's modelUuid answers 404, never 400 (L-009)", async () => {
+    mockQueryBuilder.first
+      .mockResolvedValueOnce({
+        id: 77,
+        theoreticalGrammage: "450",
+        caliper: "5",
+      }) // corrugation
+      .mockResolvedValueOnce(null); // model — company-scoped miss
+    const req = makeReq({
+      corrugationUuid: CORRUGATION_UUID,
+      modelUuid: MODEL_UUID,
+      field: "boxLength",
+      value: 500,
+      values: {},
+    });
+    const res = makeRes();
+
+    await controller.calculate(req, res, () => {});
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body.message).toMatch(/model/i);
+    expect(mockProductDAO.create).not.toHaveBeenCalled();
+    expect(mockProductDAO.update).not.toHaveBeenCalled();
+  });
+
+  it("AC-5: an unknown values key still 400s even with a model set, no DB write", async () => {
+    const req = makeReq({
+      corrugationUuid: CORRUGATION_UUID,
+      modelUuid: MODEL_UUID,
+      field: "boxLength",
+      value: 500,
+      values: { bogusKey: 1 },
+    });
+    const res = makeRes();
+
+    await controller.calculate(req, res, () => {});
+
+    expect(res.statusCode).toBe(400);
     expect(mockProductDAO.create).not.toHaveBeenCalled();
     expect(mockProductDAO.update).not.toHaveBeenCalled();
   });

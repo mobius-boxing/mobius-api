@@ -227,7 +227,7 @@ describe("ProductUpdateInputDTO", () => {
 });
 
 describe("ProductCalculateInputDTO (AC-6, D-11)", () => {
-  it("CALCULATE_FIELDS is exactly the 8 implemented cascade fields", () => {
+  it("CALCULATE_FIELDS is exactly the 8 cascade fields + flap/mandatoryRotation/model (fefco-sheet-calculation)", () => {
     expect(CALCULATE_FIELDS).toEqual([
       "boxLength",
       "boxWidth",
@@ -237,6 +237,9 @@ describe("ProductCalculateInputDTO (AC-6, D-11)", () => {
       "externalHeight",
       "boxSurface",
       "grammage",
+      "flap",
+      "mandatoryRotation",
+      "model",
     ]);
   });
 
@@ -274,7 +277,7 @@ describe("ProductCalculateInputDTO (AC-6, D-11)", () => {
     ).toThrow(/corrugationUuid/);
   });
 
-  it("rejects a field outside the 8 cascade fields", () => {
+  it("rejects a field outside the allowed cascade fields", () => {
     expect(() =>
       new ProductCalculateInputDTO({
         corrugationUuid: CORRUGATION,
@@ -336,5 +339,139 @@ describe("ProductCalculateInputDTO (AC-6, D-11)", () => {
     }).build();
 
     expect(dto.values.boxWeight).toBe(0.5);
+  });
+
+  it("modelUuid defaults to null (absent → today's flute-only behaviour, AC-3)", () => {
+    const dto = new ProductCalculateInputDTO({
+      corrugationUuid: CORRUGATION,
+      field: "boxLength",
+      value: 1,
+      values: {},
+    }).build();
+
+    expect(dto.modelUuid).toBeNull();
+  });
+
+  it("accepts an explicit modelUuid", () => {
+    const MODEL = "33333333-3333-4333-8333-333333333333";
+    const dto = new ProductCalculateInputDTO({
+      corrugationUuid: CORRUGATION,
+      modelUuid: MODEL,
+      field: "model",
+      values: {},
+    }).build();
+
+    expect(dto.modelUuid).toBe(MODEL);
+  });
+
+  it("rejects a non-string, non-null modelUuid", () => {
+    expect(() =>
+      new ProductCalculateInputDTO({
+        corrugationUuid: CORRUGATION,
+        modelUuid: 123,
+        field: "boxLength",
+        value: 1,
+        values: {},
+      }).build(),
+    ).toThrow(/modelUuid/);
+  });
+
+  it("field: 'model' ignores value — absent value is not rejected", () => {
+    const dto = new ProductCalculateInputDTO({
+      corrugationUuid: CORRUGATION,
+      modelUuid: "33333333-3333-4333-8333-333333333333",
+      field: "model",
+      values: {},
+    }).build();
+
+    expect(dto.value).toBeNull();
+  });
+
+  it("field: 'flap' takes a number|null like the other cascade fields", () => {
+    const dto = new ProductCalculateInputDTO({
+      corrugationUuid: CORRUGATION,
+      field: "flap",
+      value: 35,
+      values: {},
+    }).build();
+
+    expect(dto.value).toBe(35);
+  });
+
+  it("field: 'mandatoryRotation' requires a boolean value", () => {
+    const dto = new ProductCalculateInputDTO({
+      corrugationUuid: CORRUGATION,
+      field: "mandatoryRotation",
+      value: true,
+      values: {},
+    }).build();
+
+    expect(dto.value).toBe(true);
+  });
+
+  it("field: 'mandatoryRotation' rejects a non-boolean value", () => {
+    expect(() =>
+      new ProductCalculateInputDTO({
+        corrugationUuid: CORRUGATION,
+        field: "mandatoryRotation",
+        value: 1,
+        values: {},
+      }).build(),
+    ).toThrow(/value/);
+  });
+
+  it("accepts the fefco-sheet-calculation values keys (numbers, score-line text, boolean)", () => {
+    const dto = new ProductCalculateInputDTO({
+      corrugationUuid: CORRUGATION,
+      field: "flap",
+      value: 35,
+      values: {
+        sheetLength: 1600,
+        sheetWidth: 2000,
+        additionalSheetLength: 0,
+        flap: 35,
+        lowerFlap: 150,
+        upperFlap: 150,
+        flapOverlap: 10,
+        corrugationScoreLines: "150; 300; 150",
+        printScoreLines: null,
+        mandatoryRotation: false,
+      },
+    }).build();
+
+    expect(dto.values).toEqual({
+      sheetLength: 1600,
+      sheetWidth: 2000,
+      additionalSheetLength: 0,
+      flap: 35,
+      lowerFlap: 150,
+      upperFlap: 150,
+      flapOverlap: 10,
+      corrugationScoreLines: "150; 300; 150",
+      printScoreLines: null,
+      mandatoryRotation: false,
+    });
+  });
+
+  it("rejects a non-string corrugationScoreLines inside values", () => {
+    expect(() =>
+      new ProductCalculateInputDTO({
+        corrugationUuid: CORRUGATION,
+        field: "boxLength",
+        value: 1,
+        values: { corrugationScoreLines: 150 },
+      }).build(),
+    ).toThrow(/values/);
+  });
+
+  it("rejects a non-boolean mandatoryRotation inside values", () => {
+    expect(() =>
+      new ProductCalculateInputDTO({
+        corrugationUuid: CORRUGATION,
+        field: "boxLength",
+        value: 1,
+        values: { mandatoryRotation: 1 },
+      }).build(),
+    ).toThrow(/values/);
   });
 });
