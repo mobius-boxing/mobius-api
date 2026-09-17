@@ -1,4 +1,5 @@
 import { Knex } from "knex";
+import { QA_DEMO_MODEL_FORMULAS } from "../../src/database/qa-demo-model-formulas";
 import bcrypt from "bcryptjs";
 import { RbacService } from "../../src/services/rbac.service";
 import { ADMIN_ROLE_NAME } from "../../src/common/constants/permissions-catalog";
@@ -336,14 +337,7 @@ async function runSeed(trx: Knex, companyId: number): Promise<void> {
       production,
     );
     await seedStock(trx, catalogs);
-    await seedOrders(
-      trx,
-      companyId,
-      people,
-      catalogs,
-      commercial,
-      production,
-    );
+    await seedOrders(trx, companyId, people, catalogs, commercial, production);
   }
 }
 
@@ -1430,16 +1424,7 @@ async function seedCatalogs(trx: Knex, companyId: number): Promise<Catalogs> {
       companyId,
       code: `${P}-MOD-${pad(i + 1)}`,
       description: `${name} — desarrollo paramétrico`,
-      sheetLengthFormula: "2*(Largo+Ancho)+Pestania",
-      sheetWidthFormula: "Alto+2*Solapa",
-      corrugationScoreLineFormulas: "Largo;Ancho;Largo;Ancho",
-      printScoreLineFormulas: "Solapa;Alto;Solapa",
-      lowerFlapFormula: "Ancho/2",
-      upperFlapFormula: "Ancho/2",
-      externalLengthDeltaFormula: "Espesor*2",
-      externalWidthDeltaFormula: "Espesor*2",
-      externalHeightDeltaFormula: "Espesor*2",
-      boxSurfaceFormula: "(2*(Largo+Ancho))*(Alto+Ancho)/1000000",
+      ...QA_DEMO_MODEL_FORMULAS,
       flapTypeId: pick(flapTypeIds),
       complementId: chance(0.4) ? pick(complementIds) : null,
     })),
