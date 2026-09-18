@@ -97,7 +97,7 @@ export function applyFilters(
     if (!config) return;
 
     let value = filters[filterKey];
-    const column = `${tableName}.${config.column}`;
+    const column = `${config.table ?? tableName}.${config.column}`;
     const operator = config.operator || "=";
 
     if (Array.isArray(value)) {
@@ -111,6 +111,11 @@ export function applyFilters(
 
     if (config.transform) {
       value = config.transform(value);
+      // A range transform (e.g. `numberRangeFilters`'s `Number`) that cannot
+      // make sense of the raw value returns `undefined` for "drop this filter",
+      // matching the unknown-key behavior below rather than handing Postgres
+      // a NaN/Invalid Date.
+      if (value === undefined) return;
     }
 
     switch (operator) {

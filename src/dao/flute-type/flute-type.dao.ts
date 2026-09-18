@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { dayRangeFilters, numberRangeFilters } from "../../utils/filterRanges";
 import {
   applyCompanyScope,
   companyFilterScope,
@@ -33,6 +34,8 @@ const FLUTE_TYPE_FILTERS: FilterConfigs = {
     column: "uuid",
     operator: "=",
   },
+  ...numberRangeFilters("fluteFactor", "fluteFactor"),
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
 };
 
 const FLUTE_TYPE_SORTING: SortConfigs = {

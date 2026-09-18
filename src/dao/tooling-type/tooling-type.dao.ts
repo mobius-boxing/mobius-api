@@ -28,6 +28,10 @@ const TOOLING_TYPE_FILTERS: FilterConfigs = {
     column: "name",
     operator: "ILIKE",
   },
+  description: {
+    column: "description",
+    operator: "ILIKE",
+  },
   automaticConsumption: {
     column: "automaticConsumption",
     operator: "=",

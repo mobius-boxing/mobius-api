@@ -18,9 +18,17 @@ import {
   type CompanyScope,
 } from "../../utils/daoScope";
 import { Request } from "express";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 // companyId is handled separately (companyFilterScope, against warehouses.company_id): `filters.companyId` holds a uuid.
 const PAPER_STOCK_FILTERS: FilterConfigs = {
+  // Many-to-one FKs on `paper_stock`; all four are joined in `buildJoinQuery`
+  // (data) AND the count query in getAllWithFilters (I-2).
+  warehouseUuid: { table: "warehouses", column: "uuid", operator: "=" },
+  supplierUuid: { table: "suppliers", column: "uuid", operator: "=" },
+  manufacturerUuid: { table: "manufacturers", column: "uuid", operator: "=" },
+  paperSupplyUuid: { table: "paper_supplies", column: "uuid", operator: "=" },
+  ...numberRangeFilters("price", "price"),
   warehouseId: {
     column: `"paper_stock"."warehouseId"`,
     operator: "=",
@@ -219,12 +227,21 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     delete parsedQuery.filters.companyId;
 
     const dataQuery = this.buildJoinQuery(knex);
-    // Count query needs the warehouses join too so companyId filtering matches.
-    const countQuery = knex(this.tableName).leftJoin(
-      "warehouses",
-      `${this.tableName}.warehouseId`,
-      "warehouses.id",
-    );
+    // Count query needs every table a `table:` filter can name (I-2), plus
+    // warehouses for companyId scoping.
+    const countQuery = knex(this.tableName)
+      .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id")
+      .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
+      .leftJoin(
+        "manufacturers",
+        `${this.tableName}.manufacturerId`,
+        "manufacturers.id",
+      )
+      .leftJoin(
+        "paper_supplies",
+        `${this.tableName}.paperSupplyId`,
+        "paper_supplies.id",
+      );
 
     applyCompanyScope(dataQuery, "warehouses", companyId, "company_id");
     applyCompanyScope(countQuery, "warehouses", companyId, "company_id");

@@ -18,8 +18,21 @@ import {
   type CompanyScope,
 } from "../../utils/daoScope";
 import { Request } from "express";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 const CONSUMABLE_STOCK_FILTERS: FilterConfigs = {
+  // Many-to-one FKs on `consumable_stock`; all three are joined in
+  // `buildJoinQuery` (data) AND the count query in getAllWithFilters (I-2).
+  warehouseUuid: { table: "warehouses", column: "uuid", operator: "=" },
+  supplierUuid: { table: "suppliers", column: "uuid", operator: "=" },
+  manufacturerUuid: { table: "manufacturers", column: "uuid", operator: "=" },
+  consumableSupplyUuid: {
+    table: "consumable_supplies",
+    column: "uuid",
+    operator: "=",
+  },
+  ...numberRangeFilters("quantity", "quantity"),
+  ...numberRangeFilters("price", "price"),
   warehouseId: {
     column: `"consumable_stock"."warehouseId"`,
     operator: "=",
@@ -216,12 +229,22 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
     delete parsedQuery.filters.companyId;
 
     const dataQuery = this.buildJoinQuery(knex);
-    // Count query must join warehouses too so the company scope resolves.
-    const countQuery = knex(this.tableName).leftJoin(
-      "warehouses",
-      `${this.tableName}.warehouseId`,
-      "warehouses.id",
-    );
+    // Count query must join every table a `table:` filter can name (I-2):
+    // warehouses for company scope, suppliers/manufacturers/consumable_supplies
+    // for their respective Uuid filters.
+    const countQuery = knex(this.tableName)
+      .leftJoin("warehouses", `${this.tableName}.warehouseId`, "warehouses.id")
+      .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
+      .leftJoin(
+        "manufacturers",
+        `${this.tableName}.manufacturerId`,
+        "manufacturers.id",
+      )
+      .leftJoin(
+        "consumable_supplies",
+        `${this.tableName}.consumableSupplyId`,
+        "consumable_supplies.id",
+      );
 
     applyCompanyScope(dataQuery, "warehouses", companyId, "company_id");
     applyCompanyScope(countQuery, "warehouses", companyId, "company_id");

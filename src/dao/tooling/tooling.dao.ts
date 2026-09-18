@@ -17,6 +17,7 @@ import {
   type CompanyScope,
 } from "../../utils/daoScope";
 import { Request } from "express";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 // companyId is handled separately (companyFilterScope): `filters.companyId` holds a uuid, not a column value.
 const TOOLING_FILTERS: FilterConfigs = {
@@ -24,6 +25,12 @@ const TOOLING_FILTERS: FilterConfigs = {
     column: "name",
     operator: "ILIKE",
   },
+  // Many-to-one FKs on `toolings`, joined in `buildJoinQuery` (data) AND the
+  // count query in getAllWithFilters (I-2).
+  toolingTypeUuid: { table: "tooling_types", column: "uuid", operator: "=" },
+  manufacturerUuid: { table: "manufacturers", column: "uuid", operator: "=" },
+  supplierUuid: { table: "suppliers", column: "uuid", operator: "=" },
+  ...numberRangeFilters("minimumStock", "minimumStock"),
   toolingTypeId: {
     column: "toolingTypeId",
     operator: "=",
@@ -193,7 +200,19 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
     delete parsedQuery.filters.companyId;
 
     const dataQuery = this.buildJoinQuery(knex);
-    const countQuery = knex(this.tableName);
+    // Every table a `table:` filter can name must be joined here too (I-2).
+    const countQuery = knex(this.tableName)
+      .leftJoin(
+        "manufacturers",
+        `${this.tableName}.manufacturerId`,
+        "manufacturers.id",
+      )
+      .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
+      .leftJoin(
+        "tooling_types",
+        `${this.tableName}.toolingTypeId`,
+        "tooling_types.id",
+      );
 
     applyCompanyScope(dataQuery, this.tableName, companyId);
     applyCompanyScope(countQuery, this.tableName, companyId);

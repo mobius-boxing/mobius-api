@@ -25,6 +25,7 @@ import {
   UNRESOLVED_COMPANY,
   type CompanyScope,
 } from "../../utils/daoScope";
+import { dayRangeFilters } from "../../utils/filterRanges";
 
 /**
  * Every filter the read API accepts (P3 §4). Defined outside the class per the
@@ -52,6 +53,10 @@ import {
  */
 export const AUDIT_LOG_FILTERS: FilterConfigs = {
   entityName: { column: "entityName", operator: "=" },
+  // Distinct from the free-text `search` (entityCode + entityDescription
+  // together): a column-scoped ILIKE for the advanced panel's own
+  // "Registro" filter (column-filters rich-bars).
+  entityCode: { column: "entityCode", operator: "ILIKE" },
   entityUuid: { column: "entityUuid", operator: "=" },
   rootUuid: { column: "rootUuid", operator: "=" },
   operation: { column: "operation", operator: "=" },
@@ -62,6 +67,12 @@ export const AUDIT_LOG_FILTERS: FilterConfigs = {
   transactionRef: { column: "txId", operator: "=" },
   from: { column: "occurredAt", operator: ">=" },
   to: { column: "occurredAt", operator: "<=" },
+  // Additive convention-named alias (column-filters rich-bars, D-31): `from`/
+  // `to` predate this feature and bind a raw ISO instant verbatim, not the
+  // `${param}From/To` bare-day convention `dayRangeFilters` implements. Both
+  // stay; the primary bar keeps sending `from`/`to`, and the registry's
+  // `occurredAt` column uses this pair instead of duplicating that control.
+  ...dayRangeFilters("occurredAt", "occurredAt", { timestamp: true }),
   changedKey: {
     column: "changedKeys",
     operator: "@>",

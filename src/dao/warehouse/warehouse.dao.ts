@@ -23,6 +23,7 @@ import {
   companyFilterScope,
   type CompanyScope,
 } from "../../utils/daoScope";
+import { dayRangeFilters } from "../../utils/filterRanges";
 // companyId is handled separately (companyFilterScope): `filters.companyId` holds a uuid, not a column value.
 const WAREHOUSE_FILTERS: FilterConfigs = {
   name: {
@@ -33,6 +34,9 @@ const WAREHOUSE_FILTERS: FilterConfigs = {
     column: "uuid",
     operator: "=",
   },
+  // `warehouses` uses snake_case columns (WAREHOUSE_SORTING above), unlike
+  // most tenant tables.
+  ...dayRangeFilters("createdAt", "created_at", { timestamp: true }),
 };
 
 const WAREHOUSE_SORTING: SortConfigs = {

@@ -17,6 +17,7 @@ import {
   type CompanyScope,
 } from "../../utils/daoScope";
 import { Request } from "express";
+import { dayRangeFilters, numberRangeFilters } from "../../utils/filterRanges";
 
 // companyId is intentionally absent — getAllWithFilters scopes through
 // companyFilterScope(req); `filters.companyId` holds a uuid, not a column value.
@@ -29,6 +30,8 @@ const COLOR_FILTERS: FilterConfigs = {
     operator: "=",
     transform: (v: string) => parseInt(v, 10),
   },
+  ...numberRangeFilters("tonality", "tonality"),
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
 };
 
 const COLOR_SORTING: SortConfigs = {

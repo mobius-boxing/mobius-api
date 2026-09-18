@@ -17,6 +17,11 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import {
+  dayRangeFilters,
+  numberRangeFilters,
+  booleanFilter,
+} from "../../utils/filterRanges";
+import {
   applyCompanyScope,
   companyFilterScope,
   type CompanyScope,
@@ -48,6 +53,13 @@ export const PRODUCT_FILTERS: FilterConfigs = {
     column: "uuid",
     operator: "=",
   },
+  vip: booleanFilter("vip"),
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
+  ...numberRangeFilters("revision", "revision"),
+  // Many-to-one FKs on `products`; both `product_types` and `box_types` are
+  // joined in `selectWithJoins` AND `getAllWithFilters`'s count query (I-2).
+  productTypeUuid: { table: "product_types", column: "uuid", operator: "=" },
+  boxTypeUuid: { table: "box_types", column: "uuid", operator: "=" },
 };
 
 const PRODUCT_SORTING: SortConfigs = {
@@ -541,7 +553,17 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     const dataQuery = applyExtra(this.selectWithJoins(knex));
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    const countQuery = applyExtra(knex(this.tableName));
+    // `productTypeUuid`/`boxTypeUuid` (I-2, C-1) qualify against these same
+    // joins; `selectWithJoins` carries them for the data query already.
+    const countQuery = applyExtra(
+      knex(this.tableName)
+        .leftJoin(
+          "product_types",
+          `${this.tableName}.productTypeId`,
+          "product_types.id",
+        )
+        .leftJoin("box_types", `${this.tableName}.boxTypeId`, "box_types.id"),
+    );
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
     const [products, totalResult] = await Promise.all([

@@ -17,6 +17,7 @@ import {
 } from "../../utils/queryBuilder";
 import { Request } from "express";
 import { toDnsSlug } from "../../utils/slugify";
+import { dayRangeFilters } from "../../utils/filterRanges";
 
 const COMPANY_FILTERS: FilterConfigs = {
   name: {
@@ -32,6 +33,7 @@ const COMPANY_FILTERS: FilterConfigs = {
     column: "uuid",
     operator: "=",
   },
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
 };
 
 const COMPANY_SORTING: SortConfigs = {

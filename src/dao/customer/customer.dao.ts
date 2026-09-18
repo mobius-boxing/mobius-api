@@ -15,6 +15,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { dayRangeFilters } from "../../utils/filterRanges";
 import {
   applyCompanyScope,
   companyFilterScope,
@@ -52,6 +53,14 @@ const CUSTOMER_FILTERS: FilterConfigs = {
     column: "uuid",
     operator: "=",
   },
+  // Joined in getAllWithFilters (data + count, I-2): many-to-one FK on customers.
+  categoryUuid: { table: "customer_categories", column: "uuid", operator: "=" },
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
+  // salesPersonUuid is NOT here: `users` lives in the core database (a separate
+  // connection from `customers`' tenant db — see `services/core-client.service.ts`),
+  // so it cannot be a SQL join like `categoryUuid`. Resolved via
+  // `CoreClient.userIdByUuid` in getAllWithFilters instead, exactly like
+  // `customerUuid` on `product.dao.ts` (D-9).
 };
 
 const CUSTOMER_SORTING: SortConfigs = {
@@ -236,15 +245,45 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const companyId = companyFilterScope(req);
     delete parsedQuery.filters.companyId;
 
-    const dataQuery = knex(this.tableName).select(`${this.tableName}.*`);
+    // salesPersonUuid: resolved outside the generic filter config, exactly
+    // like product.dao's customerUuid — `users` is a core-db entity (D-9), so
+    // there is no local table to qualify with `table:`. A miss pins the
+    // impossible id -1 rather than matching every customer.
+    const salesPersonUuid = parsedQuery.filters.salesPersonUuid as
+      | string
+      | undefined;
+    delete parsedQuery.filters.salesPersonUuid;
+    let salesPersonId: number | undefined;
+    if (salesPersonUuid) {
+      salesPersonId = (await CoreClient.userIdByUuid(salesPersonUuid)) ?? -1;
+    }
+
+    // `categoryUuid` qualifies against this join (I-2, C-1); many-to-one FK
+    // on `customers`, so neither query's row count is affected by it.
+    const withCategoryJoin = (q: any) =>
+      q.leftJoin(
+        "customer_categories",
+        `${this.tableName}.categoryId`,
+        "customer_categories.id",
+      );
+
+    const dataQuery = withCategoryJoin(
+      knex(this.tableName).select(`${this.tableName}.*`),
+    );
 
     applyCompanyScope(dataQuery, this.tableName, companyId);
+    if (salesPersonId !== undefined) {
+      dataQuery.where(`${this.tableName}.salesPersonId`, salesPersonId);
+    }
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    const countQuery = knex(this.tableName);
+    const countQuery = withCategoryJoin(knex(this.tableName));
 
     applyCompanyScope(countQuery, this.tableName, companyId);
+    if (salesPersonId !== undefined) {
+      countQuery.where(`${this.tableName}.salesPersonId`, salesPersonId);
+    }
 
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 
@@ -257,7 +296,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
     return {
       success: true,
-      data: customers.map((customer) => this.mapToInterface(customer)),
+      data: customers.map((customer: any) => this.mapToInterface(customer)),
       page: parsedQuery.page,
       limit: parsedQuery.limit,
       count: customers.length,

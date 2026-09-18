@@ -18,10 +18,13 @@ import {
   companyFilterScope,
   type CompanyScope,
 } from "../../utils/daoScope";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 const PALLET_TYPE_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
   code: { column: "code", operator: "ILIKE" },
+  description: { column: "description", operator: "ILIKE" },
+  ...numberRangeFilters("weight", "weight"),
 };
 
 const PALLET_TYPE_SORTING: SortConfigs = {

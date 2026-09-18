@@ -48,6 +48,15 @@ const CONSUMABLE_SUPPLY_FILTERS: FilterConfigs = {
     column: "uuid",
     operator: "=",
   },
+  // Many-to-one FKs on `consumable_supplies`, joined in `buildJoinQuery`
+  // (data) AND the count query in getAllWithFilters (I-2).
+  supplierUuid: { table: "suppliers", column: "uuid", operator: "=" },
+  manufacturerUuid: { table: "manufacturers", column: "uuid", operator: "=" },
+  consumableTypeUuid: {
+    table: "consumable_types",
+    column: "uuid",
+    operator: "=",
+  },
 };
 
 const CONSUMABLE_SUPPLY_SORTING: SortConfigs = {
@@ -209,7 +218,19 @@ export class ConsumableSupplyDAO implements IBaseDAO<IConsumableSupply> {
     delete parsedQuery.filters.companyId;
 
     const dataQuery = this.buildJoinQuery(knex);
-    const countQuery = knex(this.tableName);
+    // Every table a `table:` filter can name must be joined here too (I-2).
+    const countQuery = knex(this.tableName)
+      .leftJoin("suppliers", `${this.tableName}.supplierId`, "suppliers.id")
+      .leftJoin(
+        "manufacturers",
+        `${this.tableName}.manufacturerId`,
+        "manufacturers.id",
+      )
+      .leftJoin(
+        "consumable_types",
+        `${this.tableName}.consumableTypeId`,
+        "consumable_types.id",
+      );
 
     applyCompanyScope(dataQuery, this.tableName, companyId);
     applyCompanyScope(countQuery, this.tableName, companyId);

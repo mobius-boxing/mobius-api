@@ -23,6 +23,11 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import {
+  dayRangeFilters,
+  numberRangeFilters,
+  booleanFilter,
+} from "../../utils/filterRanges";
+import {
   applyCompanyScope,
   companyFilterScope,
   type CompanyScope,
@@ -72,6 +77,12 @@ export const SALES_ORDER_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
   number: { column: "number", operator: "ILIKE" },
   purchaseOrder: { column: "purchaseOrder", operator: "ILIKE" },
+  supplierCode: { column: "supplierCode", operator: "ILIKE" },
+  needsAdvanceInvoice: booleanFilter("needsAdvanceInvoice"),
+  invoiceSent: booleanFilter("invoiceSent"),
+  ...numberRangeFilters("quantity", "quantity"),
+  ...numberRangeFilters("price", "price"),
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
   // Both bounds are INCLUSIVE (PedidoRepository.cs:102-109).
   deliveryDateFrom: {
     column: "deliveryDate",

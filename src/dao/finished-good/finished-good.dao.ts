@@ -17,6 +17,7 @@ import {
   companyFilterScope,
   type CompanyScope,
 } from "../../utils/daoScope";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 const FINISHED_GOOD_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
@@ -27,6 +28,10 @@ const FINISHED_GOOD_FILTERS: FilterConfigs = {
     operator: "=",
     transform: (v: string) => parseInt(v, 10),
   },
+  // Many-to-one FK on `finished_goods`, joined as `s` in `selectWithJoins`
+  // (data) AND the count query below (I-2).
+  supplierUuid: { table: "s", column: "uuid", operator: "=" },
+  ...numberRangeFilters("minimumStock", "minimumStock"),
 };
 
 const FINISHED_GOOD_SORTING: SortConfigs = {
@@ -158,7 +163,11 @@ export class FinishedGoodDAO {
     applyCompanyScope(dataQuery, this.tableName, companyId);
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    const countQuery = knex(this.tableName);
+    const countQuery = knex(this.tableName).leftJoin(
+      "suppliers as s",
+      `${this.tableName}.supplierId`,
+      "s.id",
+    );
     applyCompanyScope(countQuery, this.tableName, companyId);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 

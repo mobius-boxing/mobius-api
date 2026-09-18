@@ -17,6 +17,7 @@ import {
   type CompanyScope,
 } from "../../utils/daoScope";
 import { Request } from "express";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 // companyId is handled separately (companyFilterScope): `filters.companyId` holds a uuid, not a column value.
 const PAPER_SHEET_FILTERS: FilterConfigs = {
@@ -28,6 +29,12 @@ const PAPER_SHEET_FILTERS: FilterConfigs = {
     column: "name",
     operator: "ILIKE",
   },
+  // Many-to-one FKs on `paper_sheets`, joined in getAllWithFilters's data
+  // query AND the count query below (I-2).
+  supplierUuid: { table: "suppliers", column: "uuid", operator: "=" },
+  manufacturerUuid: { table: "manufacturers", column: "uuid", operator: "=" },
+  corrugationUuid: { table: "corrugations", column: "uuid", operator: "=" },
+  ...numberRangeFilters("minimumStock", "minimumStock"),
   supplierId: {
     column: "supplierId",
     operator: "=",
@@ -262,7 +269,18 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
 
     applyCompanyScope(dataQuery, this.tableName, companyId);
 
-    const countQuery = knex(this.tableName);
+    const countQuery = knex(this.tableName)
+      .leftJoin("suppliers", "paper_sheets.supplierId", "suppliers.id")
+      .leftJoin(
+        "manufacturers",
+        "paper_sheets.manufacturerId",
+        "manufacturers.id",
+      )
+      .leftJoin(
+        "corrugations",
+        "paper_sheets.corrugationId",
+        "corrugations.id",
+      );
 
     applyCompanyScope(countQuery, this.tableName, companyId);
 

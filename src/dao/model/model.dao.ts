@@ -25,6 +25,7 @@ import { assertUuidParam } from "../../utils/query-params";
 const MODEL_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
   code: { column: "code", operator: "ILIKE" },
+  description: { column: "description", operator: "ILIKE" },
 };
 
 /**

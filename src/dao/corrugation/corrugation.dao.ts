@@ -22,6 +22,7 @@ import {
 } from "../../utils/daoScope";
 import { diffKeyedRows } from "../../utils/setDiff";
 import { Request } from "express";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 // companyId is handled separately (companyFilterScope): `filters.companyId` holds a uuid, not a column value.
 const CORRUGATION_FILTERS: FilterConfigs = {
@@ -42,6 +43,12 @@ const CORRUGATION_FILTERS: FilterConfigs = {
     column: "uuid",
     operator: "=",
   },
+  // Many-to-one FK on `corrugations`, joined as `cc` in both the data query
+  // (getByUuid/getAllWithFilters) and the count query below (I-2).
+  corrugationClassUuid: { table: "cc", column: "uuid", operator: "=" },
+  ...numberRangeFilters("theoreticalGrammage", "theoreticalGrammage"),
+  ...numberRangeFilters("suggestedWidth", "suggestedWidth"),
+  ...numberRangeFilters("caliper", "caliper"),
 };
 
 const CORRUGATION_SORTING: SortConfigs = {
@@ -442,7 +449,11 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
 
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    const countQuery = knex(this.tableName);
+    const countQuery = knex(this.tableName).leftJoin(
+      "corrugation_classes as cc",
+      `${this.tableName}.corrugationClassId`,
+      "cc.id",
+    );
 
     applyCompanyScope(countQuery, this.tableName, companyId);
 

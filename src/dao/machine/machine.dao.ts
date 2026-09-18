@@ -18,15 +18,18 @@ import {
   companyFilterScope,
   type CompanyScope,
 } from "../../utils/daoScope";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 const MACHINE_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
   code: { column: "code", operator: "ILIKE" },
+  description: { column: "description", operator: "ILIKE" },
   machineTypeId: {
     column: "machineTypeId",
     operator: "=",
     transform: (v: string) => parseInt(v, 10),
   },
+  ...numberRangeFilters("setupTime", "setupTime"),
 };
 
 const MACHINE_SORTING: SortConfigs = {

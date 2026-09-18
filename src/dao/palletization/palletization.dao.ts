@@ -28,6 +28,10 @@ const PALLETIZATION_FILTERS: FilterConfigs = {
     operator: "=",
     transform: (v: string) => parseInt(v, 10),
   },
+  stackingType: { column: "stackingType", operator: "ILIKE" },
+  // Many-to-one FK on `palletizations`, joined as `pt` in `selectWithJoins`
+  // (data) AND the count query below (I-2).
+  palletTypeUuid: { table: "pt", column: "uuid", operator: "=" },
 };
 
 const PALLETIZATION_SORTING: SortConfigs = {
@@ -176,7 +180,11 @@ export class PalletizationDAO {
     applyCompanyScope(dataQuery, this.tableName, companyId);
     buildQuery(dataQuery, parsedQuery, this.queryConfig);
 
-    const countQuery = knex(this.tableName);
+    const countQuery = knex(this.tableName).leftJoin(
+      "pallet_types as pt",
+      `${this.tableName}.palletTypeId`,
+      "pt.id",
+    );
     applyCompanyScope(countQuery, this.tableName, companyId);
     buildCountQuery(countQuery, parsedQuery, this.queryConfig);
 

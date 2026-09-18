@@ -156,9 +156,11 @@ describe("LIFECYCLE_COLUMNS covers the three machines exactly once", () => {
 describe("list query configuration (AC-23, L-007)", () => {
   it("declares every documented column filter", () => {
     expect(Object.keys(PRODUCTION_ORDER_FILTERS).sort()).toEqual(
-      ["number", "uuid"].sort(),
+      ["number", "quantityFrom", "quantityTo", "uuid"].sort(),
     );
     expect(PRODUCTION_ORDER_FILTERS.number.operator).toBe("ILIKE");
+    expect(PRODUCTION_ORDER_FILTERS.quantityFrom.operator).toBe(">=");
+    expect(PRODUCTION_ORDER_FILTERS.quantityTo.operator).toBe("<=");
   });
 
   // This is a uuid-only surface. `partId`/`orderDataId` are RESOLVED from

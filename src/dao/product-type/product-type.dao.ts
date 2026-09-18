@@ -11,6 +11,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { dayRangeFilters } from "../../utils/filterRanges";
 import {
   applyCompanyScope,
   companyFilterScope,
@@ -32,6 +33,7 @@ const PRODUCT_TYPE_FILTERS: FilterConfigs = {
     column: "uuid",
     operator: "=",
   },
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
 };
 
 const PRODUCT_TYPE_SORTING: SortConfigs = {

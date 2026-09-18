@@ -17,6 +17,7 @@ import {
   CoreClient,
 } from "../../services/core-client.service";
 import { Request } from "express";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 const PAPER_SUPPLY_FILTERS: FilterConfigs = {
   code: {
@@ -27,6 +28,13 @@ const PAPER_SUPPLY_FILTERS: FilterConfigs = {
     column: "name",
     operator: "ILIKE",
   },
+  // Many-to-one FKs on `paper_supplies`, joined in getAllWithFilters's data
+  // query AND the count query below (I-2).
+  manufacturerUuid: { table: "manufacturers", column: "uuid", operator: "=" },
+  supplierUuid: { table: "suppliers", column: "uuid", operator: "=" },
+  paperTypeUuid: { table: "paper_types", column: "uuid", operator: "=" },
+  ...numberRangeFilters("grammage", "grammage"),
+  ...numberRangeFilters("price", "price"),
   manufacturerId: {
     column: "manufacturerId",
     operator: "=",
@@ -296,7 +304,15 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
       .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id")
       .leftJoin("fsc_types", "paper_supplies.fscTypeId", "fsc_types.id");
 
-    const countQuery = knex(this.tableName);
+    // Every table a `table:` filter can name must be joined here too (I-2).
+    const countQuery = knex(this.tableName)
+      .leftJoin(
+        "manufacturers",
+        "paper_supplies.manufacturerId",
+        "manufacturers.id",
+      )
+      .leftJoin("suppliers", "paper_supplies.supplierId", "suppliers.id")
+      .leftJoin("paper_types", "paper_supplies.paperTypeId", "paper_types.id");
 
     applyCompanyScope(dataQuery, this.tableName, companyId);
     applyCompanyScope(countQuery, this.tableName, companyId);

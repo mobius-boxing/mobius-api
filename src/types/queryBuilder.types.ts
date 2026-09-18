@@ -8,6 +8,12 @@
  */
 export interface FilterConfig {
   column: string; // Database column name (snake_case)
+  // A JOINED table to qualify `column` with instead of the DAO's own
+  // `tableName` (e.g. `{ table: 'customer_categories', column: 'uuid' }`).
+  // Valid only when both `buildQuery` and `buildCountQuery` join that table,
+  // and only through a many-to-one join (a FK on the base table) — otherwise
+  // the count query multiplies rows (I-2, C-1).
+  table?: string;
   // Default: "=". "@>" is Postgres array/jsonb containment; `applyFilters`
   // passes it through its default branch untouched, so the transform must
   // produce the array (audit P3's `changedKey` filter is the only user today).

@@ -30,6 +30,7 @@ import {
   parseEnumParam,
   FilterValidationError,
 } from "../../utils/query-params";
+import { numberRangeFilters } from "../../utils/filterRanges";
 
 /**
  * companyId arrives as a UUID and is applied as a join in `applyExtra`;
@@ -43,6 +44,7 @@ import {
 const PRODUCTION_ORDER_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
   number: { column: "number", operator: "ILIKE" },
+  ...numberRangeFilters("quantity", "quantity"),
 };
 
 /**

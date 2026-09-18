@@ -12,6 +12,7 @@ import {
   type FilterConfigs,
   type SortConfigs,
 } from "../../utils/queryBuilder";
+import { dayRangeFilters } from "../../utils/filterRanges";
 import {
   applyCompanyScope,
   companyFilterScope,
@@ -21,6 +22,8 @@ import {
 const DELIVERY_ZONE_FILTERS: FilterConfigs = {
   uuid: { column: "uuid", operator: "=" },
   code: { column: "code", operator: "ILIKE" },
+  description: { column: "description", operator: "ILIKE" },
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
 };
 
 const DELIVERY_ZONE_SORTING: SortConfigs = {

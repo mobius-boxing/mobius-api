@@ -163,14 +163,24 @@ describe("query-builder wiring (AC-1)", () => {
     // params on a uuid-only API.
     expect(Object.keys(SALES_ORDER_FILTERS).sort()).toEqual(
       [
+        "createdAtFrom",
+        "createdAtTo",
         "deliveryDateFrom",
         "deliveryDateTo",
+        "invoiceSent",
+        "needsAdvanceInvoice",
         "number",
+        "priceFrom",
+        "priceTo",
         "purchaseOrder",
+        "quantityFrom",
+        "quantityTo",
+        "supplierCode",
         "uuid",
       ].sort(),
     );
     expect(SALES_ORDER_FILTERS.number.operator).toBe("ILIKE");
+    expect(SALES_ORDER_FILTERS.supplierCode.operator).toBe("ILIKE");
     expect(SALES_ORDER_FILTERS.deliveryDateFrom).toMatchObject({
       column: "deliveryDate",
       operator: ">=",
@@ -179,6 +189,20 @@ describe("query-builder wiring (AC-1)", () => {
       column: "deliveryDate",
       operator: "<=",
     });
+    expect(SALES_ORDER_FILTERS.quantityFrom).toMatchObject({
+      column: "quantity",
+      operator: ">=",
+    });
+    expect(SALES_ORDER_FILTERS.priceFrom).toMatchObject({
+      column: "price",
+      operator: ">=",
+    });
+    expect(SALES_ORDER_FILTERS.createdAtFrom).toMatchObject({
+      column: "createdAt",
+      operator: ">=",
+    });
+    expect(SALES_ORDER_FILTERS.needsAdvanceInvoice.operator).toBe("=");
+    expect(SALES_ORDER_FILTERS.invoiceSent.operator).toBe("=");
   });
 
   it("offers only own-table sort columns and defaults to id desc (D-8)", () => {

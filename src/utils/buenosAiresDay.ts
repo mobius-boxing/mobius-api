@@ -47,6 +47,31 @@ export function calendarDaysBetween(from: string, to: string): number {
   return (asUtc(to) - asUtc(from)) / 86_400_000;
 }
 
+/**
+ * Argentina has kept a fixed UTC-3 offset (no DST) since 2009, so a BA
+ * calendar day's midnight is always exactly 3 hours after that same
+ * calendar date's UTC midnight — no `Intl` round-trip needed to invert it.
+ */
+const BA_UTC_OFFSET_HOURS = 3;
+
+/**
+ * UTC instant of local midnight starting the given Buenos Aires calendar day
+ * (`'YYYY-MM-DD'`), optionally shifted by whole days. Column filters use this
+ * for half-open day-range bounds: `dayRangeFilters`'s `To` bound is this same
+ * day shifted by +1, compared with `<`, so a row timestamped anywhere in the
+ * BA calendar day is included exactly once.
+ */
+export function startOfBuenosAiresDayUtc(day: string, daysToAdd = 0): Date {
+  const [year, month, dayOfMonth] = day.split("-").map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  return new Date(
+    Date.UTC(year, month - 1, dayOfMonth + daysToAdd, BA_UTC_OFFSET_HOURS),
+  );
+}
+
 /** Hour of the Buenos Aires day, 0–23. */
 export function baLocalHour(now: Date): number {
   return Number(
