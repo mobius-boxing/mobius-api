@@ -1,5 +1,6 @@
 import { db } from "../../database/registry";
 import { DeliveryLocationDAO } from "../delivery-location/delivery-location.dao";
+import { INewCustomerDeliveryLocation } from "../../interfaces/delivery/delivery.interfaces";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import {
@@ -92,7 +93,14 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
   private tableName = "customers";
   private queryConfig = CUSTOMER_QUERY_CONFIG;
 
-  async create(item: ICustomer): Promise<ICustomer> {
+  /**
+   * `deliveryLocations` are inserted in the same transaction, after the
+   * flagged address row (amendment 2, D-10): a failure leaves no customer.
+   */
+  async create(
+    item: ICustomer,
+    deliveryLocations: INewCustomerDeliveryLocation[] = [],
+  ): Promise<ICustomer> {
     const knex = db("tenant");
     const customer = await knex.transaction(async (trx) => {
       const [row] = await trx(this.tableName)
@@ -119,6 +127,9 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       })
       .returning("*");
       await this.addressLocationDAO.syncCustomerAddressTrx(trx, row);
+      for (const location of deliveryLocations) {
+        await this.addressLocationDAO.createTrx(trx, row, location);
+      }
       return row;
     });
 

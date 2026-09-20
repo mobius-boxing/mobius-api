@@ -34,3 +34,16 @@ export interface IDeliveryLocation {
   deliveryZone?: { uuid: string; code?: string | null; description?: string | null } | null;
   customer?: { uuid: string; name?: string } | null;
 }
+
+/**
+ * A delivery location sent inline with `POST /customer` (customer-address-delivery
+ * amendment 2, D-10). Zone already resolved to its numeric id by the controller.
+ */
+export interface INewCustomerDeliveryLocation {
+  address: string;
+  deliveryZoneId: number;
+  schedule?: string | null;
+  latitude?: number;
+  longitude?: number;
+  externalSystemCode?: string;
+}

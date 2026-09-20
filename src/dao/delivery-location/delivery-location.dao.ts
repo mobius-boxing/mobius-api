@@ -3,7 +3,10 @@ import type { Knex } from "knex";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
-import { IDeliveryLocation } from "../../interfaces/delivery/delivery.interfaces";
+import {
+  IDeliveryLocation,
+  INewCustomerDeliveryLocation,
+} from "../../interfaces/delivery/delivery.interfaces";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import {
   parseQueryParams,
@@ -91,6 +94,25 @@ export class DeliveryLocationDAO {
       })
       .returning("*");
     return (await this.getByUuid(row.uuid)) ?? this.mapToInterface(row);
+  }
+
+  /** One inline row of `POST /customer` (amendment 2), inside the customer's transaction. */
+  async createTrx(
+    trx: Knex.Transaction,
+    customer: Pick<ICustomer, "id" | "companyId">,
+    item: INewCustomerDeliveryLocation,
+  ): Promise<void> {
+    await trx(this.tableName).insert({
+      uuid: uuidv4(),
+      companyId: customer.companyId,
+      customerId: customer.id,
+      address: item.address,
+      schedule: item.schedule ?? null,
+      latitude: item.latitude ?? null,
+      longitude: item.longitude ?? null,
+      externalSystemCode: item.externalSystemCode ?? null,
+      deliveryZoneId: item.deliveryZoneId,
+    });
   }
 
   /**

@@ -1,9 +1,11 @@
 import {
   clearableText,
   optionalInt,
+  optionalNumber,
   optionalText,
   requiredInt,
   requiredText,
+  requiredUuid,
   toBoolean,
 } from "../shared/fieldValidators";
 import { collect } from "../shared/ValidationError";
@@ -47,6 +49,8 @@ export const CUSTOMER_LIMITS = {
   name: 255,
   code: 400,
   text: 10000,
+  latitude: { min: -90, max: 90 },
+  longitude: { min: -180, max: 180 },
   /** Resolved numeric ids, not uuids. */
   id: { min: 1, max: 2147483647 },
 };
@@ -67,7 +71,74 @@ export const CUSTOMER_LABELS = {
   dispatchable: "Despachable",
   excludeLogoOnLabels: "Excluir logo en etiquetas",
   requiresQualityCertificate: "Requiere certificado de calidad",
+  deliveryLocations: "Los lugares de entrega",
+  deliveryLocation: {
+    address: "La direcci\u00f3n de entrega",
+    deliveryZoneUuid: "La zona de entrega",
+    schedule: "El horario",
+    latitude: "La latitud",
+    longitude: "La longitud",
+    externalSystemCode: "El c\u00f3digo sistema administrativo",
+  },
 };
+
+/**
+ * One inline delivery location on create (amendment 2, D-10/D-11). The zone
+ * is required here like on `POST /delivery-locations` (§L.6); the controller
+ * resolves it under the company scope.
+ */
+export interface CustomerDeliveryLocationInput {
+  address: string;
+  deliveryZoneUuid: string;
+  schedule?: string;
+  latitude?: number;
+  longitude?: number;
+  externalSystemCode?: string;
+}
+
+function buildDeliveryLocations(
+  raw: unknown,
+  field: (name: string, fn: () => unknown) => unknown,
+): CustomerDeliveryLocationInput[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    field("deliveryLocations", () => {
+      throw new Error(`${CUSTOMER_LABELS.deliveryLocations} deben ser una lista`);
+    });
+    return undefined;
+  }
+  const labels = CUSTOMER_LABELS.deliveryLocation;
+  return raw.map((entry, i) => {
+    const item = (entry ?? {}) as Record<string, unknown>;
+    const at = (name: string) => `deliveryLocations.${i}.${name}`;
+    const built: CustomerDeliveryLocationInput = {
+      address: field(at("address"), () =>
+        requiredText(item.address, CUSTOMER_LIMITS.text, labels.address),
+      ) as string,
+      deliveryZoneUuid: field(at("deliveryZoneUuid"), () =>
+        requiredUuid(item.deliveryZoneUuid, labels.deliveryZoneUuid),
+      ) as string,
+      schedule: field(at("schedule"), () =>
+        optionalText(item.schedule, CUSTOMER_LIMITS.text, labels.schedule),
+      ) as string | undefined,
+      latitude: field(at("latitude"), () =>
+        optionalNumber(item.latitude, CUSTOMER_LIMITS.latitude, labels.latitude),
+      ) as number | undefined,
+      longitude: field(at("longitude"), () =>
+        optionalNumber(item.longitude, CUSTOMER_LIMITS.longitude, labels.longitude),
+      ) as number | undefined,
+      externalSystemCode: field(at("externalSystemCode"), () =>
+        optionalText(item.externalSystemCode, CUSTOMER_LIMITS.code, labels.externalSystemCode),
+      ) as string | undefined,
+    };
+    Object.keys(built).forEach((key) => {
+      if (built[key as keyof CustomerDeliveryLocationInput] === undefined) {
+        delete built[key as keyof CustomerDeliveryLocationInput];
+      }
+    });
+    return built;
+  });
+}
 
 /** Values are raw until `build()`: the constructor only captures what arrived. */
 export class CustomerCreateInputDTO {
@@ -93,6 +164,8 @@ export class CustomerCreateInputDTO {
    * today. The DAO owns it.
    */
   contacts?: IContactInfo[];
+  /** Inline rows created with the customer (amendment 2). Raw until `build()`. */
+  deliveryLocations?: CustomerDeliveryLocationInput[];
 
   constructor(data: Record<string, unknown>) {
     const source = data ?? {};
@@ -112,6 +185,9 @@ export class CustomerCreateInputDTO {
     this.excludeLogoOnLabels = source.excludeLogoOnLabels as boolean;
     this.requiresQualityCertificate = source.requiresQualityCertificate as boolean;
     this.contacts = source.contacts as IContactInfo[] | undefined;
+    this.deliveryLocations = source.deliveryLocations as
+      | CustomerDeliveryLocationInput[]
+      | undefined;
   }
 
   public build(): this {
@@ -161,6 +237,7 @@ export class CustomerCreateInputDTO {
       this.requiresQualityCertificate = field("requiresQualityCertificate", () =>
         toBoolean(this.requiresQualityCertificate, CUSTOMER_LABELS.requiresQualityCertificate),
       );
+      this.deliveryLocations = buildDeliveryLocations(this.deliveryLocations, field);
     });
 
     // `inputValidator` rejects ANY own key holding `undefined`, so a blank

@@ -32,4 +32,50 @@ describe("Customer DTOs — address is required", () => {
       /dirección es obligatorio/,
     );
   });
+
+  describe("create: inline deliveryLocations (amendment 2)", () => {
+    const withAddress = { ...base, address: "Calle 1" };
+    const zone = "6f1d2c3a-1111-4222-8333-444455556666";
+
+    it("keeps a valid list, trimmed, and drops absent optionals", () => {
+      const dto = new CustomerCreateInputDTO({
+        ...withAddress,
+        deliveryLocations: [
+          { address: "  Depósito 2 ", deliveryZoneUuid: zone, latitude: "-34.6" },
+        ],
+      }).build();
+      expect(dto.deliveryLocations).toEqual([
+        { address: "Depósito 2", deliveryZoneUuid: zone, latitude: -34.6 },
+      ]);
+    });
+
+    it("pins each failing item field", () => {
+      let caught: any;
+      try {
+        new CustomerCreateInputDTO({
+          ...withAddress,
+          deliveryLocations: [
+            { address: "", deliveryZoneUuid: "nope" },
+            { address: "ok", deliveryZoneUuid: zone, longitude: 500 },
+          ],
+        }).build();
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.errors.map((e: any) => e.field)).toEqual([
+        "deliveryLocations.0.address",
+        "deliveryLocations.0.deliveryZoneUuid",
+        "deliveryLocations.1.longitude",
+      ]);
+    });
+
+    it("rejects a non-list and leaves an absent list undefined", () => {
+      expect(() =>
+        new CustomerCreateInputDTO({ ...withAddress, deliveryLocations: {} }).build(),
+      ).toThrow(/deben ser una lista/);
+      expect(
+        "deliveryLocations" in new CustomerCreateInputDTO(withAddress).build(),
+      ).toBe(false);
+    });
+  });
 });

@@ -5,6 +5,8 @@ import { CustomerDAO } from "../../dao/customer/customer.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { CustomerCategoryDAO } from "../../dao/customer-category/customer-category.dao";
+import { DeliveryZoneDAO } from "../../dao/delivery-zone/delivery-zone.dao";
+import { INewCustomerDeliveryLocation } from "../../interfaces/delivery/delivery.interfaces";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import { IDataPaginator } from "../../database/d.types";
 import { v4 as uuidv4, validate as isUUID } from "uuid";
@@ -184,7 +186,29 @@ export class CustomerController implements IBaseController {
         // deliveryLocations/deliveryDays moved to real tables (20260720000008).
       };
 
-      const result = await this._customerDAO.create(dataToCreate);
+      // Amendment 2 (D-11): zone uuids resolve under the customer's own
+      // company, so another company's zone never lands on this customer.
+      const zoneDAO = new DeliveryZoneDAO();
+      const deliveryLocations: INewCustomerDeliveryLocation[] = [];
+      for (const location of inputDTO.deliveryLocations ?? []) {
+        const deliveryZoneId = await zoneDAO.getIdByUuid(
+          location.deliveryZoneUuid,
+          companyIdNumeric,
+        );
+        if (!deliveryZoneId) {
+          res
+            .status(400)
+            .json({ success: false, message: "Delivery zone not found" });
+          return;
+        }
+        const { deliveryZoneUuid: _zone, ...rest } = location;
+        deliveryLocations.push({ ...rest, deliveryZoneId });
+      }
+
+      const result = await this._customerDAO.create(
+        dataToCreate,
+        deliveryLocations,
+      );
 
       res.status(201).json({
         success: true,
