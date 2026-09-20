@@ -14,10 +14,19 @@ import {
 } from "../base/base-crud.controller";
 import { companyFilterScope } from "../../utils/daoScope";
 
+const CUSTOMER_ADDRESS_EDIT_MESSAGE =
+  "This row mirrors the customer's address; change it from the customer instead";
+const CUSTOMER_ADDRESS_DELETE_MESSAGE =
+  "The customer's address location cannot be deleted; edit the customer's address instead";
+
 /**
  * LugaresDeEntrega — nested child of the Customer flow (module 16 §7).
  * The zone is REQUIRED at API level (§L.6) though the DB column is nullable
  * (ETL fidelity: legacy rows may lack a zone).
+ *
+ * The row flagged `isCustomerAddress` mirrors `customers.address`
+ * (customer-address-delivery D-5): its address cannot change here and it
+ * cannot be deleted; zone, schedule, coordinates and code stay editable.
  */
 export class DeliveryLocationController extends BaseCrudController<IDeliveryLocation> {
   protected dao = new DeliveryLocationDAO();
@@ -126,12 +135,26 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
 
   protected async beforeUpdate(
     inputDTO: any,
-    _existingId: number,
+    existingId: number,
     req: Request,
     res: Response,
   ): Promise<any | null> {
     const updateData: any = { ...inputDTO };
     delete updateData.deliveryZoneUuid;
+
+    if (inputDTO.address !== undefined) {
+      const existing = await this.dao.getById(existingId);
+      if (existing?.isCustomerAddress) {
+        if ((inputDTO.address ?? "").trim() !== (existing.address ?? "")) {
+          res
+            .status(400)
+            .json({ success: false, message: CUSTOMER_ADDRESS_EDIT_MESSAGE });
+          return null;
+        }
+        // Same address, possibly untrimmed: the customer write owns this column.
+        delete updateData.address;
+      }
+    }
 
     if (inputDTO.deliveryZoneUuid !== undefined) {
       const zoneId = await this.zoneDAO.getIdByUuid(
@@ -147,5 +170,31 @@ export class DeliveryLocationController extends BaseCrudController<IDeliveryLoca
       updateData.deliveryZoneId = zoneId;
     }
     return updateData;
+  }
+
+  public async delete(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const existingId = await this.resolveIdByUuid(
+        req.params.uuid,
+        this.itemCompanyScope(req),
+      );
+      const existing = existingId
+        ? await this.dao.getById(existingId)
+        : null;
+      if (existing?.isCustomerAddress) {
+        res
+          .status(400)
+          .json({ success: false, message: CUSTOMER_ADDRESS_DELETE_MESSAGE });
+        return;
+      }
+    } catch (err) {
+      next(err);
+      return;
+    }
+    return super.delete(req, res, next);
   }
 }

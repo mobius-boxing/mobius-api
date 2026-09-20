@@ -65,6 +65,14 @@ describe("CustomerDAO", () => {
       now: jest.fn().mockReturnValue(new Date().toISOString()),
     };
     (mockKnex as any).raw = jest.fn().mockReturnValue("");
+    // create/update run inside knex.transaction; the trx is the same mock, and
+    // the address-location insert awaits the bare builder, so it must resolve.
+    (mockKnex as any).transaction = jest.fn(
+      (work: (trx: unknown) => Promise<unknown>) => work(mockKnex),
+    );
+    mockQueryBuilder.then = jest.fn((onFulfilled?: (value: unknown) => unknown) =>
+      Promise.resolve(onFulfilled ? onFulfilled(undefined) : undefined),
+    );
     mockCoreCalls.length = 0;
     mockCoreCompanies = [];
     mockCoreUsers = [];

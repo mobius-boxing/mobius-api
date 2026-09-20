@@ -19,6 +19,8 @@ import { IContactInfo } from "../../../interfaces/customer/customer.interfaces";
  *   customers.legal_code/supplier_code   varchar(255) NULL  ← snake_case columns
  *   customers.code                       varchar(400) NULL, UNIQUE ("companyId", code)
  *   customers.address/notes              text         NULL
+ *   (`address` is REQUIRED here and in the form despite the nullable column —
+ *   customer-address-delivery D-1; legacy blank rows stay until next save)
  *   customers.active/dispatchable/excludeLogoOnLabels/requiresQualityCertificate boolean
  *   customers.categoryId/salesPersonId   integer NULL (FK, resolved ids)
  *   customers.contacts                   jsonb NULL, default '[]'
@@ -76,7 +78,7 @@ export class CustomerCreateInputDTO {
   tradeName?: string;
   legalCode?: string;
   supplierCode?: string;
-  address?: string;
+  address: string;
   notes?: string;
   categoryId?: number;
   salesPersonId?: number;
@@ -136,8 +138,8 @@ export class CustomerCreateInputDTO {
         clearableText(this.supplierCode, CUSTOMER_LIMITS.name, CUSTOMER_LABELS.supplierCode),
       ) ?? undefined;
       this.address = field("address", () =>
-        clearableText(this.address, CUSTOMER_LIMITS.text, CUSTOMER_LABELS.address),
-      ) ?? undefined;
+        requiredText(this.address, CUSTOMER_LIMITS.text, CUSTOMER_LABELS.address),
+      );
       this.notes = field("notes", () =>
         clearableText(this.notes, CUSTOMER_LIMITS.text, CUSTOMER_LABELS.notes),
       ) ?? undefined;

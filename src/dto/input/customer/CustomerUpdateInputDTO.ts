@@ -113,8 +113,8 @@ export class CustomerUpdateInputDTO {
       }
       if (this.address !== undefined) {
         this.address = field("address", () =>
-          clearableText(this.address, CUSTOMER_LIMITS.text, CUSTOMER_LABELS.address),
-        ) ?? undefined;
+          requiredText(this.address, CUSTOMER_LIMITS.text, CUSTOMER_LABELS.address),
+        );
       }
       if (this.notes !== undefined) {
         this.notes = field("notes", () =>

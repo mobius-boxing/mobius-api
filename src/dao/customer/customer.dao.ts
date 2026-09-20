@@ -1,4 +1,5 @@
 import { db } from "../../database/registry";
+import { DeliveryLocationDAO } from "../delivery-location/delivery-location.dao";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import {
@@ -87,12 +88,14 @@ const CUSTOMER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
 );
 
 export class CustomerDAO implements IBaseDAO<ICustomer> {
+  private addressLocationDAO = new DeliveryLocationDAO();
   private tableName = "customers";
   private queryConfig = CUSTOMER_QUERY_CONFIG;
 
   async create(item: ICustomer): Promise<ICustomer> {
     const knex = db("tenant");
-    const [customer] = await knex(this.tableName)
+    const customer = await knex.transaction(async (trx) => {
+      const [row] = await trx(this.tableName)
       .insert({
         uuid: item.uuid,
         companyId: item.companyId,
@@ -115,6 +118,9 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
         // delivery_schedules since 20260720000008 (§L.6).
       })
       .returning("*");
+      await this.addressLocationDAO.syncCustomerAddressTrx(trx, row);
+      return row;
+    });
 
     return this.mapToInterface(customer);
   }
@@ -187,10 +193,16 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
 
     updateData.updatedAt = knex.fn.now();
 
-    const [customer] = await knex(this.tableName)
-      .where("id", id)
-      .update(updateData)
-      .returning("*");
+    const customer = await knex.transaction(async (trx) => {
+      const [row] = await trx(this.tableName)
+        .where("id", id)
+        .update(updateData)
+        .returning("*");
+      if (row && item.address !== undefined) {
+        await this.addressLocationDAO.syncCustomerAddressTrx(trx, row);
+      }
+      return row;
+    });
 
     return customer ? this.mapToInterface(customer) : null;
   }

@@ -1,7 +1,10 @@
 import { Request } from "express";
+import type { Knex } from "knex";
+import { v4 as uuidv4 } from "uuid";
 import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IDeliveryLocation } from "../../interfaces/delivery/delivery.interfaces";
+import { ICustomer } from "../../interfaces/customer/customer.interfaces";
 import {
   parseQueryParams,
   buildQuery,
@@ -84,9 +87,49 @@ export class DeliveryLocationDAO {
         longitude: item.longitude ?? null,
         externalSystemCode: item.externalSystemCode ?? null,
         deliveryZoneId: item.deliveryZoneId ?? null,
+        isCustomerAddress: item.isCustomerAddress ?? false,
       })
       .returning("*");
     return (await this.getByUuid(row.uuid)) ?? this.mapToInterface(row);
+  }
+
+  /**
+   * Keeps the customer's flagged row equal to `customers.address`
+   * (customer-address-delivery I-1/I-2) inside the customer's own write
+   * transaction, so a customer never commits without its address row. The
+   * customer write is the ONLY writer of that row's address (D-5).
+   */
+  async syncCustomerAddressTrx(
+    trx: Knex.Transaction,
+    customer: Pick<ICustomer, "id" | "companyId" | "address">,
+  ): Promise<void> {
+    const address = customer.address?.trim();
+    if (!customer.id || !address) return;
+
+    const existing = await trx(this.tableName)
+      .where({ customerId: customer.id, isCustomerAddress: true })
+      .first();
+    if (existing) {
+      if (existing.address !== address) {
+        await trx(this.tableName)
+          .where("id", existing.id)
+          .update({ address, updatedAt: trx.fn.now() });
+      }
+      return;
+    }
+    await trx(this.tableName).insert({
+      uuid: uuidv4(),
+      companyId: customer.companyId,
+      customerId: customer.id,
+      address,
+      isCustomerAddress: true,
+    });
+  }
+
+  async getById(id: number): Promise<IDeliveryLocation | null> {
+    const knex = db("tenant");
+    const row = await knex(this.tableName).where("id", id).first();
+    return row ? { ...this.mapToInterface(row), id: row.id } : null;
   }
 
   async getByUuid(
@@ -209,6 +252,7 @@ export class DeliveryLocationDAO {
       latitude: record.latitude != null ? parseFloat(record.latitude) : null,
       longitude: record.longitude != null ? parseFloat(record.longitude) : null,
       externalSystemCode: record.externalSystemCode,
+      isCustomerAddress: record.isCustomerAddress === true,
       legacyId: record.legacyId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

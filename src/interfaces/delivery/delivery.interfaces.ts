@@ -21,6 +21,11 @@ export interface IDeliveryLocation {
   longitude?: number | null;
   externalSystemCode?: string | null;
   deliveryZoneId?: number | null;
+  /**
+   * Server-owned: the one row per customer that mirrors `customers.address`
+   * (customer-address-delivery D-3). Never taken from a request body.
+   */
+  isCustomerAddress?: boolean;
   legacyId?: number | null;
   createdAt?: Date;
   updatedAt?: Date;
