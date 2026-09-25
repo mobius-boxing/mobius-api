@@ -38,6 +38,14 @@ export interface IMachine {
   boxHeightMin?: number | null;
   boxHeightMax?: number | null;
   legacyId?: number | null;
+  // Corrugator planning Δ (model.md, Amendment D-5 revised): Factible/Imposible
+  // limits read by the engine's enumeration; 0 = unlimited.
+  trim?: number | null;
+  maxElements?: number | null;
+  tableCount?: number | null;
+  formatsPerTable?: number | null;
+  ordersPerFormat?: number | null;
+  ordersPerTable?: number | null;
   createdAt?: Date;
   updatedAt?: Date;
 

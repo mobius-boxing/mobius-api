@@ -131,6 +131,21 @@ export const asCompanyPayload = (company: Partial<CoreCompany>): ICompany =>
  * it is reused, so a predicate such as module enablement has one definition.
  */
 export const CoreClient = {
+  /**
+   * Every active company id (corrugator-planning's boot sweep, I-14): unlike
+   * `companyIdsWithModuleEnabled`, this is core-app, not module-gated, so
+   * every tenant is a candidate.
+   */
+  activeCompanyIds(): Promise<readonly number[]> {
+    return cached("activeCompanyIds", [], async () => {
+      const ids: number[] = await db("core")("companies")
+        .where("isActive", true)
+        .orderBy("id")
+        .pluck("id");
+      return ids;
+    });
+  },
+
   companyIdsWithModuleEnabled(slug: string): Promise<readonly number[]> {
     return cached("companyIdsWithModuleEnabled", [slug], async () => {
       const ids: number[] = await db("core")("company_modules as cm")

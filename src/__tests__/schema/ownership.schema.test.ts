@@ -34,18 +34,19 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * plus the 6 `nf_*` tables of node-files Phases 1 and 2, plus T6's 3-table
  * tenant registry (`db_servers`, `tenant_databases`, `tenant_migration_runs`
  * — all `core`, model D-7), plus `user_devices` (device approval, 2026-09-12
- * — also `core`).
+ * — also `core`), plus the 4 `corrugator_plan*` tables (corrugator-planning
+ * T2, 2026-09-25 — all `tenant`).
  */
-const DOMAIN_TABLE_COUNT = 83;
+const DOMAIN_TABLE_COUNT = 87;
 /** db-per-company model D-3: the pre-fan-out names, per plane. */
 const DOMAIN_COUNTS: Record<DbKey, number> = {
   core: 15,
-  tenant: 68,
+  tenant: 72,
 };
 /** The names each plane holds, fan-out copies included (model placement table). */
 const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
   core: 15,
-  tenant: 70,
+  tenant: 74,
 };
 /**
  * The two names that deliberately live in both planes (AC-2, model D-5/D-6):
@@ -54,7 +55,7 @@ const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
 const FANNED_OUT_COPIES: Record<string, number> = { files: 2, audit_logs: 2 };
 /** Tenant tables per catalogue slug: ERP 53 + `files` + `audit_logs` under core. */
 const MODULE_COUNTS: Record<string, number> = {
-  core: 55,
+  core: 59,
   countdown: 9,
   "node-files": 6,
 };

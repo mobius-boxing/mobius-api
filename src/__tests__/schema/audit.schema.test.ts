@@ -35,9 +35,10 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
 
 /**
  * §0.4: 76 distinct physical tables carry `audit_row_change` after the parts
- * contract migration removed its two audited tables.
+ * contract migration removed its two audited tables, plus the 4
+ * `corrugator_plan*` tables (corrugator-planning T2, 2026-09-25).
  */
-const AUDITED_TABLES = 76;
+const AUDITED_TABLES = 80;
 
 /**
  * The migration creates the current month plus 13 ahead, so the inventory can

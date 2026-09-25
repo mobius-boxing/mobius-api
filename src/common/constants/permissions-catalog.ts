@@ -460,6 +460,23 @@ export const MOBIUS_ADDED_PERMISSIONS: IPermissionConcept[] = [
     description: "Aprobar y revocar dispositivos de los usuarios de la empresa",
     area: "actions",
   },
+  {
+    // D-1: readonly sibling seeded so GETs can pass with the `.readonly` row
+    // ({ allowReadOnly: true }); every write still needs the full code.
+    code: "corrugator.plan",
+    name: "Programa de corrugado",
+    description:
+      "Planificación de corrugado: pool, programas, resolución y ajuste",
+    area: "operations",
+    readonly: true,
+  },
+  {
+    code: "corrugator.register",
+    name: "Programa de corrugado - Generar",
+    description:
+      "Generar y deshacer el Programa de Corrugado (registro/desregistro)",
+    area: "actions",
+  },
 ];
 
 /** Name of the protected all-permissions role seeded per company. */

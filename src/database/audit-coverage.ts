@@ -134,6 +134,16 @@ export const AUDIT_PARENT: Record<string, AuditParent> = {
   sales_order_approval_events: { parent: "sales_orders", fk: "salesOrderId" },
   nf_documents: { parent: "nf_workflows", fk: "workflowId" },
   nf_runs: { parent: "nf_workflows", fk: "workflowId" },
+  // corrugator-planning (T2): lines and runs belong to their plan; a lane
+  // belongs to its run, two hops from the plan.
+  corrugator_plan_orders: { parent: "corrugator_plans", fk: "planId" },
+  corrugator_plan_combinations: { parent: "corrugator_plans", fk: "planId" },
+  corrugator_plan_items: {
+    parent: "corrugator_plan_combinations",
+    fk: "combinationId",
+    grand: "corrugator_plans",
+    grandFk: "planId",
+  },
 };
 
 /**
@@ -186,6 +196,10 @@ export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   corrugation_classes: "corrugated.classes",
   corrugation_layers: "corrugated.edit", // child of `corrugations`
   corrugations: "corrugated.edit",
+  corrugator_plans: "corrugator.plan",
+  corrugator_plan_orders: "corrugator.plan", // child of `corrugator_plans`
+  corrugator_plan_combinations: "corrugator.plan", // child of `corrugator_plans`
+  corrugator_plan_items: "corrugator.plan", // child of `corrugator_plan_combinations`
   customer_categories: "customer-categories.edit",
   customers: "customers.edit",
   delivery_locations: "delivery-zones.edit",

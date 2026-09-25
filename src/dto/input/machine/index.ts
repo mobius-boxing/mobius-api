@@ -29,6 +29,22 @@ const NUMERIC_KEYS = [
 type MachineNumericKey = (typeof NUMERIC_KEYS)[number];
 
 /**
+ * corrugator-planning Δ (model.md, Amendment D-5 revised): `trim` is the only
+ * new `double precision` column (Corrugadora.Refile has no fixed scale);
+ * the other five are `integer NOT NULL DEFAULT 0` counts, validated with
+ * `optionalInt` instead of the `numeric(12,3)` bound the rest of the table
+ * uses.
+ */
+const CORRUGATOR_DOUBLE_KEYS = ["trim"] as const;
+const CORRUGATOR_INT_KEYS = [
+  "maxElements",
+  "tableCount",
+  "formatsPerTable",
+  "ordersPerFormat",
+  "ordersPerTable",
+] as const;
+
+/**
  * Server mirror of `mobius-web-app/src/validation/schemas/machineType.ts`.
  *
  * Bounds from `information_schema.columns` on the live schema (2026-08-30),
@@ -189,6 +205,12 @@ export const MACHINE_LABELS: Record<string, string> = {
   boxLengthMax: "El largo máximo de caja",
   boxHeightMin: "La altura mínima de caja",
   boxHeightMax: "La altura máxima de caja",
+  trim: "El refile",
+  maxElements: "La cantidad máxima de elementos",
+  tableCount: "La cantidad de mesas",
+  formatsPerTable: "Los formatos por mesa",
+  ordersPerFormat: "Los pedidos por formato",
+  ordersPerTable: "Los pedidos por mesa",
 };
 
 /** Closed allow-list (no index signature — see CLAUDE.md validation rule). */
@@ -213,9 +235,16 @@ export class MachineCreateInputDTO {
   boxLengthMax?: number;
   boxHeightMin?: number;
   boxHeightMax?: number;
+  trim?: number;
+  maxElements?: number;
+  tableCount?: number;
+  formatsPerTable?: number;
+  ordersPerFormat?: number;
+  ordersPerTable?: number;
 
   constructor(data: any) {
-    if (data.machineTypeUuid !== undefined) this.machineTypeUuid = data.machineTypeUuid;
+    if (data.machineTypeUuid !== undefined)
+      this.machineTypeUuid = data.machineTypeUuid;
     if (data.code !== undefined) this.code = data.code;
     if (data.description !== undefined) this.description = data.description;
     if (data.sourceWarehouseUuid !== undefined)
@@ -225,6 +254,14 @@ export class MachineCreateInputDTO {
     const self = this as Record<string, unknown>;
     for (const key of NUMERIC_KEYS) {
       const v = toNumberInput(data[key]);
+      if (v !== undefined) self[key] = v;
+    }
+    for (const key of CORRUGATOR_DOUBLE_KEYS) {
+      const v = toNumberInput(data[key]);
+      if (v !== undefined) self[key] = v;
+    }
+    for (const key of CORRUGATOR_INT_KEYS) {
+      const v = toIntInput(data[key]);
       if (v !== undefined) self[key] = v;
     }
   }
@@ -253,6 +290,22 @@ export class MachineCreateInputDTO {
           optionalNumber(
             self[key],
             MACHINE_LIMITS.measure,
+            MACHINE_LABELS[key] ?? key,
+          ),
+        );
+      }
+      for (const key of CORRUGATOR_DOUBLE_KEYS) {
+        if (self[key] === undefined) continue;
+        self[key] = field(key, () =>
+          optionalNumber(self[key], { min: 0 }, MACHINE_LABELS[key] ?? key),
+        );
+      }
+      for (const key of CORRUGATOR_INT_KEYS) {
+        if (self[key] === undefined) continue;
+        self[key] = field(key, () =>
+          optionalInt(
+            self[key],
+            { min: 0, max: 2147483647 },
             MACHINE_LABELS[key] ?? key,
           ),
         );

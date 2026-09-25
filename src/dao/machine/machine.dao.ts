@@ -65,6 +65,12 @@ const SCALAR_FIELDS = [
   "boxLengthMax",
   "boxHeightMin",
   "boxHeightMax",
+  "trim",
+  "maxElements",
+  "tableCount",
+  "formatsPerTable",
+  "ordersPerFormat",
+  "ordersPerTable",
 ] as const;
 
 export class MachineDAO {
@@ -232,6 +238,12 @@ export class MachineDAO {
       boxLengthMax: num(record.boxLengthMax),
       boxHeightMin: num(record.boxHeightMin),
       boxHeightMax: num(record.boxHeightMax),
+      trim: num(record.trim) ?? 0,
+      maxElements: num(record.maxElements) ?? 0,
+      tableCount: num(record.tableCount) ?? 0,
+      formatsPerTable: num(record.formatsPerTable) ?? 0,
+      ordersPerFormat: num(record.ordersPerFormat) ?? 0,
+      ordersPerTable: num(record.ordersPerTable) ?? 0,
       legacyId: record.legacyId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

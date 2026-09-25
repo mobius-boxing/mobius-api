@@ -8,6 +8,7 @@ import {
   startNodeFilesWorker,
   stopNodeFilesWorker,
 } from "./services/node-files/node-files-worker";
+import { sweepStaleSolves } from "./services/corrugator/plan.service";
 dotenv.config();
 
 /**
@@ -48,6 +49,15 @@ const PORT: number = parseInt(envPort);
   if (process.env.NODE_ENV !== "test") {
     startReminderScheduler();
     startNodeFilesWorker();
+    // I-14: a `solving` plan whose worker never reported back (crash, kill -9)
+    // becomes `failed` on the next boot — cheap, failure-tolerant, same
+    // per-tenant iteration shape as the reminder job above.
+    void sweepStaleSolves().catch((err) =>
+      console.error(
+        "[corrugator] boot sweep failed:",
+        err instanceof Error ? err.message : err,
+      ),
+    );
   }
 
   let shuttingDown = false;

@@ -48,6 +48,7 @@ export const ROUTE_PLANE: Record<string, "central" | "tenant" | "mixed"> = {
   "consumable-type": "tenant",
   corrugation: "tenant",
   "corrugation-class": "tenant",
+  "corrugator-plans": "tenant",
   countdown: "tenant",
   customer: "tenant",
   "customer-category": "tenant",

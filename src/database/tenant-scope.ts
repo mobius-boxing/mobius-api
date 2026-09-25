@@ -68,6 +68,13 @@ export const TENANT_SCOPE: Readonly<Record<string, TenantScopeEntry>> = {
   consumable_types: { kind: "direct", column: "companyId" },
   corrugation_classes: { kind: "direct", column: "companyId" },
   corrugations: { kind: "direct", column: "companyId" },
+  // corrugator-planning (T2): every new table carries its own companyId
+  // (model.md convention), including the three children — unlike the
+  // AUDIT_PARENT-driven "parent" shape most children use.
+  corrugator_plans: { kind: "direct", column: "companyId" },
+  corrugator_plan_orders: { kind: "direct", column: "companyId" },
+  corrugator_plan_combinations: { kind: "direct", column: "companyId" },
+  corrugator_plan_items: { kind: "direct", column: "companyId" },
   countdown_categories: { kind: "direct", column: "companyId" },
   countdown_documents: { kind: "direct", column: "companyId" },
   countdown_groups: { kind: "direct", column: "companyId" },

@@ -287,6 +287,126 @@ CREATE SEQUENCE public.corrugations_id_seq
 
 ALTER SEQUENCE public.corrugations_id_seq OWNED BY public.corrugations.id;
 
+CREATE TABLE public.corrugator_plan_combinations (
+    id integer NOT NULL,
+    uuid uuid DEFAULT gen_random_uuid() NOT NULL,
+    "companyId" integer NOT NULL,
+    "planId" integer NOT NULL,
+    "machineKey" text NOT NULL,
+    sequence integer NOT NULL,
+    meters double precision DEFAULT '0'::double precision NOT NULL,
+    "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE SEQUENCE public.corrugator_plan_combinations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.corrugator_plan_combinations_id_seq OWNED BY public.corrugator_plan_combinations.id;
+
+CREATE TABLE public.corrugator_plan_items (
+    id integer NOT NULL,
+    uuid uuid DEFAULT gen_random_uuid() NOT NULL,
+    "companyId" integer NOT NULL,
+    "combinationId" integer NOT NULL,
+    "planOrderId" integer NOT NULL,
+    "position" integer NOT NULL,
+    count integer NOT NULL,
+    rotated boolean DEFAULT false NOT NULL,
+    "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE SEQUENCE public.corrugator_plan_items_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.corrugator_plan_items_id_seq OWNED BY public.corrugator_plan_items.id;
+
+CREATE TABLE public.corrugator_plan_orders (
+    id integer NOT NULL,
+    uuid uuid DEFAULT gen_random_uuid() NOT NULL,
+    "companyId" integer NOT NULL,
+    "planId" integer NOT NULL,
+    "productionOrderId" integer NOT NULL,
+    "position" integer NOT NULL,
+    number text NOT NULL,
+    "customerName" text,
+    "productCode" text,
+    "productDescription" text,
+    "deliveryDate" timestamp with time zone,
+    "sheetLength" double precision NOT NULL,
+    "sheetWidth" double precision NOT NULL,
+    "allowsRotation" boolean DEFAULT false NOT NULL,
+    "scoreLineCount" integer DEFAULT 0 NOT NULL,
+    "orderQuantity" double precision NOT NULL,
+    "sheetsPerUnit" double precision DEFAULT '1'::double precision NOT NULL,
+    "sheetsSource" text NOT NULL,
+    "requiredSheets" double precision NOT NULL,
+    "pendingSheets" integer NOT NULL,
+    "requestedSheets" integer NOT NULL,
+    "underrunPercentage" double precision DEFAULT '0'::double precision NOT NULL,
+    "overrunPercentage" double precision DEFAULT '0'::double precision NOT NULL,
+    priority text DEFAULT 'normal'::text NOT NULL,
+    "partialProduction" boolean DEFAULT true NOT NULL,
+    "allocatedSheets" integer,
+    "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE SEQUENCE public.corrugator_plan_orders_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.corrugator_plan_orders_id_seq OWNED BY public.corrugator_plan_orders.id;
+
+CREATE TABLE public.corrugator_plans (
+    id integer NOT NULL,
+    uuid uuid DEFAULT gen_random_uuid() NOT NULL,
+    "companyId" integer NOT NULL,
+    number integer NOT NULL,
+    name text,
+    notes text,
+    status text DEFAULT 'draft'::text NOT NULL,
+    board jsonb NOT NULL,
+    machines jsonb DEFAULT '[]'::jsonb NOT NULL,
+    parameters jsonb NOT NULL,
+    "solveToken" uuid,
+    "solveStartedAt" timestamp with time zone,
+    "solveFinishedAt" timestamp with time zone,
+    "solveStatus" text,
+    "solveLog" text,
+    "combinationsGenerated" integer,
+    "registeredAt" timestamp with time zone,
+    "registeredByUser" text,
+    "createdByUser" text,
+    "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE SEQUENCE public.corrugator_plans_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.corrugator_plans_id_seq OWNED BY public.corrugator_plans.id;
+
 CREATE TABLE public.countdown_categories (
     id integer NOT NULL,
     uuid uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -548,7 +668,8 @@ CREATE TABLE public.delivery_locations (
     "deliveryZoneId" integer,
     "legacyId" integer,
     "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    "isCustomerAddress" boolean DEFAULT false NOT NULL
 );
 
 CREATE SEQUENCE public.delivery_locations_id_seq
@@ -793,7 +914,13 @@ CREATE TABLE public.machines (
     "boxHeightMax" numeric(12,3),
     "legacyId" integer,
     "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    "trim" double precision DEFAULT '0'::double precision NOT NULL,
+    "maxElements" integer DEFAULT 0 NOT NULL,
+    "tableCount" integer DEFAULT 0 NOT NULL,
+    "formatsPerTable" integer DEFAULT 0 NOT NULL,
+    "ordersPerFormat" integer DEFAULT 0 NOT NULL,
+    "ordersPerTable" integer DEFAULT 0 NOT NULL
 );
 
 CREATE SEQUENCE public.machines_id_seq
@@ -1834,6 +1961,14 @@ ALTER TABLE ONLY public.corrugation_layers ALTER COLUMN id SET DEFAULT nextval('
 
 ALTER TABLE ONLY public.corrugations ALTER COLUMN id SET DEFAULT nextval('public.corrugations_id_seq'::regclass);
 
+ALTER TABLE ONLY public.corrugator_plan_combinations ALTER COLUMN id SET DEFAULT nextval('public.corrugator_plan_combinations_id_seq'::regclass);
+
+ALTER TABLE ONLY public.corrugator_plan_items ALTER COLUMN id SET DEFAULT nextval('public.corrugator_plan_items_id_seq'::regclass);
+
+ALTER TABLE ONLY public.corrugator_plan_orders ALTER COLUMN id SET DEFAULT nextval('public.corrugator_plan_orders_id_seq'::regclass);
+
+ALTER TABLE ONLY public.corrugator_plans ALTER COLUMN id SET DEFAULT nextval('public.corrugator_plans_id_seq'::regclass);
+
 ALTER TABLE ONLY public.countdown_categories ALTER COLUMN id SET DEFAULT nextval('public.countdown_categories_id_seq'::regclass);
 
 ALTER TABLE ONLY public.countdown_document_assignments ALTER COLUMN id SET DEFAULT nextval('public.countdown_document_assignments_id_seq'::regclass);
@@ -2041,6 +2176,45 @@ ALTER TABLE ONLY public.corrugations
 
 ALTER TABLE ONLY public.corrugations
     ADD CONSTRAINT corrugations_uuid_unique UNIQUE (uuid);
+
+ALTER TABLE ONLY public.corrugator_plan_combinations
+    ADD CONSTRAINT corrugator_plan_combinations_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.corrugator_plan_combinations
+    ADD CONSTRAINT corrugator_plan_combinations_planid_machinekey_sequence_unique UNIQUE ("planId", "machineKey", sequence);
+
+ALTER TABLE ONLY public.corrugator_plan_combinations
+    ADD CONSTRAINT corrugator_plan_combinations_uuid_unique UNIQUE (uuid);
+
+ALTER TABLE ONLY public.corrugator_plan_items
+    ADD CONSTRAINT corrugator_plan_items_combinationid_position_unique UNIQUE ("combinationId", "position");
+
+ALTER TABLE ONLY public.corrugator_plan_items
+    ADD CONSTRAINT corrugator_plan_items_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.corrugator_plan_items
+    ADD CONSTRAINT corrugator_plan_items_uuid_unique UNIQUE (uuid);
+
+ALTER TABLE ONLY public.corrugator_plan_orders
+    ADD CONSTRAINT corrugator_plan_orders_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.corrugator_plan_orders
+    ADD CONSTRAINT corrugator_plan_orders_planid_position_unique UNIQUE ("planId", "position");
+
+ALTER TABLE ONLY public.corrugator_plan_orders
+    ADD CONSTRAINT corrugator_plan_orders_planid_productionorderid_unique UNIQUE ("planId", "productionOrderId");
+
+ALTER TABLE ONLY public.corrugator_plan_orders
+    ADD CONSTRAINT corrugator_plan_orders_uuid_unique UNIQUE (uuid);
+
+ALTER TABLE ONLY public.corrugator_plans
+    ADD CONSTRAINT corrugator_plans_companyid_number_unique UNIQUE ("companyId", number);
+
+ALTER TABLE ONLY public.corrugator_plans
+    ADD CONSTRAINT corrugator_plans_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.corrugator_plans
+    ADD CONSTRAINT corrugator_plans_uuid_unique UNIQUE (uuid);
 
 ALTER TABLE ONLY public.countdown_categories
     ADD CONSTRAINT countdown_categories_company_name_unique UNIQUE ("companyId", name);
@@ -2556,6 +2730,24 @@ CREATE INDEX corrugations_companyid_index ON public.corrugations USING btree ("c
 
 CREATE INDEX corrugations_corrugationclassid_index ON public.corrugations USING btree ("corrugationClassId");
 
+CREATE INDEX corrugator_plan_combinations_companyid_index ON public.corrugator_plan_combinations USING btree ("companyId");
+
+CREATE INDEX corrugator_plan_combinations_planid_index ON public.corrugator_plan_combinations USING btree ("planId");
+
+CREATE INDEX corrugator_plan_items_combinationid_index ON public.corrugator_plan_items USING btree ("combinationId");
+
+CREATE INDEX corrugator_plan_items_companyid_index ON public.corrugator_plan_items USING btree ("companyId");
+
+CREATE INDEX corrugator_plan_orders_companyid_index ON public.corrugator_plan_orders USING btree ("companyId");
+
+CREATE INDEX corrugator_plan_orders_planid_index ON public.corrugator_plan_orders USING btree ("planId");
+
+CREATE INDEX corrugator_plan_orders_productionorderid_index ON public.corrugator_plan_orders USING btree ("productionOrderId");
+
+CREATE INDEX corrugator_plans_companyid_index ON public.corrugator_plans USING btree ("companyId");
+
+CREATE INDEX corrugator_plans_companyid_status_index ON public.corrugator_plans USING btree ("companyId", status);
+
 CREATE INDEX countdown_categories_companyid_index ON public.countdown_categories USING btree ("companyId");
 
 CREATE INDEX countdown_document_assignments_documentid_index ON public.countdown_document_assignments USING btree ("documentId");
@@ -2617,6 +2809,8 @@ CREATE INDEX customers_sales_person_id_index ON public.customers USING btree ("s
 CREATE INDEX customers_supplier_code_index ON public.customers USING btree (supplier_code);
 
 CREATE INDEX delivery_locations_companyid_index ON public.delivery_locations USING btree ("companyId");
+
+CREATE UNIQUE INDEX delivery_locations_customer_address_uq ON public.delivery_locations USING btree ("customerId") WHERE "isCustomerAddress";
 
 CREATE INDEX delivery_locations_customerid_index ON public.delivery_locations USING btree ("customerId");
 
@@ -2931,6 +3125,21 @@ ALTER TABLE ONLY public.corrugation_layers
 
 ALTER TABLE ONLY public.corrugations
     ADD CONSTRAINT corrugations_corrugationclassid_foreign FOREIGN KEY ("corrugationClassId") REFERENCES public.corrugation_classes(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.corrugator_plan_combinations
+    ADD CONSTRAINT corrugator_plan_combinations_planid_foreign FOREIGN KEY ("planId") REFERENCES public.corrugator_plans(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.corrugator_plan_items
+    ADD CONSTRAINT corrugator_plan_items_combinationid_foreign FOREIGN KEY ("combinationId") REFERENCES public.corrugator_plan_combinations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.corrugator_plan_items
+    ADD CONSTRAINT corrugator_plan_items_planorderid_foreign FOREIGN KEY ("planOrderId") REFERENCES public.corrugator_plan_orders(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.corrugator_plan_orders
+    ADD CONSTRAINT corrugator_plan_orders_planid_foreign FOREIGN KEY ("planId") REFERENCES public.corrugator_plans(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.corrugator_plan_orders
+    ADD CONSTRAINT corrugator_plan_orders_productionorderid_foreign FOREIGN KEY ("productionOrderId") REFERENCES public.production_orders(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY public.countdown_document_assignments
     ADD CONSTRAINT countdown_document_assignments_documentid_foreign FOREIGN KEY ("documentId") REFERENCES public.countdown_documents(id) ON DELETE CASCADE;
@@ -3464,6 +3673,22 @@ CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."corr
 DROP TRIGGER IF EXISTS audit_row_change ON public."corrugations";
 CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."corrugations"
   FOR EACH ROW EXECUTE FUNCTION public.audit_row_change('', '', '', '', '');
+
+DROP TRIGGER IF EXISTS audit_row_change ON public."corrugator_plans";
+CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."corrugator_plans"
+  FOR EACH ROW EXECUTE FUNCTION public.audit_row_change('', '', '', '', '');
+
+DROP TRIGGER IF EXISTS audit_row_change ON public."corrugator_plan_orders";
+CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."corrugator_plan_orders"
+  FOR EACH ROW EXECUTE FUNCTION public.audit_row_change('', 'corrugator_plans', 'planId', '', '');
+
+DROP TRIGGER IF EXISTS audit_row_change ON public."corrugator_plan_combinations";
+CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."corrugator_plan_combinations"
+  FOR EACH ROW EXECUTE FUNCTION public.audit_row_change('', 'corrugator_plans', 'planId', '', '');
+
+DROP TRIGGER IF EXISTS audit_row_change ON public."corrugator_plan_items";
+CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."corrugator_plan_items"
+  FOR EACH ROW EXECUTE FUNCTION public.audit_row_change('', 'corrugator_plan_combinations', 'combinationId', 'corrugator_plans', 'planId');
 
 DROP TRIGGER IF EXISTS audit_row_change ON public."customer_categories";
 CREATE TRIGGER audit_row_change AFTER INSERT OR UPDATE OR DELETE ON public."customer_categories"

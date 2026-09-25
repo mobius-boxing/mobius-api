@@ -29,6 +29,7 @@ import { validateProductionOrder } from "../../services/production-order-validat
 import { autoFulfillIfComplete } from "../../services/sales-order-fulfillment.service";
 import { setAuditAction } from "../../database/audit-context";
 import { companyFilterScope, type CompanyScope } from "../../utils/daoScope";
+import { getOrderCorrugatorState } from "../../services/corrugator/plan.service";
 
 /** uuid body field → { table it lives in, numeric column it resolves to }. */
 const REFERENCES: Record<string, { table: string; idKey: string }> = {
@@ -70,6 +71,22 @@ export class ProductionOrderController extends BaseCrudController<IProductionOrd
   private appConfig = new AppConfigService();
   private codeGenerator = new CodeGeneratorService();
   private generation = new ProductionOrderGenerationService();
+
+  // corrugator-planning model.md, `~ GET /production-orders/:uuid` additive block.
+  protected async getOneByUuid(
+    uuid: string,
+    companyScope?: CompanyScope,
+  ): Promise<IProductionOrder | null> {
+    const order = await super.getOneByUuid(uuid, companyScope);
+    if (!order) return null;
+    const companyId = order.companyId;
+    const orderId = (order as { id?: number }).id;
+    const corrugator =
+      companyId !== undefined && orderId !== undefined
+        ? await getOrderCorrugatorState(companyId, orderId)
+        : null;
+    return { ...order, corrugator } as IProductionOrder;
+  }
 
   // ── DTOs ─────────────────────────────────────────────────────────────────
   protected async buildCreateDTO(

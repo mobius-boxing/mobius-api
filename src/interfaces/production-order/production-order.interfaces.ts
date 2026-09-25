@@ -11,6 +11,7 @@
  * Every string below is Procusto's, verbatim — punctuation, accents and the
  * trailing "!" included. Changing one is a parity regression, not a typo fix.
  */
+import { ICorrugatorOrderState } from "../corrugator-plan/corrugator-plan.interfaces";
 
 /**
  * The Procusto configuration keys this flow honours. Accents are preserved
@@ -207,6 +208,10 @@ export interface IProductionOrder {
   anulada?: boolean;
   clisePendiente?: boolean;
   troquelPendiente?: boolean;
+
+  // corrugator-planning model.md — `~ GET /production-orders/:uuid` additive
+  // block, detail only; null when the order is not eligible (D-9).
+  corrugator?: ICorrugatorOrderState | null;
 }
 
 /** What `validateProductionOrder` inspects beyond the row itself. */
