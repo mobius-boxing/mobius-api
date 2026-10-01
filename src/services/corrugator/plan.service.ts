@@ -62,6 +62,7 @@ import { enumerate } from "./combinator";
 import {
   corrugationSheetsPerUnit,
   pendingSheets,
+  programmedSheets,
 } from "../scheduling/pending.service";
 import { CorrugatorPlanDAO } from "../../dao/corrugator-plan/corrugator-plan.dao";
 import { CorrugatorPlanOrderDAO } from "../../dao/corrugator-plan/corrugator-plan-order.dao";
@@ -215,6 +216,21 @@ async function loadRouteStagesBatch(
         .whereIn("stageId", stageIds)
         .select("stageId", "direction", "supplyType", "supplyId", "quantity")
     : [];
+  // Only corrugator-type machines: a plan only ever runs on corrugators.
+  const machineRows = stageIds.length
+    ? await knex("production_route_stage_machines as sm")
+        .join("machines as m", "m.id", "sm.machineId")
+        .join("machine_types as mt", "mt.id", "m.machineTypeId")
+        .whereIn("sm.stageId", stageIds)
+        .andWhere("mt.corrugated", true)
+        .select("sm.stageId", "m.uuid", "m.code", "m.description")
+    : [];
+  const machinesByStage = new Map<number, IRouteStage["machines"]>();
+  for (const m of machineRows) {
+    const list = machinesByStage.get(m.stageId) ?? [];
+    list.push({ isPrimary: false, machine: { uuid: m.uuid, code: m.code, description: m.description } });
+    machinesByStage.set(m.stageId, list);
+  }
   const suppliesByStage = new Map<number, IStageSupply[]>();
   for (const s of supplyRows) {
     const list = suppliesByStage.get(s.stageId) ?? [];
@@ -235,7 +251,7 @@ async function loadRouteStagesBatch(
       .map((s: any, i: number) => ({
         number: s.number ?? i,
         setupTimeMinutes: 0,
-        machines: [],
+        machines: machinesByStage.get(s.id) ?? [],
         isCorrugation: s.isCorrugation,
         supplies: suppliesByStage.get(s.id) ?? [],
       }));
@@ -420,11 +436,16 @@ export interface OrderContext {
   overrunPercentage: number;
   allocatedElsewhere: number;
   pendingSheets: number;
+  /** Corrugators that run one of the route's corrugation stages. */
+  corrugators: { uuid: string; code: string | null }[];
+  /** Set when `machineUuids` were given and none of them runs a corrugation stage of the route. */
+  notOnMachine: boolean;
 }
 
 async function buildOrderContexts(
   companyId: number,
   rows: RawOrderRow[],
+  machineUuids?: string[],
 ): Promise<OrderContext[]> {
   const corrugationIds = [
     ...new Set(
@@ -459,10 +480,19 @@ async function buildOrderContexts(
       effectiveRouteId != null
         ? (stagesMap.get(effectiveRouteId) ?? null)
         : null;
-    const { sheetsPerUnit, source } = corrugationSheetsPerUnit(
+    const { sheetsPerUnit, source, notOnMachine } = corrugationSheetsPerUnit(
       stages,
       r.orderQuantity,
+      machineUuids,
     );
+    const corrugators: OrderContext["corrugators"] = [];
+    for (const st of stages ?? []) {
+      if (!st.isCorrugation) continue;
+      for (const m of st.machines) {
+        if (m.machine && !corrugators.some((c) => c.uuid === m.machine!.uuid))
+          corrugators.push({ uuid: m.machine.uuid, code: m.machine.code ?? null });
+      }
+    }
     const requiredSheets = r.orderQuantity * sheetsPerUnit;
     const allocatedElsewhere = allocMap.get(r.id) ?? 0;
     const underrunPercentage = r.underrunPercentage ?? 0;
@@ -511,8 +541,22 @@ async function buildOrderContexts(
       overrunPercentage,
       allocatedElsewhere,
       pendingSheets: pending,
+      corrugators,
+      notOnMachine: !!notOnMachine,
     };
   });
+}
+
+function notOnMachineError(contexts: OrderContext[]): ServiceResult<never> | null {
+  const off = contexts.filter((c) => c.notOnMachine);
+  return off.length
+    ? {
+        ok: false,
+        status: 400,
+        message: `La ruta de ${off.map((c) => c.number).join(", ")} no pasa por la corrugadora elegida`,
+        code: "ORDER_NOT_ON_MACHINE",
+      }
+    : null;
 }
 
 const isPlannable = (c: OrderContext): boolean =>
@@ -618,6 +662,7 @@ export async function getPool(
       requiredSheets: ctx.requiredSheets,
       allocatedSheets: ctx.allocatedElsewhere,
       pendingSheets: ctx.pendingSheets,
+      corrugators: ctx.corrugators,
       inPlans: inPlansMap.get(ctx.productionOrderId) ?? [],
     });
   }
@@ -661,7 +706,7 @@ function normalizeWidths(
   widths: number[] | undefined,
   machineWidth: number,
 ): number[] {
-  const list = widths && widths.length ? widths : [machineWidth];
+  const list = widths && widths.length ? widths : machineWidth > 0 ? [machineWidth] : [];
   return [...new Set(list)].sort((a, b) => b - a);
 }
 
@@ -673,7 +718,8 @@ function snapshotFromRow(
     machineUuid: row.uuid,
     code: row.code ?? null,
     description: row.description ?? null,
-    width: Number(row.width) || 0,
+    // A corrugator with no recorded width takes the widest reel the plan offers (D-73).
+    width: Number(row.width) > 0 ? Number(row.width) : Math.max(0, ...widths),
     widths,
     trim: Number(row.trim) || 0,
     maxElements: Number(row.maxElements) || 0,
@@ -712,16 +758,20 @@ async function validateMachines(
         message: `Machine ${row.code ?? m.machineUuid} is not a corrugator`,
       };
     const width = Number(row.width) || 0;
-    if (!(width > 0))
-      return {
-        ok: false,
-        message: `Machine ${row.code ?? m.machineUuid} has no width`,
-      };
     const widths = normalizeWidths(m.widths, width);
-    if (widths.some((w) => !(w > 0) || w > width)) {
+    const label = row.code ?? row.description ?? m.machineUuid;
+    if (widths.length === 0)
       return {
         ok: false,
-        message: `Machine ${row.code ?? m.machineUuid}: format widths must be between 0 and the machine width`,
+        message: `La corrugadora ${label} no tiene ancho cargado: indicá al menos un ancho de bobina`,
+      };
+    if (widths.some((w) => !(w > 0) || (width > 0 && w > width))) {
+      return {
+        ok: false,
+        message:
+          width > 0
+            ? `Corrugadora ${label}: los anchos de bobina deben estar entre 1 y ${width} mm`
+            : `Corrugadora ${label}: los anchos de bobina deben ser mayores que 0`,
       };
     }
     snapshots.push(snapshotFromRow(row, widths));
@@ -1017,7 +1067,14 @@ export async function createPlan(
       code: "ORDER_NOT_ELIGIBLE",
     };
   }
-  const contexts = await buildOrderContexts(companyId, rows);
+  const machinesResult = await validateMachines(companyId, body.machines);
+  if (!machinesResult.ok)
+    return { ok: false, status: 400, message: machinesResult.message };
+  const contexts = await buildOrderContexts(
+    companyId,
+    rows,
+    machinesResult.value.map((m) => m.machineUuid),
+  );
   const notPlannable = contexts.filter((c) => !isPlannable(c));
   if (notPlannable.length) {
     return {
@@ -1026,6 +1083,8 @@ export async function createPlan(
       message: `Order(s) not plannable: ${notPlannable.map((c) => c.number).join(", ")}`,
     };
   }
+  const offMachine = notOnMachineError(contexts);
+  if (offMachine) return offMachine;
   const keys = new Set(contexts.map((c) => c.board!.key));
   if (keys.size > 1) {
     return {
@@ -1035,10 +1094,6 @@ export async function createPlan(
       code: "MIXED_BOARD",
     };
   }
-
-  const machinesResult = await validateMachines(companyId, body.machines);
-  if (!machinesResult.ok)
-    return { ok: false, status: 400, message: machinesResult.message };
 
   const parametersResult = mergeParameters(
     CORRUGATOR_PARAMETER_DEFAULTS,
@@ -1184,6 +1239,19 @@ export async function updatePlan(
     const machinesResult = await validateMachines(companyId, body.machines);
     if (!machinesResult.ok)
       return { ok: false, status: 400, message: machinesResult.message };
+    // The plan's lines must still run on one of the new corrugators (D-72).
+    const lines = await orderDao.listByPlanId(plan.id!);
+    const rows = await loadEligibleOrders(companyId, {
+      ids: lines.map((l) => l.productionOrderId!),
+    });
+    const offMachine = notOnMachineError(
+      await buildOrderContexts(
+        companyId,
+        rows,
+        machinesResult.value.map((m) => m.machineUuid),
+      ),
+    );
+    if (offMachine) return offMachine;
     patch.machines = machinesResult.value;
     invalidates = true;
   }
@@ -1270,7 +1338,11 @@ export async function addOrders(
       code: "ORDER_NOT_ELIGIBLE",
     };
   }
-  const contexts = await buildOrderContexts(companyId, rows);
+  const contexts = await buildOrderContexts(
+    companyId,
+    rows,
+    (plan.machines ?? []).map((m) => m.machineUuid),
+  );
   const notPlannable = contexts.filter((c) => !isPlannable(c));
   if (notPlannable.length) {
     return {
@@ -1279,6 +1351,8 @@ export async function addOrders(
       message: `Order(s) not plannable: ${notPlannable.map((c) => c.number).join(", ")}`,
     };
   }
+  const offMachine = notOnMachineError(contexts);
+  if (offMachine) return offMachine;
   const badBoard = contexts.filter((c) => c.board!.key !== plan.board!.key);
   if (badBoard.length) {
     return {
@@ -2171,13 +2245,22 @@ export async function register(
       };
     }
 
+    // Allocation = what Procusto nets for each registered lane (D-70), not the editor's display figure.
     const engineCombos = await loadEngineCombinations(plan.id!, orders, trx);
-    const figures = engineCombos.length
-      ? evaluate(buildEngineInput(plan, orders), engineCombos)
-      : null;
-    const plannedByOrder = new Map(
-      (figures?.perOrder ?? []).map((f) => [f.orderKey, f.plannedSheets]),
-    );
+    const orderByKey = new Map(orders.map((o) => [o.uuid!, o]));
+    const plannedByOrder = new Map<string, number>();
+    for (const combo of engineCombos) {
+      for (const it of combo.items) {
+        const o = orderByKey.get(it.orderKey);
+        if (!o) continue;
+        const runLength = it.rotated ? o.sheetWidth! : o.sheetLength!;
+        plannedByOrder.set(
+          it.orderKey,
+          (plannedByOrder.get(it.orderKey) ?? 0) +
+            programmedSheets(it.count, combo.meters, runLength),
+        );
+      }
+    }
 
     const allocatedMap = await loadAllocatedElsewhereBatch(
       poIds,

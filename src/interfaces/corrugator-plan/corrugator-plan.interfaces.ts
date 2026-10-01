@@ -235,6 +235,7 @@ export interface ICorrugatorPoolOrder {
   requiredSheets: number;
   allocatedSheets: number;
   pendingSheets: number;
+  corrugators: { uuid: string; code: string | null }[];
   inPlans: ICorrugatorPlanRef[];
 }
 

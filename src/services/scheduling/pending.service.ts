@@ -2,21 +2,16 @@ import {
   IRouteStage,
   IStageSupply,
 } from "../../interfaces/production-route/production-route.interfaces";
-import { roundHalfEven } from "../corrugator/rounding";
+import { roundHalfEven, roundHalfUpInt } from "../corrugator/rounding";
 import { deriveEdges } from "../route-validator.service";
 
 /**
  * Corrugator pending quantities — Procusto parity (spec 13 §A/§B):
  * ConsultasProgramacion.Factores, CalculosBocas.Relacion,
  * TareaPotencial.Tolerado/Pendiente and ProgramarCorrugado.PendientesDeCorrugado.
- * Doubles throughout; the only rounding is the banker's round of the pending.
+ * Doubles throughout; the only roundings are .NET's half-to-even on the pending
+ * and on programmed sheets.
  */
-
-export interface SheetsPerUnitResult {
-  sheetsPerUnit: number;
-  source: "route" | "quantity";
-  warning?: string;
-}
 
 export interface ToleranceConfig {
   absolute: number; // app_config ToleranciaProgramacion
@@ -86,50 +81,68 @@ export function stageFactors(
   return factors;
 }
 
-/** P-1: corrugation-stage sheets per finished unit, falling back to 1 with a warning. */
+export interface SheetsPerUnitResult {
+  sheetsPerUnit: number;
+  source: "route" | "quantity";
+  warning?: string;
+  /** The route has corrugation stages, but none runs on the given corrugators (Procusto lists no pending). */
+  notOnMachine?: boolean;
+}
+
+/**
+ * P-1: corrugation-stage sheets per finished unit, falling back to 1 with a
+ * warning. With `machineUuids`, only the corrugation stages one of those
+ * corrugators runs count, as `ProgramarCorrugado.PendientesDeCorrugado`
+ * filters `Participantes` by the programme's corrugator.
+ */
 export function corrugationSheetsPerUnit(
   stages: IRouteStage[] | null,
   quantity: number,
+  machineUuids?: string[],
 ): SheetsPerUnitResult {
-  const fallback = (warning: string): SheetsPerUnitResult => ({
-    sheetsPerUnit: 1,
-    source: "quantity",
-    warning,
-  });
-  if (!stages || stages.length === 0)
-    return fallback(
-      "La orden no tiene ruta de producción; se asume 1 plancha por unidad",
-    );
-  if (!(quantity > 0))
-    return fallback(
-      "La orden no tiene cantidad; se asume 1 plancha por unidad",
-    );
-  const corrugation = stages
+  const fallback = (warning: string): SheetsPerUnitResult => ({ sheetsPerUnit: 1, source: "quantity", warning });
+  if (!stages || stages.length === 0) return fallback("La orden no tiene ruta de producción; se asume 1 plancha por unidad");
+  if (!(quantity > 0)) return fallback("La orden no tiene cantidad; se asume 1 plancha por unidad");
+  const candidates = stages
     .map((s, i) => ({ s, i }))
-    .filter(
-      ({ s }) =>
-        s.isCorrugation && s.supplies.some((x) => x.direction === "output"),
-    );
+    .filter(({ s }) => s.isCorrugation && s.supplies.some((x) => x.direction === "output"));
+  if (candidates.length === 0) {
+    return fallback("La ruta no tiene etapa de corrugado; se asume 1 plancha por unidad");
+  }
+  let corrugation = machineUuids
+    ? candidates.filter(({ s }) => s.machines.some((m) => m.machine && machineUuids.includes(m.machine.uuid)))
+    : candidates;
+  let unassignedWarning: string | undefined;
   if (corrugation.length === 0) {
-    return fallback(
-      "La ruta no tiene etapa de corrugado; se asume 1 plancha por unidad",
-    );
+    // Procusto lists no pending for a stage without corrugators; Mobius routes are still being
+    // completed, so a stage naming no corrugator accepts any (D-74). Naming others still rejects.
+    corrugation = candidates.filter(({ s }) => s.machines.length === 0);
+    if (corrugation.length === 0) {
+      return { sheetsPerUnit: 1, source: "quantity", notOnMachine: true, warning: "La ruta no pasa por la corrugadora elegida" };
+    }
+    unassignedWarning = "La etapa de corrugado de la ruta no tiene corrugadora asignada";
   }
   const factors = stageFactors(stages, quantity);
   const values = corrugation.map(({ i }) => factors.get(i));
   if (values.some((v) => v === undefined || !Number.isFinite(v) || v <= 0)) {
-    return fallback(
-      "Faltan cantidades en los insumos de la ruta; se asume 1 plancha por unidad",
-    );
+    return fallback("Faltan cantidades en los insumos de la ruta; se asume 1 plancha por unidad");
   }
   const sheetsPerUnit = Math.max(...(values as number[])) / quantity;
-  return corrugation.length > 1
-    ? {
-        sheetsPerUnit,
-        source: "route",
-        warning: "La ruta tiene varias etapas de corrugado; se usa la mayor",
-      }
-    : { sheetsPerUnit, source: "route" };
+  if (corrugation.length > 1) {
+    return { sheetsPerUnit, source: "route", warning: "La ruta tiene varias etapas de corrugado; se usa la mayor" };
+  }
+  return unassignedWarning ? { sheetsPerUnit, source: "route", warning: unassignedWarning } : { sheetsPerUnit, source: "route" };
+}
+
+/**
+ * Sheets a registered run nets from the order's pending — Procusto's
+ * `InsumoProgramadoCorrugado.PlanchasProgramadas` (`Convert.ToInt32`, half to
+ * even) on the sheet length `Registrar` rounds to whole mm. Pandora's
+ * displayed `Item.PlanchasProgramadas` rounds half up on the raw length.
+ */
+export function programmedSheets(count: number, meters: number, runLength: number): number {
+  const length = roundHalfUpInt(runLength);
+  return length > 0 ? roundHalfEven((count * meters * 1000) / length) : 0;
 }
 
 /** TareaPotencial.Tolerado (TareaPotencial.cs:75-82). */

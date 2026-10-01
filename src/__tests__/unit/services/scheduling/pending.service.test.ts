@@ -5,6 +5,7 @@ import {
 import {
   corrugationSheetsPerUnit,
   pendingSheets,
+  programmedSheets,
   stageFactors,
   tolerated,
 } from "../../../../services/scheduling/pending.service";
@@ -108,5 +109,44 @@ describe("Tolerado / pending (TareaPotencial.cs:75-82, ProgramarCorrugado.cs:198
     expect(pendingSheets(1001.5, 0, cfg)).toBe(1002);
     expect(pendingSheets(1000, 1500, cfg)).toBe(0);
     expect(pendingSheets(150, 0, cfg)).toBe(0);
+  });
+});
+
+describe("Programmed sheets (InsumoProgramadoCorrugado.cs:58, ProgramarCorrugado.Registrar)", () => {
+  it("rounds half to even like Convert.ToInt32, where Pandora's display rounds half up", () => {
+    // 2 lanes x 2.5 m on a 1000 mm sheet = 5.0; 1 lane x 0.5 m = 0.5 -> 0; 1 lane x 1.5 m = 1.5 -> 2
+    expect(programmedSheets(2, 2.5, 1000)).toBe(5);
+    expect(programmedSheets(1, 0.5, 1000)).toBe(0);
+    expect(programmedSheets(1, 1.5, 1000)).toBe(2);
+    expect(programmedSheets(1, 2.5, 1000)).toBe(2);
+  });
+
+  it("uses the sheet length rounded to whole mm, as Registrar stores it", () => {
+    // 1000 m of a 1180.4 mm sheet: Procusto divides by 1180 -> 847.46 -> 847
+    expect(programmedSheets(1, 1000, 1180.4)).toBe(847);
+    expect(programmedSheets(1, 1000, 1180.5)).toBe(847); // 1181 mm -> 846.74 -> 847
+    expect(programmedSheets(3, 0, 1000)).toBe(0);
+  });
+});
+
+describe("Corrugation stage chosen by the programme's corrugator (ProgramarCorrugado.cs:193-194)", () => {
+  const onMachine = (uuid: string) => [{ isPrimary: true, machine: { uuid, code: uuid } }];
+  const corrA = { ...corrugator, machines: onMachine("A") } as IRouteStage;
+
+  it("keeps the stage its corrugator runs", () => {
+    expect(corrugationSheetsPerUnit([corrA, dieCutter], 500, ["A"])).toEqual({ sheetsPerUnit: 2, source: "route" });
+  });
+
+  it("flags a route whose corrugation stages run on another corrugator", () => {
+    expect(corrugationSheetsPerUnit([corrA, dieCutter], 500, ["B"])).toMatchObject({ notOnMachine: true });
+  });
+
+  it("accepts any corrugator when the route's corrugation stage names none (D-74)", () => {
+    expect(corrugationSheetsPerUnit([corrugator, dieCutter], 500, ["B"])).toMatchObject({ sheetsPerUnit: 2, source: "route", warning: expect.any(String) });
+    expect(corrugationSheetsPerUnit([corrugator, dieCutter], 500, ["B"]).notOnMachine).toBeUndefined();
+  });
+
+  it("ignores machines when none are given (the pool)", () => {
+    expect(corrugationSheetsPerUnit([corrA, dieCutter], 500)).toEqual({ sheetsPerUnit: 2, source: "route" });
   });
 });
