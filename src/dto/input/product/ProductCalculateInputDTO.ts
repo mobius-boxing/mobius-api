@@ -2,7 +2,7 @@ import { CascadeField } from "../../../services/product-calculator/product-calcu
 import { toNumberInput } from "../../../utils/numbers";
 import { FieldValidationError } from "../shared/ValidationError";
 
-/** D-11/D-19 8 cascade fields + flap/mandatoryRotation/model (fefco-sheet-calculation). */
+/** D-11/D-19 8 cascade fields + flap/mandatoryRotation/model (fefco-sheet-calculation) + flaps, overlap and additional length (Procusto setters). */
 export const CALCULATE_FIELDS: readonly CascadeField[] = [
   "boxLength",
   "boxWidth",
@@ -13,6 +13,10 @@ export const CALCULATE_FIELDS: readonly CascadeField[] = [
   "boxSurface",
   "grammage",
   "flap",
+  "lowerFlap",
+  "upperFlap",
+  "flapOverlap",
+  "additionalSheetLength",
   "mandatoryRotation",
   "model",
 ] as const;

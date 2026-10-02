@@ -238,6 +238,10 @@ describe("ProductCalculateInputDTO (AC-6, D-11)", () => {
       "boxSurface",
       "grammage",
       "flap",
+      "lowerFlap",
+      "upperFlap",
+      "flapOverlap",
+      "additionalSheetLength",
       "mandatoryRotation",
       "model",
     ]);

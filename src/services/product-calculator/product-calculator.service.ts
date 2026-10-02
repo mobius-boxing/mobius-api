@@ -40,6 +40,10 @@ export type CascadeField =
   | "boxSurface"
   | "grammage"
   | "flap"
+  | "lowerFlap"
+  | "upperFlap"
+  | "flapOverlap"
+  | "additionalSheetLength"
   | "mandatoryRotation"
   | "model";
 
@@ -109,7 +113,7 @@ const AXES = [
   },
 ] as const;
 
-/** Fields whose edit re-runs CalcularAletas + CalcularPlancha (algorithm §2). */
+/** Fields whose edit re-runs CalcularAletas + CalcularPlancha (algorithm §2; `SetearLargoAdicional`). */
 const MODEL_CASCADE_TRIGGERS = new Set<CascadeField>([
   "boxLength",
   "boxWidth",
@@ -117,9 +121,22 @@ const MODEL_CASCADE_TRIGGERS = new Set<CascadeField>([
   "externalLength",
   "externalWidth",
   "externalHeight",
-  "flap",
+  "additionalSheetLength",
   "mandatoryRotation",
   "model",
+]);
+
+/**
+ * Fields whose edit re-runs CalcularPlancha only, keeping the flaps as they
+ * are (`Parte`/`ParteCotizada.SetearAleta`, `SetearAletaInferior`,
+ * `SetearAletaSuperior`, `SetearSuperposicionAletas`): a hand-set flap feeds
+ * the sheet and score-line formulas instead of being reset by them.
+ */
+const SHEET_ONLY_TRIGGERS = new Set<CascadeField>([
+  "flap",
+  "lowerFlap",
+  "upperFlap",
+  "flapOverlap",
 ]);
 
 export class ProductCalculator {
@@ -341,6 +358,14 @@ export class ProductCalculator {
       product.boxWeight = this.boxWeight(product.boxSurface, grammage);
     } else if (field === "flap") {
       product.flap = value as number | null;
+    } else if (field === "lowerFlap") {
+      product.lowerFlap = value as number | null;
+    } else if (field === "upperFlap") {
+      product.upperFlap = value as number | null;
+    } else if (field === "flapOverlap") {
+      product.flapOverlap = value as number | null;
+    } else if (field === "additionalSheetLength") {
+      product.additionalSheetLength = value as number | null;
     } else if (field === "mandatoryRotation") {
       product.mandatoryRotation = value === true;
     }
@@ -354,6 +379,8 @@ export class ProductCalculator {
         caliper ?? null,
         corrugationTheoreticalGrammage,
       );
+    }
+    if (model && (MODEL_CASCADE_TRIGGERS.has(field) || SHEET_ONLY_TRIGGERS.has(field))) {
       this.calcularPlancha(
         product,
         model,
