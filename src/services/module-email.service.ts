@@ -1,12 +1,13 @@
 /**
- * Transactional sender for module notifications (Resend, over plain HTTPS).
+ * The one transactional sender (Resend, over plain HTTPS): module
+ * notifications call it directly, and `EmailService`'s account emails
+ * (invitations, resets) go through it too.
  *
- * Why not the SES `EmailService` next door: SES production access for this
- * account was denied, which leaves it sandboxed — able to deliver only to
- * individually verified addresses. The countdown module learned that the
- * expensive way in its previous life: its reminder log was still empty a week
- * after launch because nothing had ever actually reached anyone. Host emails
- * (invitations, resets) stay on SES; module reminders go out through here.
+ * Why not SES: production access for this account was denied, which leaves it
+ * sandboxed — able to deliver only to individually verified addresses. The
+ * countdown module learned that the expensive way in its previous life: its
+ * reminder log was still empty a week after launch because nothing had ever
+ * actually reached anyone.
  *
  * No SDK on purpose — sending is one POST and `fetch` is built into Node 20.
  *
@@ -29,7 +30,9 @@ const TIMEOUT_MS = 10_000;
 export interface IModuleEmail {
   to: string;
   subject: string;
-  body: string;
+  /** Plain text. At least one of `body` and `html` is required. */
+  body?: string;
+  html?: string;
   /**
    * Optional dedupe key, honoured by Resend for 24 h. The reminder scheduler
    * writes its log row only *after* a send is accepted, so a crash in between
@@ -79,7 +82,8 @@ export async function sendModuleEmail(email: IModuleEmail): Promise<boolean> {
         from: process.env.RESEND_FROM || DEFAULT_FROM,
         to: email.to,
         subject: email.subject,
-        text: email.body,
+        ...(email.body !== undefined ? { text: email.body } : {}),
+        ...(email.html !== undefined ? { html: email.html } : {}),
       }),
       signal: controller.signal,
     });

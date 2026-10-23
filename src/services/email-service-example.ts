@@ -232,7 +232,7 @@ export function exampleCheckEmailServiceStatus(): void {
   // Get detailed status
   const status = emailService.getStatus();
   console.log("Email service configuration:", status);
-  // Output: { configured: true/false, fromEmail, fromName, frontendUrl }
+  // Output: { configured: true/false, frontendUrl }
 }
 
 /**

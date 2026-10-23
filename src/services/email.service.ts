@@ -1,70 +1,42 @@
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import {
   invitationEmailTemplate,
   welcomeEmailTemplate,
   passwordResetEmailTemplate,
   emailVerificationTemplate,
 } from "../templates/email-templates";
+import { sendModuleEmail } from "./module-email.service";
 
 export class EmailService {
   private isConfigured: boolean;
-  private ses: SESClient | null = null;
-  private fromEmail: string;
-  private fromName: string;
   private frontendUrl: string;
 
   constructor() {
-    // SES authenticates via the ambient AWS credential chain: the EC2 instance role
-    // in production (no API key to store/leak), or ~/.aws / env vars locally. We only
-    // need a region + a verified sender. With no region (typical local dev) we degrade
-    // to logging instead of failing.
-    const region = process.env.SES_REGION || process.env.AWS_REGION;
-    this.isConfigured = !!region;
+    // Mirrors sendModuleEmail's own gate: outside production nothing is sent.
+    this.isConfigured =
+      process.env.NODE_ENV === "production" && !!process.env.RESEND_API_KEY;
 
-    if (this.isConfigured) {
-      this.ses = new SESClient({ region });
-      console.log("✓ SES email service initialized");
-    } else {
-      console.warn("⚠ SES region not configured. Emails will be logged only.");
+    if (!this.isConfigured) {
+      console.warn("⚠ Resend not configured. Emails will be logged only.");
     }
 
-    this.fromEmail = process.env.EMAIL_FROM || "noreply@mobius-tms.com";
-    this.fromName = process.env.EMAIL_FROM_NAME || "Mobius";
     this.frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
   }
 
-  // If SES is not configured (no region) we degrade gracefully by logging the email
-  // instead of failing — keeps local/dev environments usable without credentials.
   private async send(to: string, subject: string, html: string): Promise<void> {
-    if (this.isConfigured && this.ses) {
-      try {
-        await this.ses.send(
-          new SendEmailCommand({
-            Source: `${this.fromName} <${this.fromEmail}>`,
-            Destination: { ToAddresses: [to] },
-            Message: {
-              Subject: { Data: subject, Charset: "UTF-8" },
-              Body: { Html: { Data: html, Charset: "UTF-8" } },
-            },
-          }),
-        );
-        console.log(`✓ Email sent to ${to}: ${subject}`);
-      } catch (error: any) {
-        console.error(
-          "✗ Error sending email via SES:",
-          error?.message || error,
-        );
-        throw new Error("Failed to send email");
-      }
-    } else {
-      console.log("\n====== EMAIL (NOT SENT - SES not configured) ======");
+    if (!this.isConfigured) {
+      console.log("\n====== EMAIL (NOT SENT - Resend not configured) ======");
       console.log("To:", to);
-      console.log("From:", `${this.fromName} <${this.fromEmail}>`);
       console.log("Subject:", subject);
       console.log("HTML Preview:", html.substring(0, 200) + "...");
       console.log(
         "=========================================================\n",
       );
+      return;
+    }
+
+    // sendModuleEmail fails soft; callers of EmailService expect a throw.
+    if (!(await sendModuleEmail({ to, subject, html }))) {
+      throw new Error("Failed to send email");
     }
   }
 
@@ -168,14 +140,10 @@ export class EmailService {
 
   public getStatus(): {
     configured: boolean;
-    fromEmail: string;
-    fromName: string;
     frontendUrl: string;
   } {
     return {
       configured: this.isConfigured,
-      fromEmail: this.fromEmail,
-      fromName: this.fromName,
       frontendUrl: this.frontendUrl,
     };
   }
