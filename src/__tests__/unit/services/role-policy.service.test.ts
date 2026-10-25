@@ -42,6 +42,23 @@ describe("RolePolicyService.assertCeiling", () => {
     }
   });
 
+  it("a full code covers its .readonly variant but not the reverse (Admin must be able to assign Member)", () => {
+    expect(() =>
+      RolePolicyService.assertCeiling(
+        "admin",
+        ["customers.edit"],
+        ["customers.edit.readonly"],
+      ),
+    ).not.toThrow();
+    expect(() =>
+      RolePolicyService.assertCeiling(
+        "member",
+        ["customers.edit.readonly"],
+        ["customers.edit"],
+      ),
+    ).toThrow();
+  });
+
   it("superAdmin is exempt (mutation: forgetting the exemption locks out platform ops)", () => {
     expect(() =>
       RolePolicyService.assertCeiling("superAdmin", [], ["orders.edit"]),

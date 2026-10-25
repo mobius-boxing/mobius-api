@@ -11,7 +11,7 @@ import {
 
 /**
  * Gated by the `roles.edit` permission (Procusto "Perfiles"); reads also accept
- * its `.readonly` variant. Legacy admins pass via the transition fallback,
+ * its `.readonly` variant, and the list also accepts `users.edit[.readonly]`. Legacy admins pass via the transition fallback,
  * superAdmin always passes.
  */
 export class RolesRouter {
@@ -26,7 +26,8 @@ export class RolesRouter {
     this.router.get(
       "/",
       authenticate,
-      requirePermission("roles.edit", { allowReadOnly: true }),
+      // users.edit holders need the list for the invite/assign role picker.
+      requirePermission(["roles.edit", "users.edit"], { allowReadOnly: true }),
       validatePagination,
       apiRateLimiter,
       this.controller.getAll.bind(this.controller),

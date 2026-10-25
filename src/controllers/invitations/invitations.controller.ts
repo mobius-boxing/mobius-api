@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { InvitationCreateInputDTO } from "../../dto/input/invitation";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { RoleDAO } from "../../dao/role/role.dao";
+import { UserDAO } from "../../dao/user/user.dao";
 import { RbacService } from "../../services/rbac.service";
 import {
   RolePolicyService,
@@ -33,6 +34,7 @@ export class InvitationsController implements IBaseController {
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _companyDAO: CompanyDAO = new CompanyDAO();
   private _roleDAO: RoleDAO = new RoleDAO();
+  private _userDAO: UserDAO = new UserDAO();
 
   public async getStats(
     req: Request,
@@ -139,8 +141,21 @@ export class InvitationsController implements IBaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const data = req.body;
       const actor = (req as any).user;
+
+      // `invitedBy` is the authenticated actor, never a client value. A
+      // roleUuid-only body (the web app's invite form) carries no legacy
+      // `role`; it is derived from the resolved role below.
+      const inviter = await this._userDAO.getByUuid(actor.userId);
+      if (!inviter || !inviter.id) {
+        res.status(400).json({ success: false, message: "Invalid user session" });
+        return;
+      }
+      const data = {
+        ...req.body,
+        role: req.body.role ?? "member",
+        invitedBy: inviter.id,
+      };
 
       const inputDTO = new InvitationCreateInputDTO(data).build();
       const validation: IInputValidator = await inputValidator(inputDTO);
@@ -223,6 +238,7 @@ export class InvitationsController implements IBaseController {
             );
           }
           roleId = role.id;
+          inputDTO.role = role.systemKey === "admin" ? "admin" : "member";
         } else {
           roleId = await RbacService.systemRoleId(
             companyId,
