@@ -43,7 +43,20 @@ export class RolePolicyError extends Error {
 
 export class RolePolicyService {
   /**
-   * Ceiling rule: `targetCodes` must be a subset of `actorCodes`. On a grant
+   * Whether `actorCodes` cover `code`. `X.readonly` grants a subset of `X`, so
+   * holding `X` covers it — without this the system Admin could not assign
+   * Member, which carries readonly codes the Admin holds only in full form.
+   */
+  static coversCode(actorCodes: ReadonlySet<string>, code: string): boolean {
+    return (
+      actorCodes.has(code) ||
+      (code.endsWith(".readonly") &&
+        actorCodes.has(code.slice(0, -".readonly".length)))
+    );
+  }
+
+  /**
+   * Ceiling rule: `targetCodes` must be covered by `actorCodes`. On a grant
    * edit, callers pass only the codes that moved (added ∪ removed); on an
    * assignment, callers pass the whole role's codes.
    */
@@ -54,7 +67,9 @@ export class RolePolicyService {
   ): void {
     if (actorRole === "superAdmin") return;
     const actorSet = new Set(actorCodes);
-    const outside = targetCodes.filter((code) => !actorSet.has(code));
+    const outside = targetCodes.filter(
+      (code) => !RolePolicyService.coversCode(actorSet, code),
+    );
     if (outside.length > 0) {
       throw new RolePolicyError(
         "GRANT_CEILING",

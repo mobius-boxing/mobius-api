@@ -330,7 +330,9 @@ export class RoleDAO {
       .filter((role: any) => {
         if (!actorSet) return true;
         const roleCodes = codes.get(role.id) ?? [];
-        return roleCodes.every((code) => actorSet.has(code));
+        return roleCodes.every((code) =>
+          RolePolicyService.coversCode(actorSet, code),
+        );
       })
       .map((role: any) => ({
         ...(role as IRole),

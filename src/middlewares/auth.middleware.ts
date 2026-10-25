@@ -227,7 +227,7 @@ export const optionalAuth = async (
  * the backfill migration put every company user on a role.
  */
 export const requirePermission = (
-  code: string,
+  code: string | readonly string[],
   options?: { allowReadOnly?: boolean },
 ) => {
   return async (
@@ -275,10 +275,15 @@ export const requirePermission = (
       // Decision semantics live in ONE place (RbacService.isAllowed) — the
       // superAdmin bypass above is only a fetch-skipping fast path.
       const { RbacService } = await import("../services/rbac.service");
-      if (!RbacService.isAllowed(user.role, codes, code, options)) {
+      const accepted = typeof code === "string" ? [code] : code;
+      if (
+        !accepted.some((c) =>
+          RbacService.isAllowed(user.role, codes as string[], c, options),
+        )
+      ) {
         res.status(403).json({
           success: false,
-          message: `Insufficient permissions. Required: ${code}`,
+          message: `Insufficient permissions. Required: ${accepted.join(" or ")}`,
         });
         return;
       }
