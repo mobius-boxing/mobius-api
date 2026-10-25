@@ -23,7 +23,9 @@
     "modules:sync": "ts-node src/scripts/modules-sync.ts",
     "tenant:register-shared": "ts-node src/scripts/tenant-register-shared.ts",
     "tenant:move": "ts-node src/scripts/tenant-move.ts",
-    "deploy": "bash ../debug/deploy-backend.sh"
+    "deploy": "echo \"Choose an environment: npm run deploy:dev | npm run deploy:prod\" && exit 1",
+    "deploy:dev": "bash ../debug/deploy-backend.sh dev",
+    "deploy:prod": "bash ../debug/deploy-backend.sh prod"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

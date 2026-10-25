@@ -46,12 +46,37 @@ interface IResendError {
   message?: string;
 }
 
+/**
+ * `EMAIL_ALLOWED_RECIPIENTS` (comma list; `@domain` matches a domain, anything
+ * else an exact address, case-insensitive) keeps a non-production environment
+ * that shares data shapes with customers from mailing them. Unset = no limit.
+ */
+function isRecipientAllowed(to: string): boolean {
+  const entries = (process.env.EMAIL_ALLOWED_RECIPIENTS ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== "");
+  if (entries.length === 0) return true;
+
+  const address = to.trim().toLowerCase();
+  return entries.some((entry) =>
+    entry.startsWith("@") ? address.endsWith(entry) : address === entry,
+  );
+}
+
 /** Returns whether the message was actually accepted by the provider. */
 export async function sendModuleEmail(email: IModuleEmail): Promise<boolean> {
   // Laptops and CI have no API key by design; don't pretend to send.
   if (process.env.NODE_ENV !== "production") {
     console.info(
       `[module-email] not sent (non-production) to=${email.to} subject="${email.subject}"`,
+    );
+    return false;
+  }
+
+  if (!isRecipientAllowed(email.to)) {
+    console.info(
+      `[module-email] skipped (not in EMAIL_ALLOWED_RECIPIENTS) to=${email.to} subject="${email.subject}"`,
     );
     return false;
   }
