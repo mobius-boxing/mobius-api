@@ -18,6 +18,10 @@ import crypto from "crypto";
 import { EmailService } from "../../services/email.service";
 import { db } from "../../database/registry";
 import { purgeUser } from "../../services/company-purge.service";
+import {
+  RolePolicyError,
+  RolePolicyService,
+} from "../../services/role-policy.service";
 
 export class UsersController implements IBaseController {
   private _userDAO: UserDAO = new UserDAO();
@@ -399,13 +403,49 @@ export class UsersController implements IBaseController {
         return;
       }
 
+      const endsActiveSuperAdminStatus =
+        existing.role === "superAdmin" &&
+        existing.isActive === true &&
+        (data.isActive === false ||
+          (data.role !== undefined && data.role !== "superAdmin"));
+
       // The deactivation, if any, already committed atomically above; a
       // fields-only update still needs its own write, and re-reading here
       // keeps the response consistent either way.
-      const result =
-        Object.keys(updateData).length > 0
-          ? await this._userDAO.update(existing.id, updateData)
-          : await this._userDAO.getByUuid(uuid);
+      let result: IUser | null;
+      try {
+        result =
+          Object.keys(updateData).length > 0 && endsActiveSuperAdminStatus
+            ? await db("core")
+                .transaction(async (trx) => {
+                  await RolePolicyService.assertSuperAdminStaysCovered(
+                    trx,
+                    actor.userId,
+                    uuid,
+                    existing.id!,
+                  );
+                  const updated: number = await trx("users")
+                    .where("id", existing.id)
+                    .update({ ...updateData, updatedAt: trx.fn.now() });
+                  return updated;
+                })
+                .then((updated) =>
+                  updated > 0 ? this._userDAO.getByUuid(uuid) : null,
+                )
+            : Object.keys(updateData).length > 0
+              ? await this._userDAO.update(existing.id, updateData)
+              : await this._userDAO.getByUuid(uuid);
+      } catch (err: unknown) {
+        if (err instanceof RolePolicyError) {
+          res.status(err.status).json({
+            success: false,
+            code: err.code,
+            message: err.message,
+          });
+          return;
+        }
+        throw err;
+      }
 
       if (!result) {
         res.status(404).json({
@@ -442,6 +482,29 @@ export class UsersController implements IBaseController {
           message: "User not found",
         });
         return;
+      }
+
+      if (existing.role === "superAdmin" && existing.isActive === true) {
+        try {
+          await db("core").transaction(async (trx) => {
+            await RolePolicyService.assertSuperAdminStaysCovered(
+              trx,
+              (req as any).user.userId,
+              uuid,
+              existing.id!,
+            );
+          });
+        } catch (err: unknown) {
+          if (err instanceof RolePolicyError) {
+            res.status(err.status).json({
+              success: false,
+              code: err.code,
+              message: err.message,
+            });
+            return;
+          }
+          throw err;
+        }
       }
 
       // Not `UserDAO.delete`: tenant rows reference users by plain columns once

@@ -202,3 +202,47 @@ describe("RolePolicyService.assertNotLastAdmin", () => {
     ).rejects.toMatchObject({ code: "LAST_ADMIN" });
   });
 });
+
+describe("RolePolicyService.assertSuperAdminStaysCovered", () => {
+  it("throws SELF_SUPERADMIN_CHANGE before counting when the caller is the target", async () => {
+    await expect(
+      RolePolicyService.assertSuperAdminStaysCovered(
+        mock.knexMock,
+        "superadmin-a",
+        "superadmin-a",
+        1,
+      ),
+    ).rejects.toMatchObject({ code: "SELF_SUPERADMIN_CHANGE", status: 400 });
+    expect(mock.fixture("users").whereCalls).toStrictEqual([]);
+  });
+
+  it("throws LAST_SUPERADMIN when no other active SuperAdmin remains", async () => {
+    mock.fixture("users").firstRows = [{ count: "0" }];
+
+    await expect(
+      RolePolicyService.assertSuperAdminStaysCovered(
+        mock.knexMock,
+        "superadmin-a",
+        "superadmin-b",
+        2,
+      ),
+    ).rejects.toMatchObject({ code: "LAST_SUPERADMIN", status: 409 });
+  });
+
+  it("locks and passes when another active SuperAdmin remains", async () => {
+    mock.fixture("users").firstRows = [{ count: "1" }];
+
+    await expect(
+      RolePolicyService.assertSuperAdminStaysCovered(
+        mock.knexMock,
+        "superadmin-a",
+        "superadmin-b",
+        2,
+      ),
+    ).resolves.toBeUndefined();
+    expect(mock.knexMock.raw).toHaveBeenCalledWith(
+      "SELECT pg_advisory_xact_lock(?)",
+      [2_185_171_428],
+    );
+  });
+});

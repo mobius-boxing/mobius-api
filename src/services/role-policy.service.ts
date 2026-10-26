@@ -16,14 +16,22 @@ export type RolePolicyErrorCode =
   | "GRANT_CEILING"
   | "OWN_ROLE"
   | "LAST_ADMIN"
+  | "SELF_SUPERADMIN_CHANGE"
+  | "LAST_SUPERADMIN"
   | "SYSTEM_ROLE"
   | "ROLE_IN_USE"
   | "UNKNOWN_PERMISSION";
+
+// Serialises every write that can end a superAdmin's active status: superAdmins
+// have no company row to lock, unlike assertNotLastAdmin.
+const SUPERADMIN_LOCK_KEY = 2_185_171_428;
 
 const STATUS_BY_CODE: Record<RolePolicyErrorCode, number> = {
   GRANT_CEILING: 403,
   OWN_ROLE: 403,
   LAST_ADMIN: 409,
+  SELF_SUPERADMIN_CHANGE: 400,
+  LAST_SUPERADMIN: 409,
   SYSTEM_ROLE: 409,
   ROLE_IN_USE: 409,
   UNKNOWN_PERMISSION: 400,
@@ -167,6 +175,35 @@ export class RolePolicyService {
       throw new RolePolicyError(
         "LAST_ADMIN",
         "Cannot remove the company's last active Admin.",
+      );
+    }
+  }
+
+  static async assertSuperAdminStaysCovered(
+    trx: Knex,
+    actorUserUuid: string,
+    targetUserUuid: string,
+    targetUserId: number,
+  ): Promise<void> {
+    if (actorUserUuid === targetUserUuid) {
+      throw new RolePolicyError(
+        "SELF_SUPERADMIN_CHANGE",
+        "You cannot end your own active SuperAdmin status.",
+      );
+    }
+
+    await trx.raw("SELECT pg_advisory_xact_lock(?)", [SUPERADMIN_LOCK_KEY]);
+    const row = await trx("users")
+      .where({ role: "superAdmin", isActive: true })
+      .where("id", "<>", targetUserId)
+      .count("* as count")
+      .first();
+    const otherActiveSuperAdmins = parseInt(row?.count as string, 10) || 0;
+
+    if (otherActiveSuperAdmins === 0) {
+      throw new RolePolicyError(
+        "LAST_SUPERADMIN",
+        "Cannot remove the last active SuperAdmin.",
       );
     }
   }
