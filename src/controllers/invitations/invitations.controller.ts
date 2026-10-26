@@ -15,6 +15,7 @@ import { CompanyDAO } from "../../dao/company/company.dao";
 import { RoleDAO } from "../../dao/role/role.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { RbacService } from "../../services/rbac.service";
+import { EmailService } from "../../services/email.service";
 import {
   RolePolicyService,
   RolePolicyError,
@@ -35,6 +36,7 @@ export class InvitationsController implements IBaseController {
   private _companyDAO: CompanyDAO = new CompanyDAO();
   private _roleDAO: RoleDAO = new RoleDAO();
   private _userDAO: UserDAO = new UserDAO();
+  private _emailService: EmailService = new EmailService();
 
   public async getStats(
     req: Request,
@@ -148,7 +150,9 @@ export class InvitationsController implements IBaseController {
       // `role`; it is derived from the resolved role below.
       const inviter = await this._userDAO.getByUuid(actor.userId);
       if (!inviter || !inviter.id) {
-        res.status(400).json({ success: false, message: "Invalid user session" });
+        res
+          .status(400)
+          .json({ success: false, message: "Invalid user session" });
         return;
       }
       const data = {
@@ -267,6 +271,27 @@ export class InvitationsController implements IBaseController {
       };
 
       const result = await this._invitationDAO.create(dataToCreate);
+
+      // Same tradeoff as UsersController.invite: a failed send is logged, not
+      // surfaced, so the row still lands. Re-inviting the address issues a
+      // fresh token — the stored one is hashed and can't be re-sent.
+      try {
+        let companyName = "Mobius";
+        if (companyId) {
+          const company = await this._companyDAO.getById(companyId);
+          if (company) companyName = company.name;
+        }
+        await this._emailService.sendInvitationEmail(
+          inputDTO.email,
+          companyName,
+          inputDTO.role as "member" | "admin",
+          token,
+          data.firstName,
+        );
+        console.log(`✓ Invitation email sent to ${inputDTO.email}`);
+      } catch (emailError: any) {
+        console.error("Failed to send invitation email:", emailError.message);
+      }
 
       res.status(201).json({
         success: true,
