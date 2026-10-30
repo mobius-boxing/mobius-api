@@ -84,20 +84,24 @@ export class FileController {
         uuid,
         file.originalname,
       );
-      await this.storage.putObject(storageKey, file.buffer, file.mimetype);
-
       const uploadedBy = await this.dao.resolveUserId((req as any).user.userId);
-      const created = await this.dao.create({
-        uuid,
-        companyId,
-        originalName: file.originalname,
-        description: req.body?.description ?? null,
+      const created = await this.storage.putObjectThen(
         storageKey,
-        contentType: file.mimetype,
-        sizeBytes: file.size,
-        checksum: this.storage.checksum(file.buffer),
-        uploadedBy,
-      });
+        file.buffer,
+        file.mimetype,
+        () =>
+          this.dao.create({
+            uuid,
+            companyId,
+            originalName: file.originalname,
+            description: req.body?.description ?? null,
+            storageKey,
+            contentType: file.mimetype,
+            sizeBytes: file.size,
+            checksum: this.storage.checksum(file.buffer),
+            uploadedBy,
+          }),
+      );
 
       res.status(201).json({ success: true, data: created });
     } catch (err: any) {

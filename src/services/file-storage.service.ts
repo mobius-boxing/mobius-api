@@ -83,6 +83,29 @@ export class FileStorageService {
   }
 
   /**
+   * Stores the bytes, then runs `persist` (the row that references them). If the
+   * row cannot be written the object is removed again, so a failed upload never
+   * leaves unreferenced bytes in the bucket. A failed cleanup is logged and the
+   * original error is the one rethrown.
+   */
+  async putObjectThen<T>(
+    storageKey: string,
+    buffer: Buffer,
+    contentType: string | undefined,
+    persist: () => Promise<T>,
+  ): Promise<T> {
+    await this.putObject(storageKey, buffer, contentType);
+    try {
+      return await persist();
+    } catch (err) {
+      await this.deleteObject(storageKey).catch((cleanupErr) =>
+        console.error(`Orphaned storage object ${storageKey}:`, cleanupErr),
+      );
+      throw err;
+    }
+  }
+
+  /**
    * S3: short-lived signed GET URL (the browser downloads straight from S3).
    * Local driver: null — the caller must stream via getLocalReadStream instead.
    */

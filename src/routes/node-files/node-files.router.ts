@@ -1,5 +1,4 @@
 import { Router } from "express";
-import multer from "multer";
 import { NodeFilesController } from "../../controllers/node-files/node-files.controller";
 import { NF_MAX_UPLOAD_BYTES } from "../../services/node-files/node-files.service";
 import {
@@ -12,18 +11,7 @@ import {
   sensitiveRateLimiter,
 } from "../../middlewares";
 import { detachAudit } from "../../middlewares/audit-context.middleware";
-
-/**
- * Memory storage: the bytes go straight to the storage driver and are never
- * written to a temp file. The size limit is multer's, so an oversized upload is
- * refused while it streams instead of after 20 MB have been buffered; the error
- * middleware already maps `LIMIT_FILE_SIZE` to a 400. The MIME allowlist is
- * enforced in the service, where the message can name the offending type.
- */
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: NF_MAX_UPLOAD_BYTES },
-});
+import { singleFileUpload } from "../../middlewares/upload.middleware";
 
 /**
  * /api/node-files — document extraction (auto-mounted by IndexRouter: folder
@@ -153,7 +141,7 @@ export class NodeFilesRouter {
       gate,
       validateUUID(),
       apiRateLimiter,
-      upload.single("file"),
+      singleFileUpload(NF_MAX_UPLOAD_BYTES),
       controller.uploadDocument.bind(controller),
     );
 

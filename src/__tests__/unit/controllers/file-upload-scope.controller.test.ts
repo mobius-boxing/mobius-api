@@ -38,6 +38,12 @@ jest.mock("../../../services/file-storage.service", () => ({
       buildStorageKey: (companyId: number, uuid: string, name: string) =>
         `companies/${companyId}/${uuid}-${name}`,
       putObject: async () => undefined,
+      putObjectThen: async (
+        _key: string,
+        _buffer: Buffer,
+        _type: string | undefined,
+        persist: () => Promise<unknown>,
+      ) => persist(),
       checksum: () => "checksum",
     };
   },

@@ -379,22 +379,26 @@ export class NodeFilesService {
     // them be migrated or purged without touching core's company assets.
     const extension = path.extname(file.originalname || "").toLowerCase();
     const storageKey = `companies/${ctx.companyId}/node-files/${documentUuid}${extension}`;
-    await this._storage.putObject(storageKey, file.buffer, file.mimetype);
-
-    const { document } = await this._documentDAO.createWithQueuedRun(
-      {
-        uuid: documentUuid,
-        workflowId,
-        companyId: ctx.companyId,
-        storageKey,
-        originalName: file.originalname,
-        contentType: file.mimetype,
-        sizeBytes: file.size,
-        checksum: this._storage.checksum(file.buffer),
-        uploadedByUserId: ctx.userId,
-        uploadedByName: ctx.userName,
-      },
-      runUuid,
+    const { document } = await this._storage.putObjectThen(
+      storageKey,
+      file.buffer,
+      file.mimetype,
+      () =>
+        this._documentDAO.createWithQueuedRun(
+          {
+            uuid: documentUuid,
+            workflowId,
+            companyId: ctx.companyId,
+            storageKey,
+            originalName: file.originalname,
+            contentType: file.mimetype,
+            sizeBytes: file.size,
+            checksum: this._storage.checksum(file.buffer),
+            uploadedByUserId: ctx.userId,
+            uploadedByName: ctx.userName,
+          },
+          runUuid,
+        ),
     );
 
     return { document: NfDocumentDAO.mapToInterface(document), runUuid };
@@ -557,7 +561,10 @@ export class NodeFilesService {
    * that has already sent an email cannot be un-sent by a status change, so a
    * "cancelada" run whose email arrived anyway is a lie told by the UI.
    */
-  async cancelRun(uuid: string, ctx: INodeFilesContext): Promise<INodeFilesRun> {
+  async cancelRun(
+    uuid: string,
+    ctx: INodeFilesContext,
+  ): Promise<INodeFilesRun> {
     const id = await this._runDAO.getIdByUuid(uuid, ctx.companyId);
     if (!id) throw notFound("Ejecución no encontrada");
     const row = await this._runDAO.getStatusById(id, ctx.companyId);
@@ -631,10 +638,7 @@ export class NodeFilesService {
     uuid: string,
     ctx: INodeFilesContext,
   ): Promise<INodeFilesCredential> {
-    const credential = await this._credentialDAO.getByUuid(
-      uuid,
-      ctx.companyId,
-    );
+    const credential = await this._credentialDAO.getByUuid(uuid, ctx.companyId);
     if (!credential) throw notFound("Credencial no encontrada");
     const id = await this._credentialDAO.getIdByUuid(uuid, ctx.companyId);
     if (!id) throw notFound("Credencial no encontrada");

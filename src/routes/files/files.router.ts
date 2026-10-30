@@ -1,5 +1,4 @@
 import { Router } from "express";
-import multer from "multer";
 import {
   FileController,
   MAX_FILE_SIZE_BYTES,
@@ -13,11 +12,7 @@ import {
   sensitiveRateLimiter,
 } from "../../middlewares";
 import { detachAudit } from "../../middlewares/audit-context.middleware";
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_FILE_SIZE_BYTES },
-});
+import { singleFileUpload } from "../../middlewares/upload.middleware";
 
 export class FilesRouter {
   public router: Router = Router();
@@ -44,7 +39,7 @@ export class FilesRouter {
       // (risk R1), so this route stays on autocommit.
       detachAudit,
       apiRateLimiter,
-      upload.single("file"),
+      singleFileUpload(MAX_FILE_SIZE_BYTES),
       this.controller.upload.bind(this.controller),
     );
     this.router.get(
