@@ -144,9 +144,12 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     return warehouse ? warehouse.id : null;
   }
 
-  // WARNING: changing grid dimensions is destructive — all existing warehouse_locations
-  // rows for this warehouse (including any stock placement metadata) are deleted and
-  // recreated from scratch. Callers must validate this is safe before invoking.
+  // Resizing the grid preserves every cell that still fits in the new bounds —
+  // its status, type and any stock placed there survive. Only cells that fall
+  // outside the new grid are removed (which, via the FK's SET NULL, unassigns
+  // just the stock that was in those cells), and only newly-exposed cells are
+  // added. Shrinking still drops whatever sat in the removed cells, so callers
+  // warn before shrinking.
   async update(
     id: number,
     item: Partial<IWarehouse>,
@@ -174,14 +177,29 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
           .update(updateData)
           .returning("*");
 
-        await trx("warehouse_locations").where("warehouse_id", id).delete();
-
         const gridRows = updated.grid_rows;
         const gridCols = updated.grid_cols;
-        const locations = [];
 
+        // Remove only the cells that no longer fit the new dimensions.
+        await trx("warehouse_locations")
+          .where("warehouse_id", id)
+          .andWhere((qb) =>
+            qb.where("row", ">=", gridRows).orWhere("col", ">=", gridCols),
+          )
+          .delete();
+
+        // Add only the cells the new grid exposes that don't already exist.
+        const surviving = await trx("warehouse_locations")
+          .where("warehouse_id", id)
+          .select("row", "col");
+        const taken = new Set(
+          surviving.map((loc: any) => `${loc.row}-${loc.col}`),
+        );
+
+        const locations = [];
         for (let row = 0; row < gridRows; row++) {
           for (let col = 0; col < gridCols; col++) {
+            if (taken.has(`${row}-${col}`)) continue;
             locations.push({
               uuid: uuidv4(),
               warehouse_id: updated.id,

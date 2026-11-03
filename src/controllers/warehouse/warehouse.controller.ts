@@ -4,6 +4,8 @@ import { WarehouseDAO } from "../../dao/warehouse/warehouse.dao";
 import { CompanyDAO } from "../../dao/company/company.dao";
 import { PaperStockDAO } from "../../dao/paper-stock/paper-stock.dao";
 import { SheetStockDAO } from "../../dao/sheet-stock/sheet-stock.dao";
+import { ConsumableStockDAO } from "../../dao/consumable-stock/consumable-stock.dao";
+import { ToolingStockDAO } from "../../dao/tooling-stock/tooling-stock.dao";
 import { WarehouseLocationDAO } from "../../dao/warehouseLocation/warehouseLocation.dao";
 import { IWarehouse } from "../../interfaces/warehouse/warehouse.interfaces";
 import {
@@ -93,7 +95,11 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
   }
 
   /**
-   * GET /warehouse/:uuid/stock — paper + sheet stock grouped by location.
+   * GET /warehouse/:uuid/stock — every physical stock type (paper, sheet,
+   * consumable, tooling) grouped by the location it sits in. A cell can hold
+   * any mix of the four; items with no location come back in the unassigned
+   * lists. Catalogue entities (supplies, sheet/tooling definitions) are not
+   * stock on hand, so they never occupy a cell.
    */
   public async getWarehouseStock(
     req: Request,
@@ -116,102 +122,111 @@ export class WarehouseController extends BaseCrudController<IWarehouse> {
 
       const paperStockDAO = new PaperStockDAO();
       const sheetStockDAO = new SheetStockDAO();
+      const consumableStockDAO = new ConsumableStockDAO();
+      const toolingStockDAO = new ToolingStockDAO();
       const warehouseLocationDAO = new WarehouseLocationDAO();
 
-      const [paperStocks, sheetStocks, warehouseLocations] = await Promise.all([
+      const [
+        paperStocks,
+        sheetStocks,
+        consumableStocks,
+        toolingStocks,
+        warehouseLocations,
+      ] = await Promise.all([
         paperStockDAO.getAllByWarehouseId(warehouse.id),
         sheetStockDAO.getAllByWarehouseId(warehouse.id),
+        consumableStockDAO.getAllByWarehouseId(warehouse.id),
+        toolingStockDAO.getAllByWarehouseId(warehouse.id),
         warehouseLocationDAO.getAllByWarehouseId(warehouse.id),
       ]);
 
-      const stockByLocation: Record<
-        string,
-        {
-          locationId: number;
-          locationUuid: string;
-          locationCode: string;
-          row: number;
-          col: number;
-          locationType: string;
-          paperStock: any[];
-          sheetStock: any[];
-          totalItems: number;
-        }
-      > = {};
+      type StockField =
+        | "paperStock"
+        | "sheetStock"
+        | "consumableStock"
+        | "toolingStock";
+
+      interface LocationBucket {
+        locationId: number;
+        locationUuid: string;
+        locationCode: string;
+        row: number;
+        col: number;
+        locationType: string;
+        paperStock: any[];
+        sheetStock: any[];
+        consumableStock: any[];
+        toolingStock: any[];
+        totalItems: number;
+      }
 
       const locationMap = new Map<number, any>();
       for (const loc of warehouseLocations) {
         locationMap.set(loc.id!, loc);
       }
 
-      const unassignedPaperStock: any[] = [];
-      const unassignedSheetStock: any[] = [];
+      const stockByLocation: Record<string, LocationBucket> = {};
+      const unassigned: Record<StockField, any[]> = {
+        paperStock: [],
+        sheetStock: [],
+        consumableStock: [],
+        toolingStock: [],
+      };
 
-      for (const ps of paperStocks) {
-        if (ps.warehouseLocationId) {
-          const loc = locationMap.get(ps.warehouseLocationId);
-          if (loc) {
-            const key = String(ps.warehouseLocationId);
-            if (!stockByLocation[key]) {
-              stockByLocation[key] = {
-                locationId: loc.id,
-                locationUuid: loc.uuid,
-                locationCode: loc.locationCode,
-                row: loc.row,
-                col: loc.col,
-                locationType: loc.locationType || "storage",
-                paperStock: [],
-                sheetStock: [],
-                totalItems: 0,
-              };
-            }
-            stockByLocation[key].paperStock.push(ps);
-            stockByLocation[key].totalItems++;
-          } else {
-            unassignedPaperStock.push(ps);
+      // Drop each stock item into its location's bucket, or into the unassigned
+      // list when it has no location or points at a location that no longer
+      // exists (e.g. cleared by a grid resize).
+      const assign = (
+        items: Array<{ warehouseLocationId?: number }>,
+        field: StockField,
+      ): void => {
+        for (const item of items) {
+          const loc = item.warehouseLocationId
+            ? locationMap.get(item.warehouseLocationId)
+            : undefined;
+          if (!loc) {
+            unassigned[field].push(item);
+            continue;
           }
-        } else {
-          unassignedPaperStock.push(ps);
+          const key = String(loc.id);
+          if (!stockByLocation[key]) {
+            stockByLocation[key] = {
+              locationId: loc.id,
+              locationUuid: loc.uuid,
+              locationCode: loc.locationCode,
+              row: loc.row,
+              col: loc.col,
+              locationType: loc.locationType || "storage",
+              paperStock: [],
+              sheetStock: [],
+              consumableStock: [],
+              toolingStock: [],
+              totalItems: 0,
+            };
+          }
+          stockByLocation[key][field].push(item);
+          stockByLocation[key].totalItems++;
         }
-      }
+      };
 
-      for (const ss of sheetStocks) {
-        if (ss.warehouseLocationId) {
-          const loc = locationMap.get(ss.warehouseLocationId);
-          if (loc) {
-            const key = String(ss.warehouseLocationId);
-            if (!stockByLocation[key]) {
-              stockByLocation[key] = {
-                locationId: loc.id,
-                locationUuid: loc.uuid,
-                locationCode: loc.locationCode,
-                row: loc.row,
-                col: loc.col,
-                locationType: loc.locationType || "storage",
-                paperStock: [],
-                sheetStock: [],
-                totalItems: 0,
-              };
-            }
-            stockByLocation[key].sheetStock.push(ss);
-            stockByLocation[key].totalItems++;
-          } else {
-            unassignedSheetStock.push(ss);
-          }
-        } else {
-          unassignedSheetStock.push(ss);
-        }
-      }
+      assign(paperStocks, "paperStock");
+      assign(sheetStocks, "sheetStock");
+      assign(consumableStocks, "consumableStock");
+      assign(toolingStocks, "toolingStock");
 
       res.status(200).json({
         success: true,
         data: {
           warehouse: warehouse,
           locations: Object.values(stockByLocation),
-          unassignedPaperStock,
-          unassignedSheetStock,
+          unassignedPaperStock: unassigned.paperStock,
+          unassignedSheetStock: unassigned.sheetStock,
+          unassignedConsumableStock: unassigned.consumableStock,
+          unassignedToolingStock: unassigned.toolingStock,
           totalPaperStock: paperStocks.length,
           totalSheetStock: sheetStocks.length,
+          totalConsumableStock: consumableStocks.length,
+          totalToolingStock: toolingStocks.length,
         },
       });
     } catch (err: any) {

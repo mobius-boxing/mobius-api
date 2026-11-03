@@ -74,8 +74,14 @@ export const createRateLimiter = (
 };
 
 // SECURITY (H3): strict auth limiter for login / password-reset.
+//
+// Overridable like the other buckets (RATE_LIMIT_AUTH_MAX) purely so local
+// verification is possible: at 5/min a browser pass or a cross-repo suite that
+// logs in 4-6 times spends five minutes sleeping between logins, which is why
+// verifying a change used to cost more than making it. The default is unchanged,
+// so every deployed environment keeps 5/min unless someone sets the variable.
 export const authRateLimiter = createRateLimiter(
-  5,
+  envMax("AUTH", 5),
   1,
   "Too many authentication attempts. Please try again later.",
   "auth",
