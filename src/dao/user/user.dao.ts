@@ -119,6 +119,36 @@ export class UserDAO implements IBaseDAO<IUser> {
     return user ? user.id : null;
   }
 
+  /** Returns the previous avatar uuid (null if none) so the caller can drop the old object. */
+  async setAvatar(
+    id: number,
+    avatarUuid: string | null,
+    avatarContentType: string | null,
+  ): Promise<{ previousAvatarUuid: string | null }> {
+    return db("core").transaction(async (trx) => {
+      const current = await trx(this.tableName)
+        .where("id", id)
+        .forUpdate()
+        .select("avatarUuid")
+        .first();
+      await trx(this.tableName)
+        .where("id", id)
+        .update({ avatarUuid, avatarContentType, updatedAt: trx.fn.now() });
+      return { previousAvatarUuid: current?.avatarUuid ?? null };
+    });
+  }
+
+  /** Raw lookup for the public avatar route; content type never reaches payloads. */
+  async getByAvatarUuid(
+    avatarUuid: string,
+  ): Promise<{ avatarUuid: string; avatarContentType: string } | null> {
+    const row = await db("core")(this.tableName)
+      .where("avatarUuid", avatarUuid)
+      .select("avatarUuid", "avatarContentType")
+      .first();
+    return row ?? null;
+  }
+
   async update(id: number, item: Partial<IUser>): Promise<IUser | null> {
     const knex = db("core");
     const updateData: any = {};
@@ -418,6 +448,7 @@ export class UserDAO implements IBaseDAO<IUser> {
       companyId: record.companyId,
       isActive: record.isActive,
       emailVerified: record.emailVerified,
+      avatarUuid: record.avatarUuid ?? null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

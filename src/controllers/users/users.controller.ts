@@ -19,6 +19,10 @@ import { EmailService } from "../../services/email.service";
 import { db } from "../../database/registry";
 import { purgeUser } from "../../services/company-purge.service";
 import {
+  AvatarValidationError,
+  UserAvatarService,
+} from "../../services/user-avatar.service";
+import {
   RolePolicyError,
   RolePolicyService,
 } from "../../services/role-policy.service";
@@ -28,6 +32,7 @@ export class UsersController implements IBaseController {
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _companyDAO: CompanyDAO = new CompanyDAO();
   private _emailService: EmailService = new EmailService();
+  private _avatarService: UserAvatarService = new UserAvatarService();
 
   /**
    * SuperAdmins see all users; Admins see only users from their company.
@@ -462,6 +467,63 @@ export class UsersController implements IBaseController {
         success: true,
         data: userWithoutPassword,
       });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /** Same company scoping as `update`: other companies' users are a 404, superAdmin is exempt. */
+  private async resolveAvatarTarget(req: Request): Promise<number | null> {
+    const actor = (req as any).user;
+    const existing = await this._userDAO.getByUuid(req.params.uuid);
+    if (!existing || !existing.id) return null;
+    if (actor?.role !== "superAdmin") {
+      const targetCompany = existing.companyId
+        ? await this._companyDAO.getById(existing.companyId)
+        : null;
+      const actorCompanyUuid = actor?.companyId as string | undefined;
+      if (!actorCompanyUuid || actorCompanyUuid !== targetCompany?.uuid) {
+        return null;
+      }
+    }
+    return existing.id;
+  }
+
+  public async setAvatar(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const id = await this.resolveAvatarTarget(req);
+      if (!id) {
+        res.status(404).json({ success: false, message: "User not found" });
+        return;
+      }
+      const avatarUuid = await this._avatarService.set(id, req.file?.buffer);
+      res.status(200).json({ success: true, data: { avatarUuid } });
+    } catch (err: any) {
+      if (err instanceof AvatarValidationError) {
+        res.status(400).json({ success: false, message: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+
+  public async removeAvatar(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const id = await this.resolveAvatarTarget(req);
+      if (!id) {
+        res.status(404).json({ success: false, message: "User not found" });
+        return;
+      }
+      await this._avatarService.clear(id);
+      res.status(200).json({ success: true, data: { avatarUuid: null } });
     } catch (err: any) {
       next(err);
     }

@@ -13,6 +13,8 @@ export interface IUser {
   roleId?: number | null;
   isActive?: boolean;
   emailVerified?: boolean;
+  avatarUuid?: string | null;
+  avatarContentType?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
   // Joined data

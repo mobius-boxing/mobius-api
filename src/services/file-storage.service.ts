@@ -57,6 +57,10 @@ export class FileStorageService {
     return `companies/${companyId}/files/${uuid}${ext}`;
   }
 
+  public buildAvatarKey(avatarUuid: string): string {
+    return `avatars/${avatarUuid}`;
+  }
+
   public checksum(buffer: Buffer): string {
     return crypto.createHash("sha256").update(buffer).digest("hex");
   }

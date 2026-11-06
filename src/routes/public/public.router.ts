@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { WhitelabelController } from "../../controllers/public/whitelabel.controller";
-import { publicRateLimiter } from "../../middlewares";
+import { AvatarController } from "../../controllers/public/avatar.controller";
+import { publicRateLimiter, validateUUID } from "../../middlewares";
 
 /**
  * `/api/public/*` — endpoints served WITHOUT a token, on purpose.
@@ -17,6 +18,7 @@ export class PublicRouter {
   public router: Router = Router();
   private readonly whitelabelController: WhitelabelController =
     new WhitelabelController();
+  private readonly avatarController: AvatarController = new AvatarController();
 
   constructor() {
     this.initRoutes();
@@ -34,6 +36,12 @@ export class PublicRouter {
       "/whitelabel/:module/:client/logo",
       publicRateLimiter,
       this.whitelabelController.getLogo.bind(this.whitelabelController),
+    );
+    this.router.get(
+      "/avatars/:avatarUuid",
+      publicRateLimiter,
+      validateUUID("avatarUuid"),
+      this.avatarController.get.bind(this.avatarController),
     );
   }
 }

@@ -20,6 +20,10 @@ import { EmailService } from "../../services/email.service";
 import { generateToken } from "../../middlewares/auth.middleware";
 import { issueOrReuseDevice } from "../../services/device.service";
 import { validatePassword, BCRYPT_COST } from "../../utils/passwordPolicy";
+import {
+  AvatarValidationError,
+  UserAvatarService,
+} from "../../services/user-avatar.service";
 
 export class AuthController {
   private _userDAO: UserDAO = new UserDAO();
@@ -27,6 +31,7 @@ export class AuthController {
   private _emailTokenDAO: EmailTokenDAO = new EmailTokenDAO();
   private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
   private _emailService: EmailService = new EmailService();
+  private _avatarService: UserAvatarService = new UserAvatarService();
 
   /**
    * Resolve the roleId + `users.role` mirror for a user created from an
@@ -289,6 +294,48 @@ export class AuthController {
           device,
         },
       });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  public async uploadAvatar(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      const id = userId ? await this._userDAO.getIdByUuid(userId) : null;
+      if (!id) {
+        res.status(401).json({ success: false, message: "Unauthorized" });
+        return;
+      }
+      const avatarUuid = await this._avatarService.set(id, req.file?.buffer);
+      res.status(200).json({ success: true, data: { avatarUuid } });
+    } catch (err: any) {
+      if (err instanceof AvatarValidationError) {
+        res.status(400).json({ success: false, message: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+
+  public async removeAvatar(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      const id = userId ? await this._userDAO.getIdByUuid(userId) : null;
+      if (!id) {
+        res.status(401).json({ success: false, message: "Unauthorized" });
+        return;
+      }
+      await this._avatarService.clear(id);
+      res.status(200).json({ success: true, data: { avatarUuid: null } });
     } catch (err: any) {
       next(err);
     }

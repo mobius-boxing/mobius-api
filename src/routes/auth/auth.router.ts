@@ -6,6 +6,8 @@ import {
   apiRateLimiter,
   sensitiveRateLimiter,
 } from "../../middlewares";
+import { singleFileUpload } from "../../middlewares/upload.middleware";
+import { AVATAR_MAX_BYTES } from "../../services/user-avatar.service";
 
 export class AuthRouter {
   public router: Router = Router();
@@ -71,6 +73,19 @@ export class AuthRouter {
       authenticate,
       apiRateLimiter,
       this.authController.registerDevice.bind(this.authController),
+    );
+    this.router.put(
+      "/avatar",
+      authenticate,
+      apiRateLimiter,
+      singleFileUpload(AVATAR_MAX_BYTES),
+      this.authController.uploadAvatar.bind(this.authController),
+    );
+    this.router.delete(
+      "/avatar",
+      authenticate,
+      apiRateLimiter,
+      this.authController.removeAvatar.bind(this.authController),
     );
     // Stateless JWT logout — exists so the client's POST doesn't 404; becomes
     // meaningful if/when server-side token revocation lands.
