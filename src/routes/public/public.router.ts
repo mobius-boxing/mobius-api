@@ -43,5 +43,11 @@ export class PublicRouter {
       validateUUID("avatarUuid"),
       this.avatarController.get.bind(this.avatarController),
     );
+    this.router.get(
+      "/customer-avatars/:avatarUuid",
+      publicRateLimiter,
+      validateUUID("avatarUuid"),
+      this.avatarController.getCustomer.bind(this.avatarController),
+    );
   }
 }

@@ -75,7 +75,7 @@ const ROUTER_CASES: RouterCase[] = [
     file: "customer/customer.router.ts",
     code: "customers.edit",
     readonlyCalls: 3,
-    writeCalls: 3,
+    writeCalls: 5,
   },
   {
     file: "customer-category/customer-category.router.ts",

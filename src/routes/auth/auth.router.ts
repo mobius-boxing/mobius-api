@@ -50,6 +50,12 @@ export class AuthRouter {
       apiRateLimiter,
       this.authController.getProfile.bind(this.authController),
     );
+    this.router.put(
+      "/profile",
+      authenticate,
+      apiRateLimiter,
+      this.authController.updateProfile.bind(this.authController),
+    );
     // /me is an alias for /profile that the frontend expects to exist.
     this.router.get(
       "/me",

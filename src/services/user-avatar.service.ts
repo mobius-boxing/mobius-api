@@ -1,11 +1,28 @@
 import { v4 as uuidv4 } from "uuid";
 import { UserDAO } from "../dao/user/user.dao";
 import { FileStorageService } from "./file-storage.service";
-import { sniffImageType } from "../utils/image-sniff";
+import { AvatarContentType, sniffImageType } from "../utils/image-sniff";
 
 export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 
 export class AvatarValidationError extends Error {}
+
+/** Throws AvatarValidationError for a missing or non-PNG/JPEG/WebP payload. */
+export function validateAvatarFile(file: Buffer | undefined): {
+  file: Buffer;
+  contentType: AvatarContentType;
+} {
+  if (!file || file.length === 0) {
+    throw new AvatarValidationError("No file uploaded.");
+  }
+  const contentType = sniffImageType(file);
+  if (!contentType) {
+    throw new AvatarValidationError(
+      "Unsupported image. Use a PNG, JPEG or WebP file.",
+    );
+  }
+  return { file, contentType };
+}
 
 /**
  * The one place avatars are written, shared by `/auth/avatar` (self) and
@@ -17,21 +34,14 @@ export class UserAvatarService {
 
   /** Throws AvatarValidationError for a missing or non-PNG/JPEG/WebP payload. */
   async set(userId: number, file: Buffer | undefined): Promise<string> {
-    if (!file || file.length === 0) {
-      throw new AvatarValidationError("No file uploaded.");
-    }
-    const contentType = sniffImageType(file);
-    if (!contentType) {
-      throw new AvatarValidationError(
-        "Unsupported image. Use a PNG, JPEG or WebP file.",
-      );
-    }
+    const valid = validateAvatarFile(file);
+    const contentType = valid.contentType;
     const avatarUuid = uuidv4();
     const key = this.storage.buildAvatarKey(avatarUuid);
 
     const { previousAvatarUuid } = await this.storage.putObjectThen(
       key,
-      file,
+      valid.file,
       contentType,
       () => this.userDAO.setAvatar(userId, avatarUuid, contentType),
     );

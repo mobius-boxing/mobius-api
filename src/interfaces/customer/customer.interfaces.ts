@@ -61,6 +61,8 @@ export interface ICustomer {
   legalCode?: string;
   address?: string;
   tradeName?: string;
+  avatarUuid?: string | null;
+  avatarContentType?: string | null;
   contacts?: IContactInfo[];
   createdAt?: Date;
   updatedAt?: Date;

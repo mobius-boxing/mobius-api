@@ -8,6 +8,8 @@ import {
   apiRateLimiter,
   sensitiveCustomerDeletionRateLimiter,
 } from "../../middlewares";
+import { singleFileUpload } from "../../middlewares/upload.middleware";
+import { AVATAR_MAX_BYTES } from "../../services/user-avatar.service";
 
 export class CustomerRouter {
   public router: Router = Router();
@@ -57,6 +59,23 @@ export class CustomerRouter {
       validateUUID(),
       apiRateLimiter,
       this.customerController.update.bind(this.customerController),
+    );
+    this.router.put(
+      "/:uuid/avatar",
+      authenticate,
+      requirePermission("customers.edit"),
+      validateUUID(),
+      apiRateLimiter,
+      singleFileUpload(AVATAR_MAX_BYTES),
+      this.customerController.setAvatar.bind(this.customerController),
+    );
+    this.router.delete(
+      "/:uuid/avatar",
+      authenticate,
+      requirePermission("customers.edit"),
+      validateUUID(),
+      apiRateLimiter,
+      this.customerController.removeAvatar.bind(this.customerController),
     );
     this.router.delete(
       "/:uuid",

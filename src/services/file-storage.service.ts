@@ -5,6 +5,7 @@ import {
   GetObjectCommand,
   CopyObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import * as crypto from "crypto";
@@ -59,6 +60,10 @@ export class FileStorageService {
 
   public buildAvatarKey(avatarUuid: string): string {
     return `avatars/${avatarUuid}`;
+  }
+
+  public buildCustomerAvatarKey(avatarUuid: string): string {
+    return `customer-avatars/${avatarUuid}`;
   }
 
   public checksum(buffer: Buffer): string {
@@ -162,6 +167,22 @@ export class FileStorageService {
 
   getLocalReadStream(storageKey: string): fs.ReadStream {
     return fs.createReadStream(path.join(this.localDir, storageKey));
+  }
+
+  /** Existence on BOTH drivers (S3 would otherwise redirect to a signed URL for a missing key). */
+  async objectExists(storageKey: string): Promise<boolean> {
+    if (!this.s3) return this.localObjectExists(storageKey);
+    try {
+      await this.s3.send(
+        new HeadObjectCommand({ Bucket: this.bucket!, Key: storageKey }),
+      );
+      return true;
+    } catch (err: any) {
+      if (err?.$metadata?.httpStatusCode === 404 || err?.name === "NotFound") {
+        return false;
+      }
+      throw err;
+    }
   }
 
   async localObjectExists(storageKey: string): Promise<boolean> {

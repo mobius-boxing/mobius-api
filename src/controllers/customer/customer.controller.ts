@@ -15,9 +15,60 @@ import {
   CustomerUpdateInputDTO,
 } from "../../dto/input/customer";
 import { companyFilterScope } from "../../utils/daoScope";
+import { CustomerAvatarService } from "../../services/customer-avatar.service";
+import { AvatarValidationError } from "../../services/user-avatar.service";
 
 export class CustomerController implements IBaseController {
   private _customerDAO: CustomerDAO = new CustomerDAO();
+  private _avatarService: CustomerAvatarService = new CustomerAvatarService();
+
+  // companyId scope doubles as the ownership check (L-005, L-009).
+  private async resolveAvatarTarget(req: Request): Promise<number | null> {
+    return this._customerDAO.getIdByUuid(
+      req.params.uuid,
+      companyFilterScope(req),
+    );
+  }
+
+  public async setAvatar(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const id = await this.resolveAvatarTarget(req);
+      if (!id) {
+        res.status(404).json({ success: false, message: "Customer not found" });
+        return;
+      }
+      const avatarUuid = await this._avatarService.set(id, req.file?.buffer);
+      res.status(200).json({ success: true, data: { avatarUuid } });
+    } catch (err: any) {
+      if (err instanceof AvatarValidationError) {
+        res.status(400).json({ success: false, message: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+
+  public async removeAvatar(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const id = await this.resolveAvatarTarget(req);
+      if (!id) {
+        res.status(404).json({ success: false, message: "Customer not found" });
+        return;
+      }
+      await this._avatarService.clear(id);
+      res.status(200).json({ success: true, data: { avatarUuid: null } });
+    } catch (err: any) {
+      next(err);
+    }
+  }
 
   /**
    * SuperAdmin: filters by companyId from query params.

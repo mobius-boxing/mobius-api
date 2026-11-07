@@ -104,28 +104,28 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const knex = db("tenant");
     const customer = await knex.transaction(async (trx) => {
       const [row] = await trx(this.tableName)
-      .insert({
-        uuid: item.uuid,
-        companyId: item.companyId,
-        name: item.name,
-        code: item.code,
-        dispatchable: item.dispatchable ?? true,
-        notes: item.notes,
-        excludeLogoOnLabels: item.excludeLogoOnLabels ?? false,
-        requiresQualityCertificate: item.requiresQualityCertificate ?? false,
-        supplier_code: item.supplierCode,
-        salesPersonId: item.salesPersonId,
-        categoryId: item.categoryId,
-        active: item.active ?? true,
-        legalName: item.legalName,
-        legal_code: item.legalCode,
-        address: item.address,
-        tradeName: item.tradeName,
-        contacts: JSON.stringify(item.contacts || []),
-        // deliveryLocations/deliveryDays live in delivery_locations /
-        // delivery_schedules since 20260720000008 (§L.6).
-      })
-      .returning("*");
+        .insert({
+          uuid: item.uuid,
+          companyId: item.companyId,
+          name: item.name,
+          code: item.code,
+          dispatchable: item.dispatchable ?? true,
+          notes: item.notes,
+          excludeLogoOnLabels: item.excludeLogoOnLabels ?? false,
+          requiresQualityCertificate: item.requiresQualityCertificate ?? false,
+          supplier_code: item.supplierCode,
+          salesPersonId: item.salesPersonId,
+          categoryId: item.categoryId,
+          active: item.active ?? true,
+          legalName: item.legalName,
+          legal_code: item.legalCode,
+          address: item.address,
+          tradeName: item.tradeName,
+          contacts: JSON.stringify(item.contacts || []),
+          // deliveryLocations/deliveryDays live in delivery_locations /
+          // delivery_schedules since 20260720000008 (§L.6).
+        })
+        .returning("*");
       await this.addressLocationDAO.syncCustomerAddressTrx(trx, row);
       for (const location of deliveryLocations) {
         await this.addressLocationDAO.createTrx(trx, row, location);
@@ -170,6 +170,25 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     const customer = await query.select("id").first();
 
     return customer ? customer.id : null;
+  }
+
+  /** Returns the previous avatar uuid (null if none) so the caller can drop the old object. */
+  async setAvatar(
+    id: number,
+    avatarUuid: string | null,
+    avatarContentType: string | null,
+  ): Promise<{ previousAvatarUuid: string | null }> {
+    return db("tenant").transaction(async (trx) => {
+      const current = await trx(this.tableName)
+        .where("id", id)
+        .forUpdate()
+        .select("avatarUuid")
+        .first();
+      await trx(this.tableName)
+        .where("id", id)
+        .update({ avatarUuid, avatarContentType, updatedAt: trx.fn.now() });
+      return { previousAvatarUuid: current?.avatarUuid ?? null };
+    });
   }
 
   async update(
@@ -409,6 +428,7 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
       legalCode: record.legal_code,
       address: record.address,
       tradeName: record.tradeName,
+      avatarUuid: record.avatarUuid ?? null,
       contacts,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

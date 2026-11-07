@@ -341,6 +341,44 @@ export class AuthController {
     }
   }
 
+  /** Names only (I-3): every other body field is ignored. */
+  public async updateProfile(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const userUuid = (req as any).user?.userId;
+      const id = userUuid ? await this._userDAO.getIdByUuid(userUuid) : null;
+      if (!id) {
+        res.status(401).json({ success: false, message: "Unauthorized" });
+        return;
+      }
+      const firstName =
+        typeof req.body?.firstName === "string"
+          ? req.body.firstName.trim()
+          : "";
+      const lastName =
+        typeof req.body?.lastName === "string" ? req.body.lastName.trim() : "";
+      if (
+        !firstName ||
+        !lastName ||
+        firstName.length > 100 ||
+        lastName.length > 100
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "First and last name are required (1-100 characters).",
+        });
+        return;
+      }
+      await this._userDAO.update(id, { firstName, lastName });
+      await this.getProfile(req, res, next);
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
   public async getProfile(
     req: Request,
     res: Response,
