@@ -17,6 +17,7 @@ import {
   type CompanyScope,
 } from "../../utils/daoScope";
 import { Request } from "express";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * 0-indexed column number → Excel-style letter(s): 0→A, 25→Z, 26→AA, 27→AB, …
@@ -143,6 +144,7 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
   ): Promise<IWarehouseLocation[]> {
     const knex = db("tenant");
     const results: IWarehouseLocation[] = [];
+    let grid: { grid_rows: number; grid_cols: number } | undefined;
 
     // Atomic batch — single transaction so partial application can't leave a half-resized grid.
     await knex.transaction(async (trx) => {
@@ -169,10 +171,42 @@ export class WarehouseLocationDAO implements IBaseDAO<IWarehouseLocation> {
 
         dbUpdateData.updated_at = trx.fn.now();
 
-        const [location] = await trx(this.tableName)
+        let [location] = await trx(this.tableName)
           .where({ warehouse_id: warehouseId, row, col })
           .update(dbUpdateData)
           .returning("*");
+
+        // Imported warehouses (Procusto loaders) arrive with grid dimensions but no
+        // location rows, so a painted cell inside the grid is created on first write.
+        if (!location) {
+          grid ??= await trx("warehouses")
+            .where("id", warehouseId)
+            .first("grid_rows", "grid_cols");
+          const inGrid =
+            grid &&
+            Number.isInteger(row) &&
+            Number.isInteger(col) &&
+            row >= 0 &&
+            col >= 0 &&
+            row < grid.grid_rows &&
+            col < grid.grid_cols;
+          if (inGrid) {
+            [location] = await trx(this.tableName)
+              .insert({
+                uuid: uuidv4(),
+                warehouse_id: warehouseId,
+                row,
+                col,
+                status: "inactive",
+                location_type: "storage",
+                location_code: generateLocationCode(row, col),
+                capacity: null,
+                metadata: null,
+                ...dbUpdateData,
+              })
+              .returning("*");
+          }
+        }
 
         if (location) {
           results.push(this.mapToInterface(location));
