@@ -17,6 +17,8 @@ export interface IPaperStock {
   weight?: number;
   diameter?: number;
   width?: number;
+  code?: string;
+  barcode?: string;
   createdAt?: Date;
   updatedAt?: Date;
 

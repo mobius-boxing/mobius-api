@@ -5,7 +5,11 @@ import {
   requiredInt,
 } from "../shared/fieldValidators";
 import { collect } from "../shared/ValidationError";
-import { PAPER_STOCK_LABELS, PAPER_STOCK_LIMITS } from "./PaperStockCreateInputDTO";
+import {
+  createBarcode,
+  PAPER_STOCK_LABELS,
+  PAPER_STOCK_LIMITS,
+} from "./PaperStockCreateInputDTO";
 
 /**
  * Only the fields the request actually carried are set, and `build()` strips
@@ -27,6 +31,7 @@ export class PaperStockUpdateInputDTO {
   weight?: number;
   diameter?: number;
   width?: number;
+  barcode?: string | null;
 
   constructor(data: Record<string, unknown>) {
     const source = data ?? {};
@@ -42,66 +47,110 @@ export class PaperStockUpdateInputDTO {
       this.manufacturerId = source.manufacturerId as number;
     if (source.comments !== undefined)
       this.comments = source.comments as string | null;
-    if (source.price !== undefined)
-      this.price = source.price as number;
-    if (source.weight !== undefined)
-      this.weight = source.weight as number;
+    if (source.price !== undefined) this.price = source.price as number;
+    if (source.weight !== undefined) this.weight = source.weight as number;
     if (source.diameter !== undefined)
       this.diameter = source.diameter as number;
-    if (source.width !== undefined)
-      this.width = source.width as number;
+    if (source.width !== undefined) this.width = source.width as number;
+    if (source.barcode !== undefined)
+      this.barcode = source.barcode as string | null;
   }
 
   public build(): this {
     collect((field) => {
       if (this.warehouseId !== undefined) {
         this.warehouseId = field("warehouseId", () =>
-          requiredInt(this.warehouseId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.warehouseId),
+          requiredInt(
+            this.warehouseId,
+            PAPER_STOCK_LIMITS.id,
+            PAPER_STOCK_LABELS.warehouseId,
+          ),
         );
       }
       if (this.paperSupplyId !== undefined) {
         this.paperSupplyId = field("paperSupplyId", () =>
-          requiredInt(this.paperSupplyId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.paperSupplyId),
+          requiredInt(
+            this.paperSupplyId,
+            PAPER_STOCK_LIMITS.id,
+            PAPER_STOCK_LABELS.paperSupplyId,
+          ),
         );
       }
       if (this.warehouseLocationId !== undefined) {
         this.warehouseLocationId = field("warehouseLocationId", () =>
-          optionalInt(this.warehouseLocationId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.warehouseLocationId),
+          optionalInt(
+            this.warehouseLocationId,
+            PAPER_STOCK_LIMITS.id,
+            PAPER_STOCK_LABELS.warehouseLocationId,
+          ),
         );
       }
       if (this.supplierId !== undefined) {
         this.supplierId = field("supplierId", () =>
-          optionalInt(this.supplierId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.supplierId),
+          optionalInt(
+            this.supplierId,
+            PAPER_STOCK_LIMITS.id,
+            PAPER_STOCK_LABELS.supplierId,
+          ),
         );
       }
       if (this.manufacturerId !== undefined) {
         this.manufacturerId = field("manufacturerId", () =>
-          optionalInt(this.manufacturerId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.manufacturerId),
+          optionalInt(
+            this.manufacturerId,
+            PAPER_STOCK_LIMITS.id,
+            PAPER_STOCK_LABELS.manufacturerId,
+          ),
         );
       }
       if (this.comments !== undefined) {
         this.comments = field("comments", () =>
-          clearableText(this.comments, PAPER_STOCK_LIMITS.comments, PAPER_STOCK_LABELS.comments),
+          clearableText(
+            this.comments,
+            PAPER_STOCK_LIMITS.comments,
+            PAPER_STOCK_LABELS.comments,
+          ),
         );
       }
       if (this.price !== undefined) {
         this.price = field("price", () =>
-          optionalNumber(this.price, PAPER_STOCK_LIMITS.money, PAPER_STOCK_LABELS.price),
+          optionalNumber(
+            this.price,
+            PAPER_STOCK_LIMITS.money,
+            PAPER_STOCK_LABELS.price,
+          ),
         );
       }
       if (this.weight !== undefined) {
         this.weight = field("weight", () =>
-          optionalNumber(this.weight, PAPER_STOCK_LIMITS.money, PAPER_STOCK_LABELS.weight),
+          optionalNumber(
+            this.weight,
+            PAPER_STOCK_LIMITS.money,
+            PAPER_STOCK_LABELS.weight,
+          ),
         );
       }
       if (this.diameter !== undefined) {
         this.diameter = field("diameter", () =>
-          optionalNumber(this.diameter, PAPER_STOCK_LIMITS.money, PAPER_STOCK_LABELS.diameter),
+          optionalNumber(
+            this.diameter,
+            PAPER_STOCK_LIMITS.money,
+            PAPER_STOCK_LABELS.diameter,
+          ),
         );
       }
       if (this.width !== undefined) {
         this.width = field("width", () =>
-          optionalNumber(this.width, PAPER_STOCK_LIMITS.money, PAPER_STOCK_LABELS.width),
+          optionalNumber(
+            this.width,
+            PAPER_STOCK_LIMITS.money,
+            PAPER_STOCK_LABELS.width,
+          ),
+        );
+      }
+      if (this.barcode !== undefined) {
+        this.barcode = field("barcode", () =>
+          this.barcode === null ? null : (createBarcode(this.barcode) ?? ""),
         );
       }
     });

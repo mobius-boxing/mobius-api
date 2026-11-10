@@ -18,7 +18,7 @@ import {
   type CompanyScope,
 } from "../../utils/daoScope";
 import { Request } from "express";
-import { numberRangeFilters } from "../../utils/filterRanges";
+import { dayRangeFilters, numberRangeFilters } from "../../utils/filterRanges";
 
 // companyId is handled separately (companyFilterScope, against warehouses.company_id): `filters.companyId` holds a uuid.
 const PAPER_STOCK_FILTERS: FilterConfigs = {
@@ -29,6 +29,8 @@ const PAPER_STOCK_FILTERS: FilterConfigs = {
   manufacturerUuid: { table: "manufacturers", column: "uuid", operator: "=" },
   paperSupplyUuid: { table: "paper_supplies", column: "uuid", operator: "=" },
   ...numberRangeFilters("price", "price"),
+  code: { column: "code", operator: "ILIKE" },
+  ...dayRangeFilters("createdAt", "createdAt", { timestamp: true }),
   warehouseId: {
     column: `"paper_stock"."warehouseId"`,
     operator: "=",
@@ -76,6 +78,7 @@ const PAPER_STOCK_SORTING: SortConfigs = {
   weight: { column: "weight" },
   diameter: { column: "diameter" },
   width: { column: "width" },
+  code: { column: "code" },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -86,7 +89,7 @@ const PAPER_STOCK_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: PAPER_STOCK_FILTERS,
     sorting: PAPER_STOCK_SORTING,
     search: {
-      columns: ["comments"],
+      columns: ["comments", "code", "barcode"],
       operator: "ILIKE",
     },
     defaultSort: {
@@ -102,21 +105,54 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
 
   async create(item: IPaperStock): Promise<IPaperStock> {
     const knex = db("tenant");
-    const [record] = await knex(this.tableName)
-      .insert({
-        uuid: item.uuid,
-        warehouseId: item.warehouseId,
-        warehouseLocationId: item.warehouseLocationId,
-        supplierId: item.supplierId,
-        manufacturerId: item.manufacturerId,
-        paperSupplyId: item.paperSupplyId,
-        comments: item.comments,
-        price: item.price,
-        weight: item.weight,
-        diameter: item.diameter,
-        width: item.width,
-      })
-      .returning("*");
+    const record = await knex.transaction(async (trx) => {
+      const warehouse = await trx("warehouses")
+        .select("company_id")
+        .where("id", item.warehouseId)
+        .first();
+      if (!warehouse) throw new Error("Invalid warehouse");
+
+      await trx.raw(
+        "select pg_advisory_xact_lock(hashtext('paper_stock.code:' || ?))",
+        [warehouse.company_id],
+      );
+
+      const maxCode = await trx(this.tableName)
+        .innerJoin(
+          "warehouses",
+          `${this.tableName}.warehouseId`,
+          "warehouses.id",
+        )
+        .where("warehouses.company_id", warehouse.company_id)
+        .whereRaw(`"paper_stock".code ~ '^[0-9]{1,18}$'`)
+        .select(
+          trx.raw(
+            'COALESCE(MAX(CAST("paper_stock".code AS BIGINT)), 0) AS "maxCode"',
+          ),
+        )
+        .first();
+      const code = String(Number(maxCode.maxCode) + 1).padStart(10, "0");
+
+      const [created] = await trx(this.tableName)
+        .insert({
+          uuid: item.uuid,
+          warehouseId: item.warehouseId,
+          warehouseLocationId: item.warehouseLocationId,
+          supplierId: item.supplierId,
+          manufacturerId: item.manufacturerId,
+          paperSupplyId: item.paperSupplyId,
+          comments: item.comments,
+          price: item.price,
+          weight: item.weight,
+          diameter: item.diameter,
+          width: item.width,
+          code,
+          barcode: item.barcode ?? code,
+        })
+        .returning("*");
+
+      return created;
+    });
 
     return this.mapToInterface(record);
   }
@@ -171,6 +207,12 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     if (item.weight !== undefined) updateData.weight = item.weight;
     if (item.diameter !== undefined) updateData.diameter = item.diameter;
     if (item.width !== undefined) updateData.width = item.width;
+    if (item.barcode !== undefined) {
+      updateData.barcode =
+        item.barcode === null || item.barcode === ""
+          ? knex.ref("code")
+          : item.barcode;
+    }
 
     updateData.updatedAt = knex.fn.now();
 
@@ -330,6 +372,8 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
       weight: record.weight ? parseFloat(record.weight) : undefined,
       diameter: record.diameter ? parseFloat(record.diameter) : undefined,
       width: record.width ? parseFloat(record.width) : undefined,
+      code: record.code,
+      barcode: record.barcode,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

@@ -6,6 +6,24 @@ import {
 } from "../shared/fieldValidators";
 import { collect } from "../shared/ValidationError";
 
+const BARCODE_PATTERN = /^[\x20-\x7E]+$/;
+
+export function createBarcode(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new Error("El código de barras debe ser texto");
+  }
+  const barcode = value.trim();
+  if (barcode === "") return undefined;
+  if (barcode.length > 50) {
+    throw new Error("El código de barras no puede superar los 50 caracteres");
+  }
+  if (!BARCODE_PATTERN.test(barcode)) {
+    throw new Error("El código de barras tiene un formato inválido");
+  }
+  return barcode;
+}
+
 /**
  * Server mirror of `mobius-web-app/src/validation/schemas/paperStock.ts`.
  *
@@ -59,6 +77,7 @@ export class PaperStockCreateInputDTO {
   weight?: number;
   diameter?: number;
   width?: number;
+  barcode?: string;
 
   constructor(data: Record<string, unknown>) {
     const source = data ?? {};
@@ -72,40 +91,82 @@ export class PaperStockCreateInputDTO {
     this.weight = source.weight as number;
     this.diameter = source.diameter as number;
     this.width = source.width as number;
+    this.barcode = source.barcode as string;
   }
 
   public build(): this {
     collect((field) => {
       this.warehouseId = field("warehouseId", () =>
-        requiredInt(this.warehouseId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.warehouseId),
+        requiredInt(
+          this.warehouseId,
+          PAPER_STOCK_LIMITS.id,
+          PAPER_STOCK_LABELS.warehouseId,
+        ),
       );
       this.paperSupplyId = field("paperSupplyId", () =>
-        requiredInt(this.paperSupplyId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.paperSupplyId),
+        requiredInt(
+          this.paperSupplyId,
+          PAPER_STOCK_LIMITS.id,
+          PAPER_STOCK_LABELS.paperSupplyId,
+        ),
       );
       this.warehouseLocationId = field("warehouseLocationId", () =>
-        optionalInt(this.warehouseLocationId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.warehouseLocationId),
+        optionalInt(
+          this.warehouseLocationId,
+          PAPER_STOCK_LIMITS.id,
+          PAPER_STOCK_LABELS.warehouseLocationId,
+        ),
       );
       this.supplierId = field("supplierId", () =>
-        optionalInt(this.supplierId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.supplierId),
+        optionalInt(
+          this.supplierId,
+          PAPER_STOCK_LIMITS.id,
+          PAPER_STOCK_LABELS.supplierId,
+        ),
       );
       this.manufacturerId = field("manufacturerId", () =>
-        optionalInt(this.manufacturerId, PAPER_STOCK_LIMITS.id, PAPER_STOCK_LABELS.manufacturerId),
+        optionalInt(
+          this.manufacturerId,
+          PAPER_STOCK_LIMITS.id,
+          PAPER_STOCK_LABELS.manufacturerId,
+        ),
       );
       this.comments = field("comments", () =>
-        clearableText(this.comments, PAPER_STOCK_LIMITS.comments, PAPER_STOCK_LABELS.comments),
+        clearableText(
+          this.comments,
+          PAPER_STOCK_LIMITS.comments,
+          PAPER_STOCK_LABELS.comments,
+        ),
       );
       this.price = field("price", () =>
-        optionalNumber(this.price, PAPER_STOCK_LIMITS.money, PAPER_STOCK_LABELS.price),
+        optionalNumber(
+          this.price,
+          PAPER_STOCK_LIMITS.money,
+          PAPER_STOCK_LABELS.price,
+        ),
       );
       this.weight = field("weight", () =>
-        optionalNumber(this.weight, PAPER_STOCK_LIMITS.money, PAPER_STOCK_LABELS.weight),
+        optionalNumber(
+          this.weight,
+          PAPER_STOCK_LIMITS.money,
+          PAPER_STOCK_LABELS.weight,
+        ),
       );
       this.diameter = field("diameter", () =>
-        optionalNumber(this.diameter, PAPER_STOCK_LIMITS.money, PAPER_STOCK_LABELS.diameter),
+        optionalNumber(
+          this.diameter,
+          PAPER_STOCK_LIMITS.money,
+          PAPER_STOCK_LABELS.diameter,
+        ),
       );
       this.width = field("width", () =>
-        optionalNumber(this.width, PAPER_STOCK_LIMITS.money, PAPER_STOCK_LABELS.width),
+        optionalNumber(
+          this.width,
+          PAPER_STOCK_LIMITS.money,
+          PAPER_STOCK_LABELS.width,
+        ),
       );
+      this.barcode = field("barcode", () => createBarcode(this.barcode));
     });
 
     // `inputValidator` rejects ANY own key holding `undefined`, so a blank
