@@ -37,15 +37,15 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * — also `core`), plus the 4 `corrugator_plan*` tables (corrugator-planning
  * T2, 2026-09-25 — all `tenant`).
  */
-const DOMAIN_TABLE_COUNT = 87;
+const DOMAIN_TABLE_COUNT = 88;
 /** db-per-company model D-3: the pre-fan-out names, per plane. */
 const DOMAIN_COUNTS: Record<DbKey, number> = {
-  core: 15,
+  core: 16,
   tenant: 72,
 };
 /** The names each plane holds, fan-out copies included (model placement table). */
 const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
-  core: 15,
+  core: 16,
   tenant: 74,
 };
 /**

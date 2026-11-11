@@ -404,8 +404,12 @@ export class UserDeviceDAO implements IBaseDAO<IUserDevice> {
    * Revoke. `approvedAt`/`approvedBy` are left alone on purpose: who approved
    * this browser stays readable until a re-request or a re-approval clears it.
    */
-  async revoke(id: number, revokedById: number): Promise<IUserDevice | null> {
-    const knex = db("core");
+  async revoke(
+    id: number,
+    revokedById: number,
+    trx?: Knex.Transaction,
+  ): Promise<IUserDevice | null> {
+    const knex = trx ?? db("core");
     const [row] = await knex(this.tableName)
       .where("id", id)
       .update({

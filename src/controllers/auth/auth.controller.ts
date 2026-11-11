@@ -3,7 +3,29 @@ import { UserDAO } from "../../dao/user/user.dao";
 import { InvitationDAO } from "../../dao/invitation/invitation.dao";
 import { EmailTokenDAO } from "../../dao/email-token/email-token.dao";
 import { CompanyModuleDAO } from "../../dao/company-module/company-module.dao";
-import { IUser } from "../../interfaces/user/user.interfaces";
+import { UserDeviceDAO } from "../../dao/user-device/user-device.dao";
+import {
+  parseRefreshToken,
+  RefreshSessionDAO,
+  SessionLifetimes,
+} from "../../dao/refresh-session/refresh-session.dao";
+import {
+  IRefreshSession,
+  RefreshOutcome,
+} from "../../interfaces/refresh-session/refresh-session.interfaces";
+import {
+  IUser,
+  IUserWithCompany,
+} from "../../interfaces/user/user.interfaces";
+import { IDeviceSession } from "../../interfaces/user-device/user-device.interfaces";
+import { getAuthConfig } from "../../common/config/auth/auth.config";
+import {
+  clearRefreshCookie,
+  readRefreshCookie,
+  secondsUntil,
+  setRefreshCookie,
+} from "../../utils/cookies";
+import * as jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
@@ -17,13 +39,77 @@ import {
   PasswordResetDTO,
 } from "../../dto/input/auth";
 import { EmailService } from "../../services/email.service";
-import { generateToken } from "../../middlewares/auth.middleware";
-import { issueOrReuseDevice } from "../../services/device.service";
+import {
+  generateToken,
+  sessionIdOf,
+} from "../../middlewares/auth.middleware";
+import {
+  issueOrReuseDevice,
+  toDeviceSession,
+} from "../../services/device.service";
 import { validatePassword, BCRYPT_COST } from "../../utils/passwordPolicy";
 import {
   AvatarValidationError,
   UserAvatarService,
 } from "../../services/user-avatar.service";
+
+type AuthSessionData = {
+  user: Record<string, unknown>;
+  token: string;
+  expiresIn: number;
+  device: IDeviceSession | null;
+};
+
+type OpenedSession =
+  | { ok: true; session: IRefreshSession; rawToken: string }
+  | { ok: false; reason: "inactive" | "password_changed" };
+
+type RefreshResult =
+  | { kind: "ok"; outcome: RefreshOutcome & { kind: "rotated" | "grace" } }
+  | { kind: "invalid" }
+  | { kind: "revoked" };
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const CSRF_HEADER = "x-requested-with";
+const CSRF_VALUE = "mobius";
+
+const hasCsrfHeader = (req: Request): boolean =>
+  req.headers[CSRF_HEADER] === CSRF_VALUE;
+
+const sendCsrfRequired = (res: Response): void => {
+  res.status(403).json({
+    success: false,
+    code: "CSRF_HEADER_REQUIRED",
+    message: "The X-Requested-With header is required.",
+  });
+};
+
+// INV-20: a cross-site HTML form cannot send application/json without a CORS
+// preflight, so requiring it stops login CSRF through the global urlencoded parser.
+const isJsonRequest = (req: Request): boolean =>
+  (req.headers["content-type"] ?? "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase() === "application/json";
+
+const sendJsonRequired = (res: Response): void => {
+  res.status(415).json({
+    success: false,
+    code: "JSON_REQUIRED",
+    message: "Content-Type must be application/json.",
+  });
+};
+
+const lifetimes = (): SessionLifetimes => {
+  const config = getAuthConfig();
+  return {
+    idleSeconds: config.refreshIdleTtlSeconds,
+    absoluteSeconds: config.refreshAbsoluteTtlSeconds,
+    graceSeconds: config.refreshGraceSeconds,
+  };
+};
 
 export class AuthController {
   private _userDAO: UserDAO = new UserDAO();
@@ -32,6 +118,126 @@ export class AuthController {
   private _companyModuleDAO: CompanyModuleDAO = new CompanyModuleDAO();
   private _emailService: EmailService = new EmailService();
   private _avatarService: UserAvatarService = new UserAvatarService();
+  private _sessionDAO: RefreshSessionDAO = new RefreshSessionDAO();
+  private _deviceDAO: UserDeviceDAO = new UserDeviceDAO();
+
+  /**
+   * The login/accept-invitation/refresh body, built in one place so all three
+   * issue identical claims and the same user projection. `device` is the
+   * caller's: login resolves it from the request, refresh from the session row.
+   */
+  private async buildSessionData(
+    userWithCompany: IUserWithCompany,
+    sid: string,
+    device: IDeviceSession | null,
+  ): Promise<AuthSessionData> {
+    // SuperAdmin has no companyId -> modules: [].
+    const enabledModules = userWithCompany.companyId
+      ? await this._companyModuleDAO.getEnabledSlugsByCompany(
+          userWithCompany.companyId,
+        )
+      : [];
+
+    // SECURITY (H1): generateToken fails closed if JWT_SECRET is unset (no `|| ""` fallback).
+    const token = generateToken({
+      id: userWithCompany.uuid,
+      sid,
+      email: userWithCompany.email,
+      role: userWithCompany.role,
+      companyId: userWithCompany.company?.uuid,
+      modules: enabledModules,
+    });
+
+    // RBAC permission codes — same enrichment as /me so usePermissions works
+    // immediately after login without a full-page reload. Fail-soft.
+    let permissions: string[] = [];
+    let roleUuid: string | null = null;
+    let roleName: string | null = null;
+    try {
+      const { RbacService } = await import("../../services/rbac.service");
+      permissions = await RbacService.permissionCodesForUserUuid(
+        userWithCompany.uuid!,
+      );
+      const roleInfo = await RbacService.roleForUserUuid(userWithCompany.uuid!);
+      roleUuid = roleInfo?.roleUuid ?? null;
+      roleName = roleInfo?.roleName ?? null;
+    } catch (err) {
+      console.error("Failed to load permissions for login:", err);
+      permissions = [];
+    }
+
+    // SECURITY: expose only the company UUID; never leak the internal numeric id to the client.
+    const { company, ...userWithoutCompany } = userWithCompany;
+    return {
+      user: {
+        ...userWithoutCompany,
+        companyId: company?.uuid || undefined,
+        companyName: company?.name || undefined,
+        modules: enabledModules,
+        permissions,
+        roleUuid,
+        roleName,
+      },
+      token,
+      expiresIn: getAuthConfig().accessTtlSeconds,
+      device,
+    };
+  }
+
+  /** `refresh_sessions.deviceId` is the numeric row id; the device service only hands out the uuid. */
+  private async deviceRowId(
+    device: IDeviceSession | null,
+  ): Promise<number | null> {
+    if (!device) return null;
+    const row = await this._deviceDAO.getByUuid(device.uuid);
+    return row?.id ?? null;
+  }
+
+  /**
+   * Issues the session under the A-4 lock: the user row is locked and
+   * rechecked against what the caller verified (still active, same password
+   * hash), so a deactivation or password change that committed in between wins.
+   * The device row is resolved by the caller BEFORE this runs: inserting a
+   * `user_devices` row from another connection while this transaction holds the
+   * user row `FOR UPDATE` would block on that row's FK lock and deadlock.
+   */
+  private async openSession(
+    req: Request,
+    user: { id: number; password: string },
+    deviceId: number | null,
+  ): Promise<OpenedSession> {
+    const presented = parseRefreshToken(readRefreshCookie(req));
+    return this._sessionDAO.transaction(async (trx): Promise<OpenedSession> => {
+      const locked = await this._userDAO.lockForSessionChange(user.id, trx);
+      if (!locked || !locked.isActive) return { ok: false, reason: "inactive" };
+      if (locked.password !== user.password) {
+        return { ok: false, reason: "password_changed" };
+      }
+      if (presented) {
+        await this._sessionDAO.revokeByUuid(presented, "logout", trx);
+      }
+      await this._sessionDAO.deleteExpiredForUser(user.id, trx);
+      const created = await this._sessionDAO.create(
+        { userId: user.id, deviceId },
+        lifetimes(),
+        trx,
+      );
+      return { ok: true, ...created };
+    });
+  }
+
+  private sendOpenedSession(
+    res: Response,
+    opened: Extract<OpenedSession, { ok: true }>,
+    data: AuthSessionData,
+  ): void {
+    setRefreshCookie(
+      res,
+      opened.rawToken,
+      secondsUntil(opened.session.expiresAt),
+    );
+    res.status(200).json({ success: true, data });
+  }
 
   /**
    * Resolve the roleId + `users.role` mirror for a user created from an
@@ -178,6 +384,10 @@ export class AuthController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      if (!isJsonRequest(req)) {
+        sendJsonRequired(res);
+        return;
+      }
       const data = req.body;
 
       const inputDTO = new LoginInputDTO(data).build();
@@ -228,55 +438,6 @@ export class AuthController {
         return;
       }
 
-      // Enrich JWT + response with enabled module slugs for the user's company.
-      // SuperAdmin has no companyId → modules: [].
-      const enabledModules = userWithCompany.companyId
-        ? await this._companyModuleDAO.getEnabledSlugsByCompany(
-            userWithCompany.companyId,
-          )
-        : [];
-
-      // SECURITY (H1): generateToken fails closed if JWT_SECRET is unset (no `|| ""` fallback).
-      const token = generateToken({
-        id: userWithCompany.uuid,
-        email: userWithCompany.email,
-        role: userWithCompany.role,
-        companyId: userWithCompany.company?.uuid,
-        modules: enabledModules,
-      });
-
-      // RBAC permission codes — same enrichment as /me so usePermissions works
-      // immediately after login without a full-page reload. Fail-soft.
-      let permissions: string[] = [];
-      let roleUuid: string | null = null;
-      let roleName: string | null = null;
-      try {
-        const { RbacService } = await import("../../services/rbac.service");
-        permissions = await RbacService.permissionCodesForUserUuid(
-          userWithCompany.uuid!,
-        );
-        const roleInfo = await RbacService.roleForUserUuid(
-          userWithCompany.uuid!,
-        );
-        roleUuid = roleInfo?.roleUuid ?? null;
-        roleName = roleInfo?.roleName ?? null;
-      } catch (err) {
-        console.error("Failed to load permissions for login:", err);
-        permissions = [];
-      }
-
-      // SECURITY: expose only the company UUID; never leak the internal numeric id to the client.
-      const { company, ...userWithoutCompany } = userWithCompany;
-      const userResponse = {
-        ...userWithoutCompany,
-        companyId: company?.uuid || undefined,
-        companyName: company?.name || undefined,
-        modules: enabledModules,
-        permissions,
-        roleUuid,
-        roleName,
-      };
-
       const device = await issueOrReuseDevice(
         {
           id: userWithCompany.id,
@@ -286,14 +447,177 @@ export class AuthController {
         req,
       );
 
-      res.status(200).json({
-        success: true,
-        data: {
-          user: userResponse,
-          token,
-          device,
+      const opened = await this.openSession(
+        req,
+        { id: userWithCompany.id!, password: userFull.password },
+        await this.deviceRowId(device),
+      );
+      if (!opened.ok) {
+        res.status(opened.reason === "inactive" ? 403 : 401).json({
+          success: false,
+          message:
+            opened.reason === "inactive"
+              ? "Account is inactive"
+              : "Invalid credentials",
+        });
+        return;
+      }
+
+      this.sendOpenedSession(
+        res,
+        opened,
+        await this.buildSessionData(userWithCompany, opened.session.uuid, device),
+      );
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
+   * Rotates the cookie's session and answers with a fresh access token. Never
+   * clears the cookie on failure (A-3): a late 401 must not wipe a cookie that a
+   * newer login just set. `Set-Cookie` is sent only when the token rotated.
+   */
+  public async refresh(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!hasCsrfHeader(req)) {
+        sendCsrfRequired(res);
+        return;
+      }
+
+      const rawToken = readRefreshCookie(req);
+      const sessionUuid = parseRefreshToken(rawToken);
+      if (!rawToken || !sessionUuid) {
+        res.status(401).json({
+          success: false,
+          code: "REFRESH_INVALID",
+          message: "Refresh token is missing or invalid.",
+        });
+        return;
+      }
+
+      let deviceRow: Awaited<ReturnType<UserDeviceDAO["getById"]>> = null;
+      const result = await this._sessionDAO.transaction(
+        async (trx): Promise<RefreshResult> => {
+          // A-4: user row first, then the session row (inside dao.refresh).
+          const alive = await this._sessionDAO.findAliveByUuid(
+            sessionUuid,
+            trx,
+          );
+          if (alive) {
+            const locked = await this._userDAO.lockForSessionChange(alive.userId, trx);
+            if (!locked || !locked.isActive) {
+              await this._sessionDAO.revoke(alive.id, "user_deactivated", trx);
+              return { kind: "revoked" };
+            }
+            if (alive.deviceId !== null) {
+              deviceRow = await this._deviceDAO.getById(alive.deviceId);
+              if (!deviceRow || deviceRow.status === "revoked") {
+                await this._sessionDAO.revoke(alive.id, "device_revoked", trx);
+                return { kind: "revoked" };
+              }
+            }
+          }
+
+          const outcome = await this._sessionDAO.refresh(
+            rawToken,
+            lifetimes(),
+            trx,
+          );
+          if (outcome.kind === "invalid") return { kind: "invalid" };
+          if (outcome.kind === "revoked") return { kind: "revoked" };
+          return { kind: "ok", outcome };
         },
-      });
+      );
+
+      if (result.kind === "invalid") {
+        res.status(401).json({
+          success: false,
+          code: "REFRESH_INVALID",
+          message: "Refresh token is missing or invalid.",
+        });
+        return;
+      }
+      if (result.kind === "revoked") {
+        res.status(401).json({
+          success: false,
+          code: "SESSION_REVOKED",
+          message: "This session is no longer active.",
+        });
+        return;
+      }
+
+      const { outcome } = result;
+      const user = await this._userDAO.getById(outcome.session.userId);
+      const userWithCompany = user?.uuid
+        ? await this._userDAO.getUserWithCompany(user.uuid)
+        : null;
+      if (!userWithCompany) {
+        res.status(401).json({
+          success: false,
+          code: "SESSION_REVOKED",
+          message: "This session is no longer active.",
+        });
+        return;
+      }
+
+      const body = await this.buildSessionData(
+        userWithCompany,
+        outcome.session.uuid,
+        deviceRow ? toDeviceSession(deviceRow) : null,
+      );
+      if (outcome.kind === "rotated") {
+        setRefreshCookie(
+          res,
+          outcome.rawToken,
+          secondsUntil(outcome.session.expiresAt),
+        );
+      }
+      res.status(200).json({ success: true, data: body });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
+   * Unauthenticated on purpose: it must work with an expired access token and
+   * with no token at all. Always 200 and idempotent (INV-7).
+   */
+  public async logout(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!hasCsrfHeader(req)) {
+        sendCsrfRequired(res);
+        return;
+      }
+
+      let sid = parseRefreshToken(readRefreshCookie(req));
+      const bearer = req.headers.authorization;
+      if (!sid && bearer?.startsWith("Bearer ") && process.env.JWT_SECRET) {
+        try {
+          // An expired access token still names the session being signed out.
+          const decoded = jwt.verify(bearer.substring(7), process.env.JWT_SECRET, {
+            ignoreExpiration: true,
+          }) as { sid?: unknown };
+          sid =
+            typeof decoded.sid === "string" && UUID_PATTERN.test(decoded.sid)
+              ? decoded.sid
+              : null;
+        } catch {
+          sid = null;
+        }
+      }
+      if (sid) await this._sessionDAO.revokeByUuid(sid, "logout");
+
+      clearRefreshCookie(res);
+      res.status(200).json({ success: true, message: "Logged out" });
     } catch (err: any) {
       next(err);
     }
@@ -587,7 +911,27 @@ export class AuthController {
 
       // BUGFIX: UserDAO.update expects the numeric id; passing the JWT UUID updated 0 rows
       // (change-password silently no-op'd). Use the resolved numeric id.
-      await this._userDAO.update(user.id!, { password: hashedPassword });
+      // A-4: lock, password update and revocation share one transaction. The
+      // caller's own session keeps going.
+      const outcome = await this._sessionDAO.transaction(async (trx) => {
+        const locked = await this._userDAO.lockForSessionChange(user.id!, trx);
+        if (!locked || locked.password !== user.password) return "stale";
+        await this._userDAO.update(user.id!, { password: hashedPassword }, trx);
+        await this._sessionDAO.revokeAllForUser(
+          user.id!,
+          "password_change",
+          trx,
+          sessionIdOf(req),
+        );
+        return "ok";
+      });
+      if (outcome === "stale") {
+        res.status(409).json({
+          success: false,
+          message: "Password was changed concurrently. Please try again.",
+        });
+        return;
+      }
 
       res.status(200).json({
         success: true,
@@ -607,6 +951,10 @@ export class AuthController {
     next: NextFunction,
   ): Promise<void> {
     try {
+      if (!isJsonRequest(req)) {
+        sendJsonRequired(res);
+        return;
+      }
       const { token } = req.params;
       const { firstName, lastName, password } = req.body;
 
@@ -701,46 +1049,33 @@ export class AuthController {
       const userWithCompany = await this._userDAO.getUserByEmailWithCompany(
         invitation.email,
       );
-
-      // Enrich JWT + response with enabled module slugs for the invited user's
-      // company. Invitation.companyId is the numeric column on the invitation row.
-      const enabledModules = invitation.companyId
-        ? await this._companyModuleDAO.getEnabledSlugsByCompany(
-            invitation.companyId,
-          )
-        : [];
-
-      // SECURITY (H1): generateToken fails closed if JWT_SECRET is unset (no `|| ""` fallback).
-      const authToken = generateToken({
-        id: userWithCompany?.uuid || user.uuid,
-        email: user.email,
-        role: user.role,
-        companyId: userWithCompany?.company?.uuid,
-        modules: enabledModules,
-      });
-
-      // SECURITY: expose only the company UUID; never leak the internal numeric id to the client.
-      const { password: _, ...userWithoutPassword } = user;
-      const userResponse = {
-        ...userWithoutPassword,
-        companyId: userWithCompany?.company?.uuid,
-        companyName: userWithCompany?.company?.name,
-        modules: enabledModules,
-      };
+      if (!userWithCompany) {
+        throw new Error("invited user vanished after creation");
+      }
 
       const device = await issueOrReuseDevice(
         { id: user.id, uuid: user.uuid, role: user.role },
         req,
       );
 
-      res.status(200).json({
-        success: true,
-        data: {
-          user: userResponse,
-          token: authToken,
-          device,
-        },
-      });
+      const opened = await this.openSession(
+        req,
+        { id: user.id!, password: user.password },
+        await this.deviceRowId(device),
+      );
+      if (!opened.ok) {
+        res.status(403).json({
+          success: false,
+          message: "Account is inactive",
+        });
+        return;
+      }
+
+      this.sendOpenedSession(
+        res,
+        opened,
+        await this.buildSessionData(userWithCompany, opened.session.uuid, device),
+      );
     } catch (err: any) {
       next(err);
     }
@@ -878,8 +1213,18 @@ export class AuthController {
         BCRYPT_COST,
       );
 
-      await this._userDAO.update(emailToken.userId, {
-        password: hashedPassword,
+      // Unauthenticated, so not in the request transaction: open one for the
+      // lock, the new hash and the revocation (A-4).
+      await this._sessionDAO.transaction(async (trx) => {
+        await this._userDAO.lockForSessionChange(emailToken.userId, trx);
+        await trx("users")
+          .where({ id: emailToken.userId })
+          .update({ password: hashedPassword, updatedAt: trx.fn.now() });
+        await this._sessionDAO.revokeAllForUser(
+          emailToken.userId,
+          "password_reset",
+          trx,
+        );
       });
 
       if (emailToken.id) {

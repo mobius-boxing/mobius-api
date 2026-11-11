@@ -2,7 +2,7 @@
  * The device gate inside `authenticate` — AC-2-1 (three codes, verbatim
  * messages, nothing but the error envelope in the body), AC-2-2/AC-2-3 (the role
  * comes from the `users` row, not the JWT claim), AC-2-4 (the exempt set is
- * exactly five `METHOD path` pairs, gate amendment 3 having added
+ * exactly four `METHOD path` pairs, gate amendment 3 having added
  * `POST /api/auth/device`) and AC-2-5 (the gate writes nothing).
  *
  * The harness is `integration/cookie-auth-rejection.test.ts`'s — the real
@@ -33,7 +33,10 @@ import {
 import { IUserDevice } from "../../../interfaces/user-device/user-device.interfaces";
 import { hashToken } from "../../../utils/tokenHash";
 
-const userDao = { getByUuid: jest.fn<(...args: any[]) => Promise<any>>() };
+const userDao = {
+  getByUuid: jest.fn<(...args: any[]) => Promise<any>>(),
+  getByUuidWithSession: jest.fn<(...args: any[]) => Promise<any>>(),
+};
 
 const deviceDao = {
   getByUserAndTokenHash: jest.fn<(...args: any[]) => Promise<any>>(),
@@ -51,6 +54,9 @@ jest.mock("../../../dao/user/user.dao", () => ({
   UserDAO: class {
     getByUuid(...args: any[]) {
       return userDao.getByUuid(...args);
+    }
+    getByUuidWithSession(...args: any[]) {
+      return userDao.getByUuidWithSession(...args);
     }
   },
 }));
@@ -94,6 +100,18 @@ jest.mock("../../../dao/user-device/user-device.dao", () => ({
 
 const USER_UUID = "5f1c0a34-6c2e-4a1e-9a2b-0d5f6c7e8a90";
 const SECRET = "b".repeat(64);
+const SID = "9b2f7a10-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
+
+const sessionRow = (rowRole: string) => ({
+  id: 7,
+  uuid: USER_UUID,
+  email: "ana@acme.test",
+  role: rowRole,
+  isActive: true,
+  companyUuid: null,
+  sessionAlive: true,
+  sessionDeviceUuid: null,
+});
 
 type Role = "member" | "admin" | "superAdmin";
 
@@ -128,7 +146,7 @@ const buildApp = () => {
 
 const tokenFor = (claimedRole: Role) =>
   jwt.sign(
-    { userId: USER_UUID, email: "ana@acme.test", role: claimedRole },
+    { userId: USER_UUID, sid: SID, email: "ana@acme.test", role: claimedRole },
     process.env.JWT_SECRET as string,
     { expiresIn: "1h" },
   );
@@ -165,13 +183,7 @@ const call = async (path: string, options: Options = {}) => {
     method = "get",
   } = options;
 
-  userDao.getByUuid.mockResolvedValue({
-    id: 7,
-    uuid: USER_UUID,
-    email: "ana@acme.test",
-    role: rowRole,
-    isActive: true,
-  });
+  userDao.getByUuidWithSession.mockResolvedValue(sessionRow(rowRole));
   deviceDao.getByUserAndTokenHash.mockResolvedValue(
     status === null ? null : deviceRow(status),
   );
@@ -279,13 +291,12 @@ describe("AC-2-2 / AC-2-3 — the role comes from the users row", () => {
 });
 
 describe("AC-2-4 — the exempt set", () => {
-  it("is exactly the five routes of D-22 and gate amendment 3 (D-230)", () => {
+  it("is exactly the four routes of D-22 and gate amendment 3 (D-230); logout left with its session", () => {
     expect([...DEVICE_GATE_EXEMPT].sort()).toEqual([
       "GET /api/auth/device",
       "GET /api/auth/me",
       "GET /api/auth/profile",
       "POST /api/auth/device",
-      "POST /api/auth/logout",
     ]);
   });
 
@@ -294,7 +305,6 @@ describe("AC-2-4 — the exempt set", () => {
     ["/api/auth/profile", "get"],
     ["/api/auth/device", "get"],
     ["/api/auth/device", "post"],
-    ["/api/auth/logout", "post"],
   ] as const)("lets a pending member reach %s %s", async (path, method) => {
     const res = await call(path, { status: "pending", method });
 
@@ -313,6 +323,7 @@ describe("AC-2-4 — the exempt set", () => {
       "put",
     ],
     ["logout with another method", "/api/auth/logout", "get"],
+    ["logout (no longer exempt)", "/api/auth/logout", "post"],
     ["me with another method", "/api/auth/me", "post"],
   ] as const)("gates %s", async (_case, path, method) => {
     const res = await call(path, { status: "pending", method });
@@ -360,6 +371,7 @@ describe("D-17 — optionalAuth treats an unapproved member as anonymous", () =>
       role: rowRole,
       isActive: true,
     });
+    userDao.getByUuidWithSession.mockResolvedValue(sessionRow(rowRole));
     deviceDao.getByUserAndTokenHash.mockResolvedValue(
       status === null ? null : deviceRow(status),
     );

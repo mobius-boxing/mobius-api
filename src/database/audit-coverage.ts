@@ -47,6 +47,7 @@ export const AUDIT_EXCLUDED: ReadonlySet<string> = new Set([
   "countdown_reminder_log", // job output, already an append-only record
   "countdown_reminder_runs", // job output: one claim row per calendar day
   "countdown_reminder_digests", // job output
+  "refresh_sessions", // rotates every few minutes per tab; the revoking admin actions are audited on their own tables
   "nf_node_runs", // per-node execution log of a run that is itself audited
 ]);
 

@@ -74,6 +74,7 @@ jest.mock("../../../services/core-client.service", () => {
 jest.mock("jsonwebtoken", () => ({
   verify: () => ({
     userId: "11111111-1111-4111-8111-111111111111",
+    sid: "33333333-3333-4333-8333-333333333333",
     email: "root@example.com",
     role: "superAdmin",
     companyId: "22222222-2222-4222-8222-222222222222",
@@ -81,7 +82,18 @@ jest.mock("jsonwebtoken", () => ({
 }));
 jest.mock("../../../dao", () => ({
   UserDAO: function UserDAO() {
-    return { getByUuid: async () => ({ isActive: true }) };
+    return {
+      getByUuid: async () => ({ isActive: true }),
+      getByUuidWithSession: async () => ({
+        id: 1,
+        email: "root@example.com",
+        role: "superAdmin",
+        isActive: true,
+        companyUuid: "22222222-2222-4222-8222-222222222222",
+        sessionAlive: true,
+        sessionDeviceUuid: null,
+      }),
+    };
   },
 }));
 jest.mock("../../../middlewares/tenant-context.middleware", () => ({

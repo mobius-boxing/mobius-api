@@ -72,7 +72,7 @@ const AMBIGUOUS_FK_COLUMNS = ["categoryId", "documentId"];
 /** knex's own bookkeeping: excluded, and absent from `DOMAIN_OWNER`. */
 const KNEX_TABLES = ["knex_migrations", "knex_migrations_lock"];
 
-/** The 7 application tables that are deliberately not audited. */
+/** The 8 application tables that are deliberately not audited. */
 const APPLICATION_EXCLUSIONS = [
   "audit_logs",
   "code_sequences",
@@ -81,6 +81,7 @@ const APPLICATION_EXCLUSIONS = [
   "countdown_reminder_runs",
   "emailTokens",
   "nf_node_runs",
+  "refresh_sessions",
 ];
 
 const allAudited = (): string[] =>
@@ -109,7 +110,7 @@ describe("audit coverage manifest (AC-1)", () => {
     expect(fannedOut).toEqual(["files"]);
   });
 
-  it("excludes exactly the 7 application tables plus knex's two", () => {
+  it("excludes exactly the 8 application tables plus knex's two", () => {
     const excluded = sorted(AUDIT_EXCLUDED);
     expect(excluded).toEqual(
       sorted([...APPLICATION_EXCLUSIONS, ...KNEX_TABLES]),

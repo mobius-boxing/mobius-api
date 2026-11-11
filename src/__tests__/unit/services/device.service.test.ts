@@ -51,12 +51,14 @@ const dao = {
   approve: jest.fn<(...args: any[]) => Promise<any>>(),
   revoke: jest.fn<(...args: any[]) => Promise<any>>(),
   update: jest.fn<(...args: any[]) => Promise<any>>(),
+  getByUuid: jest.fn<(...args: any[]) => Promise<any>>(),
 };
 
 const userDao = {
   getUserByEmailWithCompany: jest.fn<(...args: any[]) => Promise<any>>(),
   getUserByEmail: jest.fn<(...args: any[]) => Promise<any>>(),
   getByUuid: jest.fn<(...args: any[]) => Promise<any>>(),
+  lockForSessionChange: jest.fn<(...args: any[]) => Promise<any>>(),
 };
 
 jest.mock("../../../dao/user/user.dao", () => ({
@@ -69,6 +71,33 @@ jest.mock("../../../dao/user/user.dao", () => ({
     }
     getByUuid(...args: any[]) {
       return userDao.getByUuid(...args);
+    }
+    lockForSessionChange(...args: any[]) {
+      return userDao.lockForSessionChange(...args);
+    }
+  },
+}));
+
+jest.mock("../../../dao/refresh-session/refresh-session.dao", () => ({
+  parseRefreshToken: () => null,
+  RefreshSessionDAO: class {
+    transaction(fn: (trx: unknown) => Promise<unknown>) {
+      return fn({});
+    }
+    revokeByUuid() {
+      return Promise.resolve();
+    }
+    deleteExpiredForUser() {
+      return Promise.resolve(0);
+    }
+    create() {
+      return Promise.resolve({
+        session: {
+          uuid: "9b2f7a10-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+          expiresAt: new Date(Date.now() + 3600_000),
+        },
+        rawToken: "raw",
+      });
     }
   },
 }));
@@ -112,6 +141,9 @@ jest.mock("../../../dao/user-device/user-device.dao", () => ({
     }
     update(...args: any[]) {
       return dao.update(...args);
+    }
+    getByUuid(...args: any[]) {
+      return dao.getByUuid(...args);
     }
   },
 }));
@@ -491,12 +523,16 @@ describe("I-12 — a failed login touches no device row", () => {
   const runLogin = async () => {
     const req = {
       body: { email: "ana@acme.test", password: "whatever" },
-      headers: { "user-agent": "Mozilla/5.0" },
+      headers: {
+        "user-agent": "Mozilla/5.0",
+        "content-type": "application/json",
+      },
       ip: "190.2.14.77",
     } as unknown as Request;
     const json = jest.fn<(body: any) => void>();
     const res = {
       status: jest.fn(() => ({ json })),
+      cookie: jest.fn(),
     } as unknown as Response;
     const next = jest.fn();
 
@@ -519,6 +555,12 @@ describe("I-12 — a failed login touches no device row", () => {
       password: "$2a$12$storedhash",
       role: "member",
     });
+    userDao.lockForSessionChange.mockResolvedValue({
+      id: MEMBER.id,
+      isActive: true,
+      password: "$2a$12$storedhash",
+    });
+    dao.getByUuid.mockResolvedValue(deviceRow());
   });
 
   it("creates nothing when the password is wrong", async () => {

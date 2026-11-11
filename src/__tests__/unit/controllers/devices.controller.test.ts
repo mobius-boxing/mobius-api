@@ -24,6 +24,8 @@ const dao = {
   approve: jest.fn(),
   revoke: jest.fn(),
 };
+const lockForSessionChange = jest.fn(() => Promise.resolve(null));
+const revokeAllForDevice = jest.fn(() => Promise.resolve(0));
 const setAuditAction = jest.fn(() => Promise.resolve());
 const getIdByUuid = jest.fn();
 
@@ -35,6 +37,21 @@ jest.mock("../../../dao/user-device/user-device.dao", () => ({
       getViewByUuid: (...a) => dao.getViewByUuid(...a),
       approve: (...a) => dao.approve(...a),
       revoke: (...a) => dao.revoke(...a),
+    };
+  },
+}));
+jest.mock("../../../dao/user/user.dao", () => ({
+  UserDAO: function () {
+    return {
+      lockForSessionChange: (...a) => lockForSessionChange(...a),
+    };
+  },
+}));
+jest.mock("../../../dao/refresh-session/refresh-session.dao", () => ({
+  RefreshSessionDAO: function () {
+    return {
+      transaction: (fn) => fn({}),
+      revokeAllForDevice: (...a) => revokeAllForDevice(...a),
     };
   },
 }));
@@ -386,7 +403,7 @@ describe("revoke transitions (AC-3-4)", () => {
     await controller.revoke(makeReq(), res, jest.fn());
 
     expect(res.statusCode).toBe(200);
-    expect(dao.revoke).toHaveBeenCalledWith(42, ACTOR_ID);
+    expect(dao.revoke).toHaveBeenCalledWith(42, ACTOR_ID, expect.anything());
     expect(setAuditAction).toHaveBeenCalledWith("user_device.revoke");
     expect(setAuditAction.mock.invocationCallOrder[0]).toBeLessThan(
       dao.revoke.mock.invocationCallOrder[0],
@@ -407,7 +424,7 @@ describe("revoke transitions (AC-3-4)", () => {
     await controller.revoke(makeReq(), res, jest.fn());
 
     expect(res.statusCode).toBe(200);
-    expect(dao.revoke).toHaveBeenCalledWith(42, ACTOR_ID);
+    expect(dao.revoke).toHaveBeenCalledWith(42, ACTOR_ID, expect.anything());
   });
 
   it("answers 409 for an already revoked device", async () => {
@@ -438,7 +455,7 @@ describe("revoke transitions (AC-3-4)", () => {
       jest.fn(),
     );
 
-    expect(dao.revoke).toHaveBeenCalledWith(42, ACTOR_ID);
+    expect(dao.revoke).toHaveBeenCalledWith(42, ACTOR_ID, expect.anything());
     expect(getIdByUuid).toHaveBeenCalledWith(ADMIN_UUID, "users");
   });
 });

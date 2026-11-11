@@ -1,4 +1,6 @@
 import { Request, Response, NextFunction } from "express";
+import { RefreshSessionDAO } from "../../dao/refresh-session/refresh-session.dao";
+import { UserDAO } from "../../dao/user/user.dao";
 import { UserDeviceDAO } from "../../dao/user-device/user-device.dao";
 import { IDataPaginator } from "../../database/d.types";
 import {
@@ -49,6 +51,8 @@ type LoadedDevice = {
  */
 export class DevicesController {
   private dao = new UserDeviceDAO();
+  private sessions = new RefreshSessionDAO();
+  private userDAO = new UserDAO();
 
   /**
    * `req` is handed over untouched so every documented param (`status`,
@@ -123,7 +127,19 @@ export class DevicesController {
       }
 
       await setAuditAction("user_device.revoke");
-      await this.dao.revoke(loaded.deviceId, await this.actorId(req));
+      // A-4: one transaction — user row lock, then the device row (the revoke's
+      // own UPDATE), then the sessions bound to it. A login or refresh on this
+      // device either lands before and is killed here, or sees it revoked.
+      const actorId = await this.actorId(req);
+      await this.sessions.transaction(async (trx) => {
+        await this.userDAO.lockForSessionChange(loaded.device.userId, trx);
+        await this.dao.revoke(loaded.deviceId, actorId, trx);
+        await this.sessions.revokeAllForDevice(
+          loaded.deviceId,
+          "device_revoked",
+          trx,
+        );
+      });
 
       res.status(200).json({ success: true, data: await this.view(loaded) });
     } catch (err) {

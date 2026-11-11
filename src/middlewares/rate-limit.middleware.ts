@@ -87,6 +87,16 @@ export const authRateLimiter = createRateLimiter(
   "auth",
 );
 
+// Plants share one NAT IP and every tab bootstraps through /auth/refresh. The
+// library sends Retry-After on the 429 (standardHeaders is on); clients treat
+// 429 as transient (A-7).
+export const refreshRateLimiter = createRateLimiter(
+  envMax("REFRESH", 300),
+  1,
+  "Too many refresh attempts. Please try again shortly.",
+  "refresh",
+);
+
 export const apiRateLimiter = createRateLimiter(
   envMax("API", 600),
   15,

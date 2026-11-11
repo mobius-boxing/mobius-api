@@ -25,6 +25,8 @@ export const DOMAIN_OWNER: Record<string, DbKey> = {
   // One row per (user, browser) for the device-approval gate; cascades with its
   // user (D-6).
   user_devices: "core",
+  // One row per browser login (refresh-token sessions); cascades with its user.
+  refresh_sessions: "core",
   companies: "core",
   invitations: "core",
   emailTokens: "core",

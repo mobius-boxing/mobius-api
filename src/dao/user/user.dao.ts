@@ -1,3 +1,4 @@
+import { Knex } from "knex";
 import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IUser, IUserWithCompany } from "../../interfaces/user/user.interfaces";
@@ -73,6 +74,17 @@ const USER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("users", {
   },
 });
 
+export type IUserWithSession = {
+  id: number;
+  uuid: string;
+  email: string;
+  role: "member" | "admin" | "superAdmin";
+  isActive: boolean;
+  companyUuid: string | null;
+  sessionAlive: boolean;
+  sessionDeviceUuid: string | null;
+};
+
 export class UserDAO implements IBaseDAO<IUser> {
   private tableName = "users";
   private queryConfig = USER_QUERY_CONFIG;
@@ -107,6 +119,62 @@ export class UserDAO implements IBaseDAO<IUser> {
     const user = await knex(this.tableName).where("uuid", uuid).first();
 
     return user ? this.mapToInterface(user) : null;
+  }
+
+  /**
+   * The authenticate reload: user, company uuid and the token's session in ONE
+   * query. Selects its own columns (L-008) — never route this through
+   * `mapToInterface`, which drops what the gate needs. `sid` must already be a
+   * well-formed uuid or Postgres throws.
+   */
+  async getByUuidWithSession(
+    uuid: string,
+    sid: string,
+  ): Promise<IUserWithSession | null> {
+    const knex = db("core");
+    const row = await knex(this.tableName)
+      .select(
+        "users.id",
+        "users.uuid",
+        "users.email",
+        "users.role",
+        "users.isActive",
+        "companies.uuid as companyUuid",
+        "user_devices.uuid as sessionDeviceUuid",
+        knex.raw(
+          '(refresh_sessions.id IS NOT NULL AND refresh_sessions."revokedAt" IS NULL AND refresh_sessions."expiresAt" > now()) AS "sessionAlive"',
+        ),
+      )
+      .leftJoin("companies", "users.companyId", "companies.id")
+      .leftJoin("refresh_sessions", function () {
+        this.on("refresh_sessions.uuid", "=", knex.raw("?", [sid])).andOn(
+          "refresh_sessions.userId",
+          "=",
+          "users.id",
+        );
+      })
+      .leftJoin("user_devices", "refresh_sessions.deviceId", "user_devices.id")
+      .where("users.uuid", uuid)
+      .first();
+
+    return row ?? null;
+  }
+
+  /**
+   * The A-4 lock: every issuance and every revocation of a user's sessions
+   * takes this row first, so a deactivation or password change cannot
+   * interleave with a login or refresh. Returns the locked row for rechecks.
+   */
+  async lockForSessionChange(
+    id: number,
+    trx?: Knex.Transaction,
+  ): Promise<{ id: number; isActive: boolean; password: string } | null> {
+    const row = await (trx ?? db("core"))(this.tableName)
+      .select("id", "isActive", "password")
+      .where({ id })
+      .forUpdate()
+      .first();
+    return row ?? null;
   }
 
   async getIdByUuid(uuid: string): Promise<number | null> {
@@ -149,8 +217,12 @@ export class UserDAO implements IBaseDAO<IUser> {
     return row ?? null;
   }
 
-  async update(id: number, item: Partial<IUser>): Promise<IUser | null> {
-    const knex = db("core");
+  async update(
+    id: number,
+    item: Partial<IUser>,
+    trx?: Knex.Transaction,
+  ): Promise<IUser | null> {
+    const knex = trx ?? db("core");
     const updateData: any = {};
 
     if (item.email !== undefined) updateData.email = item.email;
@@ -188,8 +260,9 @@ export class UserDAO implements IBaseDAO<IUser> {
     companyId: number,
     isActive: boolean,
     isCurrentActiveAdmin: boolean,
+    outer?: Knex.Transaction,
   ): Promise<IUser | null> {
-    const knex = db("core");
+    const knex = outer ?? db("core");
     return knex.transaction(async (trx) => {
       if (!isActive) {
         await RolePolicyService.assertNotLastAdmin(

@@ -17,6 +17,7 @@ import { CompanyDAO } from "../../dao/company/company.dao";
 import crypto from "crypto";
 import { EmailService } from "../../services/email.service";
 import { db } from "../../database/registry";
+import { RefreshSessionDAO } from "../../dao/refresh-session/refresh-session.dao";
 import { purgeUser } from "../../services/company-purge.service";
 import {
   AvatarValidationError,
@@ -29,6 +30,7 @@ import {
 
 export class UsersController implements IBaseController {
   private _userDAO: UserDAO = new UserDAO();
+  private _refreshSessionDAO: RefreshSessionDAO = new RefreshSessionDAO();
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _companyDAO: CompanyDAO = new CompanyDAO();
   private _emailService: EmailService = new EmailService();
@@ -345,11 +347,26 @@ export class UsersController implements IBaseController {
           // UserDAO.setActiveChecked. Applied now, not folded into `updateData`
           // below, so the lock covers exactly the write it protects.
           try {
-            const deactivated = await this._userDAO.setActiveChecked(
-              existing.id,
-              existing.companyId!,
-              false,
-              existing.isActive === true && existing.role === "admin",
+            const targetId = existing.id;
+            const deactivated = await this._refreshSessionDAO.transaction(
+              async (trx) => {
+                await this._userDAO.lockForSessionChange(targetId, trx);
+                const done = await this._userDAO.setActiveChecked(
+                  targetId,
+                  existing.companyId!,
+                  false,
+                  existing.isActive === true && existing.role === "admin",
+                  trx,
+                );
+                if (done) {
+                  await this._refreshSessionDAO.revokeAllForUser(
+                    targetId,
+                    "user_deactivated",
+                    trx,
+                  );
+                }
+                return done;
+              },
             );
             if (!deactivated) {
               res.status(404).json({
@@ -419,27 +436,53 @@ export class UsersController implements IBaseController {
       // keeps the response consistent either way.
       let result: IUser | null;
       try {
+        const targetId = existing.id as number;
+        // A-4: lock, write and revocation share one transaction.
+        const revokeReason =
+          updateData.isActive === false
+            ? "user_deactivated"
+            : updateData.password !== undefined
+              ? "admin"
+              : null;
+        const hasUpdate = Object.keys(updateData).length > 0;
+        const written = await this._refreshSessionDAO.transaction(
+          async (trx) => {
+            if (revokeReason) {
+              await this._userDAO.lockForSessionChange(targetId, trx);
+            }
+            if (!hasUpdate) return { updated: undefined };
+            let updated: IUser | number | null;
+            if (endsActiveSuperAdminStatus) {
+              await RolePolicyService.assertSuperAdminStaysCovered(
+                trx,
+                actor.userId,
+                uuid,
+                targetId,
+              );
+              updated = await trx("users")
+                .where("id", targetId)
+                .update({ ...updateData, updatedAt: trx.fn.now() });
+            } else {
+              updated = await this._userDAO.update(targetId, updateData, trx);
+            }
+            if (revokeReason && updated) {
+              await this._refreshSessionDAO.revokeAllForUser(
+                targetId,
+                revokeReason,
+                trx,
+              );
+            }
+            return { updated };
+          },
+        );
         result =
-          Object.keys(updateData).length > 0 && endsActiveSuperAdminStatus
-            ? await db("core")
-                .transaction(async (trx) => {
-                  await RolePolicyService.assertSuperAdminStaysCovered(
-                    trx,
-                    actor.userId,
-                    uuid,
-                    existing.id!,
-                  );
-                  const updated: number = await trx("users")
-                    .where("id", existing.id)
-                    .update({ ...updateData, updatedAt: trx.fn.now() });
-                  return updated;
-                })
-                .then((updated) =>
-                  updated > 0 ? this._userDAO.getByUuid(uuid) : null,
-                )
-            : Object.keys(updateData).length > 0
-              ? await this._userDAO.update(existing.id, updateData)
-              : await this._userDAO.getByUuid(uuid);
+          written.updated === undefined
+            ? await this._userDAO.getByUuid(uuid)
+            : typeof written.updated === "number"
+              ? written.updated > 0
+                ? await this._userDAO.getByUuid(uuid)
+                : null
+              : written.updated;
       } catch (err: unknown) {
         if (err instanceof RolePolicyError) {
           res.status(err.status).json({

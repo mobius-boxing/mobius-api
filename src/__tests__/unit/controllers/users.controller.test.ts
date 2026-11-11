@@ -61,6 +61,15 @@ jest.mock("../../../services/company-purge.service", () => ({
     require("./users.controller.test").mockPurgeUser(...args),
 }));
 
+jest.mock("../../../dao/refresh-session/refresh-session.dao", () => ({
+  RefreshSessionDAO: function () {
+    return {
+      transaction: (fn) => fn({}),
+      revokeAllForUser: jest.fn(),
+    };
+  },
+}));
+
 // Mock uuid module
 jest.mock("uuid", () => ({
   v4: () => "generated-uuid",
@@ -366,7 +375,11 @@ describe("UsersController", () => {
 
       await controller.update(mockReq, mockRes as Response, mockNext);
 
-      expect(mockUserDAO.update).toHaveBeenCalledWith(1, expect.any(Object));
+      expect(mockUserDAO.update).toHaveBeenCalledWith(
+        1,
+        expect.any(Object),
+        expect.anything(),
+      );
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 

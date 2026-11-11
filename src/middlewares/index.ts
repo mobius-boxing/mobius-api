@@ -29,6 +29,7 @@ export {
 export {
   createRateLimiter,
   authRateLimiter,
+  refreshRateLimiter,
   apiRateLimiter,
   publicRateLimiter,
   globalRateLimiter,

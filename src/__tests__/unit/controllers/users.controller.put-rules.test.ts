@@ -25,7 +25,9 @@ const mockUserDAO = {
   getByUuid: jest.fn(),
   update: jest.fn(),
   setActiveChecked: jest.fn(),
+  lockForSessionChange: jest.fn(),
 };
+const mockRefreshSessionDAO = { revokeAllForUser: jest.fn() };
 const mockCompanyDAO = { getById: jest.fn(), getByUuid: jest.fn() };
 
 jest.mock("../../../dao/user/user.dao", () => {
@@ -36,6 +38,20 @@ jest.mock("../../../dao/user/user.dao", () => {
         getByUuid: (...args) => mf.getByUuid(...args),
         update: (...args) => mf.update(...args),
         setActiveChecked: (...args) => mf.setActiveChecked(...args),
+        lockForSessionChange: (...args) => mf.lockForSessionChange(...args),
+      };
+    },
+  };
+});
+jest.mock("../../../dao/refresh-session/refresh-session.dao", () => {
+  const {
+    mockRefreshSessionDAO: mf,
+  } = require("./users.controller.put-rules.test");
+  return {
+    RefreshSessionDAO: function () {
+      return {
+        transaction: (fn) => fn({}),
+        revokeAllForUser: (...args) => mf.revokeAllForUser(...args),
       };
     },
   };
@@ -66,7 +82,7 @@ jest.mock("@sundaysf/utils", () => ({
   inputValidator: async () => ({ success: true, message: "" }),
 }));
 
-export { mockUserDAO, mockCompanyDAO };
+export { mockUserDAO, mockCompanyDAO, mockRefreshSessionDAO };
 
 import { UsersController } from "../../../controllers/users/users.controller";
 
@@ -148,6 +164,7 @@ describe("UsersController.update — company-actor rules", () => {
       5,
       false,
       false, // existing.role === "member", not "admin"
+      expect.anything(),
     );
     expect(mockRes.status).toHaveBeenCalledWith(200);
   });
@@ -180,6 +197,7 @@ describe("UsersController.update — company-actor rules", () => {
       5,
       false,
       true,
+      expect.anything(),
     );
     expect(mockRes.status).toHaveBeenCalledWith(409);
     expect(mockRes.json).toHaveBeenCalledWith(

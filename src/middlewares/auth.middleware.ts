@@ -3,6 +3,7 @@ import * as jwt from "jsonwebtoken";
 import { UserDAO } from "../dao";
 import { armAudit } from "../database/audit-context";
 import { resolveTenantContext } from "./tenant-context.middleware";
+import { getAuthConfig } from "../common/config/auth/auth.config";
 import { IDeviceSession } from "../interfaces/user-device/user-device.interfaces";
 import {
   DEVICE_TOKEN_HEADER,
@@ -12,6 +13,8 @@ import {
 
 interface IJWTPayload {
   userId: string;
+  // refresh_sessions.uuid of the login this token belongs to (INV-6).
+  sid: string;
   email: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: string;
@@ -35,7 +38,6 @@ export const DEVICE_GATE_EXEMPT = new Set([
   "GET /api/auth/profile",
   "GET /api/auth/device",
   "POST /api/auth/device",
-  "POST /api/auth/logout",
 ]);
 
 const DEVICE_GATE_REJECTIONS = {
@@ -78,6 +80,26 @@ const rejectUnapprovedDevice = (
   return false;
 };
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const reject = (
+  res: Response,
+  code:
+    | "TOKEN_MISSING"
+    | "TOKEN_INVALID"
+    | "TOKEN_EXPIRED"
+    | "USER_INACTIVE"
+    | "SESSION_REVOKED",
+  message: string,
+): void => {
+  res.status(401).json({ success: false, message, code });
+};
+
+/** The session uuid `authenticate` put on `req.user`. */
+export const sessionIdOf = (req: Request): string | undefined =>
+  (req.user as { sid?: string } | undefined)?.sid;
+
 export const authenticate = async (
   req: Request,
   res: Response,
@@ -87,10 +109,7 @@ export const authenticate = async (
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({
-        success: false,
-        message: "Authentication required. No token provided.",
-      });
+      reject(res, "TOKEN_MISSING", "Authentication required. No token provided.");
       return;
     }
 
@@ -101,44 +120,65 @@ export const authenticate = async (
       throw new Error("JWT_SECRET is not configured");
     }
 
-    const decoded = jwt.verify(token, jwtSecret) as IJWTPayload;
-
-    // SECURITY: re-check existence + active flag on every request so revoked/disabled accounts
-    // can't keep using a still-valid JWT.
-    const userDAO = new UserDAO();
-    const user = await userDAO.getByUuid(decoded.userId);
-
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        message: "User no longer exists.",
-      });
+    let decoded: IJWTPayload;
+    try {
+      decoded = jwt.verify(token, jwtSecret) as IJWTPayload;
+    } catch (err) {
+      if (err instanceof jwt.TokenExpiredError) {
+        reject(res, "TOKEN_EXPIRED", "Token has expired.");
+      } else {
+        reject(res, "TOKEN_INVALID", "Invalid token.");
+      }
       return;
     }
 
-    if (!user.isActive) {
-      res.status(401).json({
-        success: false,
-        message: "User account is inactive.",
-      });
+    if (typeof decoded.sid !== "string" || !UUID_RE.test(decoded.sid)) {
+      reject(res, "TOKEN_INVALID", "Invalid token.");
+      return;
+    }
+
+    // SECURITY: one reload re-checks the user, the company and the token's
+    // session, so revoked/disabled accounts and signed-out sessions can't keep
+    // using a still-valid JWT. Role and company come from this row, never from
+    // the claims (A-5).
+    const loaded = await new UserDAO().getByUuidWithSession(
+      decoded.userId,
+      decoded.sid,
+    );
+
+    if (!loaded || !loaded.isActive) {
+      reject(res, "USER_INACTIVE", "User no longer exists or is inactive.");
+      return;
+    }
+
+    if (!loaded.sessionAlive) {
+      reject(res, "SESSION_REVOKED", "Session is no longer active.");
       return;
     }
 
     // The role here is the one on the row just loaded, never `decoded.role`: a
     // member whose token claims `admin` must still be gated (I-5).
-    const device = await resolveDevice(
-      { id: user.id, uuid: decoded.userId, role: user.role },
+    const resolved = await resolveDevice(
+      { id: loaded.id, uuid: decoded.userId, role: loaded.role },
       req.headers[DEVICE_TOKEN_HEADER],
     );
-    if (!rejectUnapprovedDevice(req, res, user.role, device)) return;
+    // A-6: a session born on a device is only valid from that device. Admins
+    // have no device row to bind, so the binding applies to gated roles only.
+    const bound =
+      loaded.sessionDeviceUuid !== null &&
+      isDeviceGatedRole(loaded.role) &&
+      resolved?.uuid !== loaded.sessionDeviceUuid;
+    if (!rejectUnapprovedDevice(req, res, loaded.role, bound ? null : resolved))
+      return;
 
     (req as any).user = {
       userId: decoded.userId,
-      email: decoded.email,
-      role: decoded.role,
-      companyId: decoded.companyId,
+      email: loaded.email,
+      role: loaded.role,
+      companyId: loaded.companyUuid ?? undefined,
+      sid: decoded.sid,
     };
-    req.device = device;
+    req.device = resolved;
 
     if (!(await resolveTenantContext(req, res))) return;
 
@@ -364,6 +404,7 @@ export const requireSameCompany = (
 
 export const generateToken = (user: {
   id?: string;
+  sid: string;
   email: string;
   role: "member" | "admin" | "superAdmin";
   companyId?: string;
@@ -371,7 +412,6 @@ export const generateToken = (user: {
 }): string => {
   // SECURITY (H1): fail closed — never sign with an empty secret.
   const jwtSecret = process.env.JWT_SECRET;
-  const jwtExpire = process.env.JWT_EXPIRE || "5h";
 
   if (!jwtSecret) {
     throw new Error("JWT_SECRET is not configured");
@@ -379,6 +419,7 @@ export const generateToken = (user: {
 
   const payload: IJWTPayload = {
     userId: user.id!,
+    sid: user.sid,
     email: user.email,
     role: user.role,
     companyId: user.companyId,
@@ -386,6 +427,6 @@ export const generateToken = (user: {
   };
 
   return jwt.sign(payload, jwtSecret, {
-    expiresIn: jwtExpire as string,
-  } as jwt.SignOptions);
+    expiresIn: getAuthConfig().accessTtlSeconds,
+  });
 };
