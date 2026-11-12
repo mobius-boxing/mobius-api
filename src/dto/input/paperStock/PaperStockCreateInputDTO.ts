@@ -24,6 +24,19 @@ export function createBarcode(value: unknown): string | undefined {
   return barcode;
 }
 
+export function createDeliveryNote(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new Error("El remito debe ser texto");
+  }
+  const deliveryNote = value.trim();
+  if (deliveryNote === "") return undefined;
+  if (deliveryNote.length > 50) {
+    throw new Error("El remito no puede superar los 50 caracteres");
+  }
+  return deliveryNote;
+}
+
 /**
  * Server mirror of `mobius-web-app/src/validation/schemas/paperStock.ts`.
  *
@@ -78,6 +91,7 @@ export class PaperStockCreateInputDTO {
   diameter?: number;
   width?: number;
   barcode?: string;
+  deliveryNote?: string;
 
   constructor(data: Record<string, unknown>) {
     const source = data ?? {};
@@ -92,6 +106,7 @@ export class PaperStockCreateInputDTO {
     this.diameter = source.diameter as number;
     this.width = source.width as number;
     this.barcode = source.barcode as string;
+    this.deliveryNote = source.deliveryNote as string;
   }
 
   public build(): this {
@@ -167,6 +182,9 @@ export class PaperStockCreateInputDTO {
         ),
       );
       this.barcode = field("barcode", () => createBarcode(this.barcode));
+      this.deliveryNote = field("deliveryNote", () =>
+        createDeliveryNote(this.deliveryNote),
+      );
     });
 
     // `inputValidator` rejects ANY own key holding `undefined`, so a blank

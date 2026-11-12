@@ -89,7 +89,7 @@ const PAPER_STOCK_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: PAPER_STOCK_FILTERS,
     sorting: PAPER_STOCK_SORTING,
     search: {
-      columns: ["comments", "code", "barcode"],
+      columns: ["comments", "code", "barcode", "deliveryNote"],
       operator: "ILIKE",
     },
     defaultSort: {
@@ -148,6 +148,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
           width: item.width,
           code,
           barcode: item.barcode ?? code,
+          deliveryNote: item.deliveryNote ?? null,
         })
         .returning("*");
 
@@ -212,6 +213,9 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
         item.barcode === null || item.barcode === ""
           ? knex.ref("code")
           : item.barcode;
+    }
+    if (item.deliveryNote !== undefined) {
+      updateData.deliveryNote = item.deliveryNote;
     }
 
     updateData.updatedAt = knex.fn.now();
@@ -374,6 +378,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
       width: record.width ? parseFloat(record.width) : undefined,
       code: record.code,
       barcode: record.barcode,
+      deliveryNote: record.deliveryNote ?? null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

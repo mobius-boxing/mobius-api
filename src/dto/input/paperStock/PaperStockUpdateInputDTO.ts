@@ -7,6 +7,7 @@ import {
 import { collect } from "../shared/ValidationError";
 import {
   createBarcode,
+  createDeliveryNote,
   PAPER_STOCK_LABELS,
   PAPER_STOCK_LIMITS,
 } from "./PaperStockCreateInputDTO";
@@ -32,6 +33,7 @@ export class PaperStockUpdateInputDTO {
   diameter?: number;
   width?: number;
   barcode?: string | null;
+  deliveryNote?: string | null;
 
   constructor(data: Record<string, unknown>) {
     const source = data ?? {};
@@ -54,6 +56,8 @@ export class PaperStockUpdateInputDTO {
     if (source.width !== undefined) this.width = source.width as number;
     if (source.barcode !== undefined)
       this.barcode = source.barcode as string | null;
+    if (source.deliveryNote !== undefined)
+      this.deliveryNote = source.deliveryNote as string | null;
   }
 
   public build(): this {
@@ -151,6 +155,13 @@ export class PaperStockUpdateInputDTO {
       if (this.barcode !== undefined) {
         this.barcode = field("barcode", () =>
           this.barcode === null ? null : (createBarcode(this.barcode) ?? ""),
+        );
+      }
+      if (this.deliveryNote !== undefined) {
+        this.deliveryNote = field("deliveryNote", () =>
+          this.deliveryNote === null
+            ? null
+            : (createDeliveryNote(this.deliveryNote) ?? null),
         );
       }
     });

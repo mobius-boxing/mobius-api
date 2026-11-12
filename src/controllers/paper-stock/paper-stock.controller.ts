@@ -130,6 +130,7 @@ export class PaperStockController extends BaseCrudController<IPaperStock> {
       diameter: inputDTO.diameter,
       width: inputDTO.width,
       barcode: inputDTO.barcode,
+      deliveryNote: inputDTO.deliveryNote,
     };
   }
 

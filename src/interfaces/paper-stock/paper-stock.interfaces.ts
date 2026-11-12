@@ -19,6 +19,7 @@ export interface IPaperStock {
   width?: number;
   code?: string;
   barcode?: string;
+  deliveryNote: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 
