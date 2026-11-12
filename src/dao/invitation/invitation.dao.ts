@@ -1,14 +1,23 @@
 import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
-import { IInvitation } from "../../interfaces/invitation/invitation.interfaces";
+import {
+  IInvitation,
+  IPendingInvitation,
+} from "../../interfaces/invitation/invitation.interfaces";
 import { applyCompanyScope, type CompanyScope } from "../../utils/daoScope";
 import { hashToken } from "../../utils/tokenHash";
+import type { Knex } from "knex";
+
+const PENDING_LIMIT = 200;
 
 export class InvitationDAO implements IBaseDAO<IInvitation> {
   private tableName = "invitations";
 
-  async create(item: IInvitation): Promise<IInvitation> {
-    const knex = db("core");
+  async create(
+    item: IInvitation,
+    trx?: Knex.Transaction,
+  ): Promise<IInvitation> {
+    const knex = trx ?? db("core");
     const [invitation] = await knex(this.tableName)
       .insert({
         uuid: item.uuid,
@@ -27,13 +36,65 @@ export class InvitationDAO implements IBaseDAO<IInvitation> {
 
     // Return the safe (token-less) shape on create; the caller already holds the raw token.
     const safe = this.mapToSafe(invitation);
-    return this.attachRole(safe);
+    return this.attachRole(safe, trx);
+  }
+
+  /** Deletes unused invitations (expired or not) for the same email in a company. */
+  async deletePendingForEmail(
+    email: string,
+    companyId: number | undefined,
+    trx: Knex.Transaction,
+  ): Promise<number> {
+    const query = trx(this.tableName)
+      .where("isUsed", false)
+      .whereRaw("lower(email) = lower(?)", [email]);
+    if (companyId === undefined) query.whereNull("companyId");
+    else query.where("companyId", companyId);
+    return query.delete();
+  }
+
+  // Unused invitations incl. expired, newest first. SECURITY (C4): scoped by company.
+  async getPendingInvitations(
+    companyId?: CompanyScope,
+  ): Promise<IPendingInvitation[]> {
+    const knex = db("core");
+    const query = knex(this.tableName).where(`${this.tableName}.isUsed`, false);
+    applyCompanyScope(query, this.tableName, companyId);
+
+    const rows = await query
+      .leftJoin("roles", "roles.id", `${this.tableName}.roleId`)
+      .select(
+        `${this.tableName}.uuid`,
+        `${this.tableName}.email`,
+        `${this.tableName}.role`,
+        `${this.tableName}.expiresAt`,
+        `${this.tableName}.created_at as createdAt`,
+        "roles.uuid as roleUuid",
+        "roles.name as roleName",
+      )
+      .orderBy(`${this.tableName}.created_at`, "desc")
+      .limit(PENDING_LIMIT);
+
+    const now = Date.now();
+    return rows.map((row) => ({
+      uuid: row.uuid,
+      email: row.email,
+      role: row.role,
+      roleUuid: row.roleUuid ?? null,
+      roleName: row.roleName ?? null,
+      expiresAt: row.expiresAt,
+      createdAt: row.createdAt,
+      isExpired: new Date(row.expiresAt).getTime() <= now,
+    }));
   }
 
   /** Attaches the role's uuid/name so a response never has to leak the numeric roleId. */
-  private async attachRole(invitation: IInvitation): Promise<IInvitation> {
+  private async attachRole(
+    invitation: IInvitation,
+    trx?: Knex.Transaction,
+  ): Promise<IInvitation> {
     if (!invitation.roleId) return invitation;
-    const knex = db("core");
+    const knex = trx ?? db("core");
     const role = await knex("roles")
       .where("id", invitation.roleId)
       .select("uuid", "name")

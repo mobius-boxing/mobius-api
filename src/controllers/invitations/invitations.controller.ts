@@ -270,7 +270,16 @@ export class InvitationsController implements IBaseController {
         isUsed: false,
       };
 
-      const result = await this._invitationDAO.create(dataToCreate);
+      // Resend = re-POST: the one-per-(email, company) rule is enforced here, in the
+      // same transaction as the insert, so the old link dies atomically.
+      const result = await db("core").transaction(async (trx) => {
+        await this._invitationDAO.deletePendingForEmail(
+          dataToCreate.email,
+          companyId,
+          trx,
+        );
+        return this._invitationDAO.create(dataToCreate, trx);
+      });
 
       // Same tradeoff as UsersController.invite: a failed send is logged, not
       // surfaced, so the row still lands. Re-inviting the address issues a
@@ -475,6 +484,29 @@ export class InvitationsController implements IBaseController {
         success: true,
         data: result,
       });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  public async getPending(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyScope = companyFilterScope(req);
+
+      // Unlike /active, superAdmin gets nothing without ?companyId: the Usuarios
+      // page is always about one company, so an unscoped list has no consumer.
+      if (companyScope === undefined) {
+        res.status(200).json({ success: true, data: [] });
+        return;
+      }
+
+      const data =
+        await this._invitationDAO.getPendingInvitations(companyScope);
+      res.status(200).json({ success: true, data });
     } catch (err: any) {
       next(err);
     }

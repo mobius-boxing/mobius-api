@@ -43,6 +43,14 @@ export class InvitationsRouter {
     );
 
     this.router.get(
+      "/pending",
+      authenticate,
+      requirePermission("users.edit", { allowReadOnly: true }),
+      apiRateLimiter,
+      this.invitationsController.getPending.bind(this.invitationsController),
+    );
+
+    this.router.get(
       "/",
       authenticate,
       requirePermission("users.edit", { allowReadOnly: true }),

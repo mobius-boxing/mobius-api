@@ -25,3 +25,14 @@ export interface IInvitation {
   roleUuid?: string | null;
   roleName?: string | null;
 }
+
+export interface IPendingInvitation {
+  uuid: string;
+  email: string;
+  role: "member" | "admin" | "superAdmin";
+  roleUuid: string | null;
+  roleName: string | null;
+  expiresAt: Date;
+  createdAt: Date;
+  isExpired: boolean;
+}
