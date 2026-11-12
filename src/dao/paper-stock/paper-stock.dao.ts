@@ -158,7 +158,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
           diameter: item.diameter,
           width: item.width,
           code,
-          barcode: item.barcode ?? code,
+          barcode: item.barcode ?? null,
           deliveryNote: item.deliveryNote ?? null,
         })
         .returning("*");
@@ -220,10 +220,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     if (item.diameter !== undefined) updateData.diameter = item.diameter;
     if (item.width !== undefined) updateData.width = item.width;
     if (item.barcode !== undefined) {
-      updateData.barcode =
-        item.barcode === null || item.barcode === ""
-          ? knex.ref("code")
-          : item.barcode;
+      updateData.barcode = item.barcode === "" ? null : item.barcode;
     }
     if (item.deliveryNote !== undefined) {
       updateData.deliveryNote = item.deliveryNote;
