@@ -4,6 +4,7 @@ import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
 import { IRole } from "../../interfaces/role/role.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -28,7 +29,7 @@ const ROLE_FILTERS: FilterConfigs = {
 };
 
 const ROLE_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   profileType: { column: "profileType" },
   createdAt: { column: "createdAt" },
 };
@@ -43,7 +44,7 @@ const ROLE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("roles", {
   filters: ROLE_FILTERS,
   sorting: ROLE_SORTING,
   search: { columns: ["name"], operator: "ILIKE" },
-  defaultSort: { column: "name", order: "asc" },
+  defaultSort: { column: "name", order: "asc", natural: true },
 });
 
 /** `roles.id` -> the permission codes granted to it, batched (avoids N+1). */
@@ -322,7 +323,7 @@ export class RoleDAO {
     const knex = db("core");
     const roles = await knex(this.tableName)
       .where({ companyId })
-      .orderBy("name", "asc");
+      .modify((qb) => applyConfigDefaultSort(qb, this.queryConfig));
     const codes = await codesByRoleId(roles.map((r: any) => r.id));
     const actorSet = actorCodes ? new Set(actorCodes) : null;
 

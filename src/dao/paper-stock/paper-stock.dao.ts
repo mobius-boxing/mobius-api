@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IPaperStock } from "../../interfaces/paper-stock/paper-stock.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -78,7 +79,7 @@ const PAPER_STOCK_SORTING: SortConfigs = {
   weight: { column: "weight" },
   diameter: { column: "diameter" },
   width: { column: "width" },
-  code: { column: "code" },
+  code: { column: "code", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -89,12 +90,22 @@ const PAPER_STOCK_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: PAPER_STOCK_FILTERS,
     sorting: PAPER_STOCK_SORTING,
     search: {
-      columns: ["comments", "code", "barcode", "deliveryNote"],
+      columns: [
+        "comments",
+        "code",
+        "barcode",
+        "deliveryNote",
+        "paper_supplies.code",
+        "paper_supplies.name",
+      ],
       operator: "ILIKE",
     },
     defaultSort: {
-      column: "createdAt",
-      order: "desc",
+      table: "paper_supplies",
+      column: "code",
+      order: "asc",
+      natural: true,
+      thenBy: [{ column: "code", order: "asc", natural: true }],
     },
   },
 );
@@ -245,8 +256,7 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
     const countQuery = knex(this.tableName);
 
     const [records, totalResult] = await Promise.all([
-      query
-        .orderBy(`${this.tableName}.createdAt`, "desc")
+      applyConfigDefaultSort(query, this.queryConfig)
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),
@@ -327,9 +337,10 @@ export class PaperStockDAO implements IBaseDAO<IPaperStock> {
 
   async getAllByWarehouseId(warehouseId: number): Promise<IPaperStock[]> {
     const knex = db("tenant");
-    const records = await this.buildJoinQuery(knex)
-      .where(`${this.tableName}.warehouseId`, warehouseId)
-      .orderBy(`${this.tableName}.createdAt`, "desc");
+    const records = await applyConfigDefaultSort(
+      this.buildJoinQuery(knex),
+      this.queryConfig,
+    ).where(`${this.tableName}.warehouseId`, warehouseId);
 
     return records.map((record: any) => this.mapWithRelations(record));
   }

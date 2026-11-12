@@ -65,6 +65,7 @@ import {
   programmedSheets,
 } from "../scheduling/pending.service";
 import { CorrugatorPlanDAO } from "../../dao/corrugator-plan/corrugator-plan.dao";
+import { applyDefaultSort } from "../../utils/queryBuilder";
 import { CorrugatorPlanOrderDAO } from "../../dao/corrugator-plan/corrugator-plan-order.dao";
 import { CorrugatorPlanCombinationDAO } from "../../dao/corrugator-plan/corrugator-plan-combination.dao";
 
@@ -399,6 +400,7 @@ async function loadEligibleOrders(
         .orWhere("pr.code", "ILIKE", s);
     });
   }
+  applyDefaultSort(q, { column: "number", order: "asc", natural: true }, "po");
   const rows = await q;
   return rows.map((r: any) => ({
     ...r,

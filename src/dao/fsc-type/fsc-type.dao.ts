@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IFscType } from "../../interfaces/fsc-type/fsc-type.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -29,8 +30,8 @@ const FSC_TYPE_FILTERS: FilterConfigs = {
 };
 
 const FSC_TYPE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -41,7 +42,7 @@ const FSC_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: FSC_TYPE_FILTERS,
     sorting: FSC_TYPE_SORTING,
     search: { columns: ["code", "description"], operator: "ILIKE" },
-    defaultSort: { column: "code", order: "asc" },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -116,9 +117,8 @@ export class FscTypeDAO implements IBaseDAO<IFscType> {
     const knex = db("tenant");
     const offset = (page - 1) * limit;
     const [rows, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("code", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

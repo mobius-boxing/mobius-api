@@ -27,7 +27,7 @@ const FILE_FILTERS: FilterConfigs = {
 };
 
 const FILE_SORTING: SortConfigs = {
-  originalName: { column: "originalName" },
+  originalName: { column: "originalName", natural: true },
   sizeBytes: { column: "sizeBytes" },
   createdAt: { column: "createdAt" },
 };
@@ -36,7 +36,7 @@ const FILE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("files", {
   filters: FILE_FILTERS,
   sorting: FILE_SORTING,
   search: { columns: ["originalName", "description"], operator: "ILIKE" },
-  defaultSort: { column: "createdAt", order: "desc" },
+  defaultSort: { column: "originalName", order: "asc", natural: true },
 });
 
 export class FileDAO {

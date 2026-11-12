@@ -28,7 +28,7 @@ const WORKFLOW_FILTERS: FilterConfigs = {
 };
 
 const WORKFLOW_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   status: { column: "status" },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
@@ -38,7 +38,7 @@ const WORKFLOW_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(TABLE, {
   filters: WORKFLOW_FILTERS,
   sorting: WORKFLOW_SORTING,
   search: { columns: ["name", "description"], operator: "ILIKE" },
-  defaultSort: { column: "createdAt", order: "desc" },
+  defaultSort: { column: "name", order: "asc", natural: true },
 });
 
 export interface INodeFilesWorkflowWriteInput {

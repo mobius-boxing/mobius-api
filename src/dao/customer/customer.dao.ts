@@ -8,6 +8,7 @@ import {
   CoreClient,
 } from "../../services/core-client.service";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -66,10 +67,10 @@ const CUSTOMER_FILTERS: FilterConfigs = {
 };
 
 const CUSTOMER_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
-  supplierCode: { column: "supplier_code" },
+  supplierCode: { column: "supplier_code", natural: true },
 };
 
 const CUSTOMER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
@@ -81,10 +82,7 @@ const CUSTOMER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["name", "supplier_code", "legalName", "tradeName"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "createdAt",
-      order: "desc",
-    },
+    defaultSort: { column: "name", order: "asc", natural: true },
   },
 );
 
@@ -259,9 +257,8 @@ export class CustomerDAO implements IBaseDAO<ICustomer> {
     applyCompanyScope(countQuery, this.tableName, companyId);
 
     const [customers, totalResult] = await Promise.all([
-      query
+      applyConfigDefaultSort(query, this.queryConfig)
         .select(`${this.tableName}.*`)
-        .orderBy(`${this.tableName}.createdAt`, "desc")
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),

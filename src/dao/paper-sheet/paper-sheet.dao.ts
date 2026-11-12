@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IPaperSheet } from "../../interfaces/paper-sheet/paper-sheet.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -73,8 +74,8 @@ const PAPER_SHEET_FILTERS: FilterConfigs = {
 };
 
 const PAPER_SHEET_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   length: { column: "length" },
   width: { column: "width" },
   minimumStock: { column: "minimumStock" },
@@ -91,10 +92,7 @@ const PAPER_SHEET_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "name", "description"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "createdAt",
-      order: "desc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -221,8 +219,7 @@ export class PaperSheetDAO implements IBaseDAO<IPaperSheet> {
     const countQuery = knex(this.tableName);
 
     const [paperSheets, totalResult] = await Promise.all([
-      query
-        .orderBy("paper_sheets.createdAt", "desc")
+      applyConfigDefaultSort(query, this.queryConfig)
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),

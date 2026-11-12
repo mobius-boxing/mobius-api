@@ -296,7 +296,10 @@ describe("AuditLogDAO.getAllWithFilters — the filter set (AC-3)", () => {
       asAdmin({ sortBy: "username", sortOrder: "asc" }),
     );
 
-    expect(mock.orderByCalls(TABLE)).toEqual([[`${TABLE}.occurredAt`, "desc"]]);
+    expect(mock.orderByCalls(TABLE)).toEqual([
+      [`${TABLE}.occurredAt`, "desc"],
+      [`${TABLE}.id`, "desc"],
+    ]);
   });
 
   it("paginates and reports the paginator shape", async () => {
@@ -427,13 +430,7 @@ describe("AuditLogDAO — auditDbFor chooses the database (R-3)", () => {
   it("reads the entity's database for a history request", async () => {
     givenHistory({ txRows: [], count: 0, rows: [] });
 
-    await new AuditLogDAO().getHistory(
-      "users",
-      RECORD_UUID,
-      1,
-      20,
-      asAdmin(),
-    );
+    await new AuditLogDAO().getHistory("users", RECORD_UUID, 1, 20, asAdmin());
 
     expect(new Set(mockDbKeys)).toEqual(new Set(["core"]));
   });

@@ -57,7 +57,16 @@ const USER_DEVICE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
   {
     filters: USER_DEVICE_FILTERS,
     sorting: USER_DEVICE_SORTING,
-    defaultSort: { column: "requestedAt", order: "desc" },
+    defaultSort: {
+      table: "users",
+      column: "firstName",
+      order: "asc",
+      natural: true,
+      thenBy: [
+        { table: "users", column: "lastName", order: "asc", natural: true },
+        { table: "users", column: "email", order: "asc", natural: true },
+      ],
+    },
   },
 );
 

@@ -9,6 +9,7 @@ import {
 } from "../../utils/daoScope";
 import { parseEnumParam } from "../../utils/query-params";
 import { toCountOut } from "../../utils/numbers";
+import { applySorting, type SortConfigs } from "../../utils/queryBuilder";
 import {
   ICorrugatorPlan,
   CORRUGATOR_PLAN_STATUSES,
@@ -16,6 +17,13 @@ import {
 } from "../../interfaces/corrugator-plan/corrugator-plan.interfaces";
 
 const TABLE = "corrugator_plans";
+
+const PLAN_SORTING: SortConfigs = {
+  number: { column: "number" },
+  createdAt: { column: "createdAt" },
+  status: { column: "status" },
+  updatedAt: { column: "updatedAt" },
+};
 
 /** Header-only CRUD + list. Lines/combinations/items live in sibling DAOs; the
  * cross-table orchestration (pool, seeding, solve, register) lives in
@@ -145,13 +153,11 @@ export class CorrugatorPlanDAO {
       Math.max(parseInt(String(req.query.limit ?? "20"), 10) || 20, 1),
       100,
     );
-    const sortBy = String(req.query.sortBy ?? "createdAt");
+    const sortBy = req.query.sortBy as string | undefined;
     const sortOrder =
-      String(req.query.sortOrder ?? "desc").toLowerCase() === "asc"
-        ? "asc"
-        : "desc";
-    const sortable = new Set(["number", "createdAt", "status", "updatedAt"]);
-    const sortColumn = sortable.has(sortBy) ? sortBy : "createdAt";
+      String(req.query.sortOrder ?? "asc").toLowerCase() === "desc"
+        ? "desc"
+        : "asc";
 
     const status = parseEnumParam(
       "status",
@@ -199,7 +205,16 @@ export class CorrugatorPlanDAO {
         ),
       ),
     )
-      .orderBy(sortColumn, sortOrder)
+      .modify((q) =>
+        applySorting(
+          q,
+          sortBy,
+          sortOrder,
+          PLAN_SORTING,
+          { column: "number", order: "asc" },
+          this.tableName,
+        ),
+      )
       .limit(limit)
       .offset((page - 1) * limit);
 

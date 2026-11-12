@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IColorType } from "../../interfaces/color-type/color-type.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -29,8 +30,8 @@ const COLOR_TYPE_FILTERS: FilterConfigs = {
 };
 
 const COLOR_TYPE_SORTING: SortConfigs = {
-  name: { column: "name" },
-  description: { column: "description" },
+  name: { column: "name", natural: true },
+  description: { column: "description", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -41,7 +42,7 @@ const COLOR_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: COLOR_TYPE_FILTERS,
     sorting: COLOR_TYPE_SORTING,
     search: { columns: ["name", "description"], operator: "ILIKE" },
-    defaultSort: { column: "name", order: "asc" },
+    defaultSort: { column: "name", order: "asc", natural: true },
   },
 );
 
@@ -122,9 +123,8 @@ export class ColorTypeDAO implements IBaseDAO<IColorType> {
     const knex = db("tenant");
     const offset = (page - 1) * limit;
     const [rows, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("name", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

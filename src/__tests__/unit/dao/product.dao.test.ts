@@ -331,15 +331,19 @@ describe("ProductDAO", () => {
       );
     });
 
-    it("should order by createdAt descending", async () => {
+    it("should order by code ascending, natural collation, id tie-break", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
       mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["products.code"],
+      );
       expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
-        "products.createdAt",
-        "desc",
+        "products.id",
+        "asc",
       );
     });
 

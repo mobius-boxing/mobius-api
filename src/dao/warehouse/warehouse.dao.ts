@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IWarehouse } from "../../interfaces/warehouse/warehouse.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -40,7 +41,7 @@ const WAREHOUSE_FILTERS: FilterConfigs = {
 };
 
 const WAREHOUSE_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   createdAt: { column: "created_at" },
   updatedAt: { column: "updated_at" },
 };
@@ -54,10 +55,7 @@ const WAREHOUSE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["name"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "name",
-      order: "asc",
-    },
+    defaultSort: { column: "name", order: "asc", natural: true },
   },
 );
 
@@ -253,9 +251,8 @@ export class WarehouseDAO implements IBaseDAO<IWarehouse> {
     const offset = (page - 1) * limit;
 
     const [warehouses, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("name", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

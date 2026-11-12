@@ -27,7 +27,7 @@ const CREDENTIAL_FILTERS: FilterConfigs = {
 };
 
 const CREDENTIAL_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   type: { column: "type" },
   createdAt: { column: "createdAt" },
   lastUsedAt: { column: "lastUsedAt" },
@@ -37,7 +37,7 @@ const CREDENTIAL_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(TABLE, {
   filters: CREDENTIAL_FILTERS,
   sorting: CREDENTIAL_SORTING,
   search: { columns: ["name"], operator: "ILIKE" },
-  defaultSort: { column: "createdAt", order: "desc" },
+  defaultSort: { column: "name", order: "asc", natural: true },
 });
 
 export interface INodeFilesCredentialWriteInput {

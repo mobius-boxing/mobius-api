@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ITooling } from "../../interfaces/tooling/tooling.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -59,7 +60,7 @@ const TOOLING_FILTERS: FilterConfigs = {
 };
 
 const TOOLING_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   minimumStock: { column: "minimumStock" },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
@@ -72,10 +73,7 @@ const TOOLING_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("toolings", {
     columns: ["name", "description"],
     operator: "ILIKE",
   },
-  defaultSort: {
-    column: "name",
-    order: "asc",
-  },
+  defaultSort: { column: "name", order: "asc", natural: true },
 });
 
 export class ToolingDAO implements IBaseDAO<ITooling> {
@@ -172,8 +170,7 @@ export class ToolingDAO implements IBaseDAO<ITooling> {
     const countQuery = knex(this.tableName);
 
     const [toolings, totalResult] = await Promise.all([
-      query
-        .orderBy(`${this.tableName}.name`, "asc")
+      applyConfigDefaultSort(query, this.queryConfig)
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),

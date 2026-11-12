@@ -6,6 +6,7 @@ import {
   ICompanyBranding,
 } from "../../interfaces/company/company.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -37,7 +38,7 @@ const COMPANY_FILTERS: FilterConfigs = {
 };
 
 const COMPANY_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -51,10 +52,7 @@ const COMPANY_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["name", "description"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "createdAt",
-      order: "desc",
-    },
+    defaultSort: { column: "name", order: "asc", natural: true },
   },
 );
 
@@ -176,9 +174,8 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
     const offset = (page - 1) * limit;
 
     const [companies, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("createdAt", "desc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

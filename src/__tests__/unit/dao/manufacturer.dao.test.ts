@@ -221,13 +221,20 @@ describe("ManufacturerDAO", () => {
       expect(result.limit).toBe(10);
     });
 
-    it("should order by code ascending", async () => {
+    it("should order by code ascending, natural collation, id tie-break", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
       mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith("code", "asc");
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["manufacturers.code"],
+      );
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        "manufacturers.id",
+        "asc",
+      );
     });
 
     it("should calculate correct pagination", async () => {

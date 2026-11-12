@@ -309,16 +309,25 @@ describe("UserDAO", () => {
       );
     });
 
-    it("should order by createdAt descending", async () => {
+    it("should order by first name, last name, email ascending, natural collation, id tie-break", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
       mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
-        "users.createdAt",
-        "desc",
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["users.firstName"],
       );
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["users.lastName"],
+      );
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["users.email"],
+      );
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith("users.id", "asc");
     });
 
     it("should calculate correct pagination", async () => {

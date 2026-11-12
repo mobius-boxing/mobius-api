@@ -28,8 +28,8 @@ const PALLET_TYPE_FILTERS: FilterConfigs = {
 };
 
 const PALLET_TYPE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   createdAt: { column: "createdAt" },
 };
 
@@ -39,7 +39,7 @@ const PALLET_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: PALLET_TYPE_FILTERS,
     sorting: PALLET_TYPE_SORTING,
     search: { columns: ["code", "description"], operator: "ILIKE" },
-    defaultSort: { column: "code", order: "asc" },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 

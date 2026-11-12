@@ -5,10 +5,21 @@ import {
   ICountdownSubcategory,
 } from "../../interfaces/countdown/countdown.interfaces";
 import { toCountOut } from "../../utils/numbers";
+import {
+  applyConfigDefaultSort,
+  createQueryConfig,
+} from "../../utils/queryBuilder";
 
 const CATEGORIES_TABLE = "countdown_categories";
 const SUBCATEGORIES_TABLE = "countdown_subcategories";
 const DOCUMENTS_TABLE = "countdown_documents";
+const BY_NAME = { column: "name", order: "asc", natural: true } as const;
+const CATEGORIES_BY_NAME = createQueryConfig(CATEGORIES_TABLE, {
+  defaultSort: BY_NAME,
+});
+const SUBCATEGORIES_BY_NAME = createQueryConfig(SUBCATEGORIES_TABLE, {
+  defaultSort: BY_NAME,
+});
 
 /**
  * Row shapes stay inside the DAO/service layer: they carry the serial ids the
@@ -52,18 +63,20 @@ export class CountdownCategoryDAO {
   async list(companyId: number): Promise<ICountdownCategory[]> {
     const knex = db("tenant");
 
-    const categories = await knex<ICountdownCategoryRow>(CATEGORIES_TABLE)
-      .where({ companyId })
-      .orderBy("name");
+    const categories = await applyConfigDefaultSort(
+      knex<ICountdownCategoryRow>(CATEGORIES_TABLE),
+      CATEGORIES_BY_NAME,
+    ).where({ companyId });
     if (categories.length === 0) return [];
 
     const categoryIds = categories.map((category) => category.id);
 
     const [subcategories, categoryCountRows, subcategoryCountRows] =
       await Promise.all([
-        knex<ICountdownSubcategoryRow>(SUBCATEGORIES_TABLE)
-          .whereIn("categoryId", categoryIds)
-          .orderBy("name"),
+        applyConfigDefaultSort(
+          knex<ICountdownSubcategoryRow>(SUBCATEGORIES_TABLE),
+          SUBCATEGORIES_BY_NAME,
+        ).whereIn("categoryId", categoryIds),
         // Documents carry their own companyId, so the counts are scoped twice:
         // by tenant and by the rubro ids we already know belong to that tenant.
         knex(DOCUMENTS_TABLE)

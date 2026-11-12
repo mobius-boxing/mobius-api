@@ -70,7 +70,7 @@ const WAREHOUSE_LOCATION_FILTERS: FilterConfigs = {
 const WAREHOUSE_LOCATION_SORTING: SortConfigs = {
   row: { column: "row" },
   col: { column: "col" },
-  locationCode: { column: "location_code" },
+  locationCode: { column: "location_code", natural: true },
   createdAt: { column: "created_at" },
   updatedAt: { column: "updated_at" },
 };
@@ -87,6 +87,7 @@ const WAREHOUSE_LOCATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     defaultSort: {
       column: "row",
       order: "asc",
+      thenBy: [{ column: "col", order: "asc" }],
     },
   },
 );

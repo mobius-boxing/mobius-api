@@ -244,7 +244,13 @@ describe("UsersController", () => {
       await controller.getAll(mockReq, mockRes as Response, mockNext);
 
       expect(mockUserDAO.getByUuid).toHaveBeenCalledWith("admin-uuid");
-      expect(mockUserDAO.getAllByCompany).toHaveBeenCalledWith(5, 1, 10);
+      expect(mockUserDAO.getAllByCompany).toHaveBeenCalledWith(
+        5,
+        1,
+        10,
+        undefined,
+        undefined,
+      );
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 

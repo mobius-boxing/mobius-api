@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ISheetStock } from "../../interfaces/sheet-stock/sheet-stock.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -85,12 +86,14 @@ const SHEET_STOCK_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: SHEET_STOCK_FILTERS,
     sorting: SHEET_STOCK_SORTING,
     search: {
-      columns: ["comments"],
+      columns: ["comments", "paper_sheets.code", "paper_sheets.name"],
       operator: "ILIKE",
     },
     defaultSort: {
-      column: "createdAt",
-      order: "desc",
+      table: "paper_sheets",
+      column: "code",
+      order: "asc",
+      natural: true,
     },
   },
 );
@@ -194,8 +197,7 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
     const countQuery = knex(this.tableName);
 
     const [records, totalResult] = await Promise.all([
-      query
-        .orderBy(`${this.tableName}.createdAt`, "desc")
+      applyConfigDefaultSort(query, this.queryConfig)
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),
@@ -276,9 +278,10 @@ export class SheetStockDAO implements IBaseDAO<ISheetStock> {
 
   async getAllByWarehouseId(warehouseId: number): Promise<ISheetStock[]> {
     const knex = db("tenant");
-    const records = await this.buildJoinQuery(knex)
-      .where(`${this.tableName}.warehouseId`, warehouseId)
-      .orderBy(`${this.tableName}.createdAt`, "desc");
+    const records = await applyConfigDefaultSort(
+      this.buildJoinQuery(knex),
+      this.queryConfig,
+    ).where(`${this.tableName}.warehouseId`, warehouseId);
 
     return records.map((record: any) => this.mapWithRelations(record));
   }

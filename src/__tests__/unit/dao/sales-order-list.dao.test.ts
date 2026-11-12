@@ -58,6 +58,7 @@ const makeBuilder = (key, table) => {
     "whereNotExists",
     "orWhere",
     "orderBy",
+    "orderByRaw",
     "leftJoin",
     "join",
     "limit",
@@ -205,7 +206,7 @@ describe("query-builder wiring (AC-1)", () => {
     expect(SALES_ORDER_FILTERS.invoiceSent.operator).toBe("=");
   });
 
-  it("offers only own-table sort columns and defaults to id desc (D-8)", () => {
+  it("offers only own-table sort columns and defaults to number asc, natural (list-sorting D-3)", () => {
     expect(Object.keys(SALES_ORDER_SORTING).sort()).toEqual([
       "createdAt",
       "deliveryDate",
@@ -217,8 +218,9 @@ describe("query-builder wiring (AC-1)", () => {
       "updatedAt",
     ]);
     expect(SALES_ORDER_QUERY_CONFIG.defaultSort).toEqual({
-      column: "id",
-      order: "desc",
+      column: "number",
+      order: "asc",
+      natural: true,
     });
     expect(SALES_ORDER_SORTING.id).toBeUndefined();
   });
@@ -736,8 +738,12 @@ describe("getAssociatedProductionOrders (AC-25, AC-26)", () => {
       20,
     );
 
+    expect(fixtures.production_orders.orderByRawCalls).toContainEqual([
+      "?? COLLATE mobius_natural asc",
+      ["production_orders.number"],
+    ]);
     expect(fixtures.production_orders.orderByCalls).toContainEqual([
-      "production_orders.number",
+      "production_orders.id",
       "asc",
     ]);
     expect(result.data[0]).toEqual({

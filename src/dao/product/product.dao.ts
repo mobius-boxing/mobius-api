@@ -7,6 +7,7 @@ import {
 } from "../../interfaces/product/product.interfaces";
 import { toNumberOut } from "../../utils/numbers";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -63,8 +64,8 @@ export const PRODUCT_FILTERS: FilterConfigs = {
 };
 
 const PRODUCT_SORTING: SortConfigs = {
-  code: { column: "code" },
-  clientCode: { column: "clientCode" },
+  code: { column: "code", natural: true },
+  clientCode: { column: "clientCode", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -76,10 +77,7 @@ const PRODUCT_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("products", {
     columns: ["code", "clientCode", "description"],
     operator: "ILIKE",
   },
-  defaultSort: {
-    column: "createdAt",
-    order: "desc",
-  },
+  defaultSort: { column: "code", order: "asc", natural: true },
 });
 
 /** I-24: the only valid values of `?approvalState=`. */
@@ -477,9 +475,8 @@ export class ProductDAO implements IBaseDAO<IProduct> {
     applyCompanyScope(countQuery, this.tableName, companyId);
 
     const [products, totalResult] = await Promise.all([
-      query
+      applyConfigDefaultSort(query, this.queryConfig)
         .select(`${this.tableName}.*`)
-        .orderBy(`${this.tableName}.createdAt`, "desc")
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),

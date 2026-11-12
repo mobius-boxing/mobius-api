@@ -30,8 +30,8 @@ const PERMISSION_FILTERS: FilterConfigs = {
 };
 
 const PERMISSION_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   area: { column: "area" },
 };
 
@@ -41,7 +41,7 @@ const PERMISSION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: PERMISSION_FILTERS,
     sorting: PERMISSION_SORTING,
     search: { columns: ["code", "name", "description"], operator: "ILIKE" },
-    defaultSort: { column: "code", order: "asc" },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 

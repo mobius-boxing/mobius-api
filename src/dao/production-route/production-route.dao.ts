@@ -51,7 +51,7 @@ const ROUTE_FILTERS: FilterConfigs = {
 };
 
 const ROUTE_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
 };
 
@@ -61,7 +61,7 @@ const ROUTE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: ROUTE_FILTERS,
     sorting: ROUTE_SORTING,
     search: { columns: ["name"], operator: "ILIKE" },
-    defaultSort: { column: "name", order: "asc" },
+    defaultSort: { column: "name", order: "asc", natural: true },
   },
 );
 

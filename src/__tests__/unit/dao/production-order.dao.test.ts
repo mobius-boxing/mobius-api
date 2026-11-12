@@ -32,6 +32,7 @@ const makeBuilder = (table) => {
     "whereNull",
     "whereNotNull",
     "orderBy",
+    "orderByRaw",
   ].forEach(record);
   b.update = jest.fn((data) => {
     (c.updateCaptures ?? (c.updateCaptures = [])).push(data);

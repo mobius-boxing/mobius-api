@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IManufacturer } from "../../interfaces/manufacturer/manufacturer.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -38,8 +39,8 @@ const MANUFACTURER_FILTERS: FilterConfigs = {
 };
 
 const MANUFACTURER_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -53,10 +54,7 @@ const MANUFACTURER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "name"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "code",
-      order: "asc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -147,9 +145,8 @@ export class ManufacturerDAO implements IBaseDAO<IManufacturer> {
     const offset = (page - 1) * limit;
 
     const [manufacturers, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("code", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

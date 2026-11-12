@@ -212,7 +212,7 @@ describe("AC-9 — people and hydration", () => {
     ]);
     const query = onlyQuery();
     expect(query.sql).toBe(
-      `select "uuid", "firstName", "lastName" from "users" where "companyId" = ? and "isActive" = ? order by "firstName" asc, "lastName" asc`,
+      `select "uuid", "firstName", "lastName" from "users" where "companyId" = ? and "isActive" = ? order by "users"."firstName" COLLATE mobius_natural asc, "users"."lastName" COLLATE mobius_natural asc, "users"."email" COLLATE mobius_natural asc, "users"."id" asc`,
     );
     expect(query.bindings).toEqual([7, true]);
   });
@@ -222,7 +222,7 @@ describe("AC-9 — people and hydration", () => {
 
     const query = onlyQuery();
     expect(query.sql).toBe(
-      `select "id", "uuid", "email", "firstName", "lastName", "isActive", "companyId", "role" from "users" where "id" in (?, ?, ?) order by "firstName" asc, "lastName" asc, "id" asc`,
+      `select "id", "uuid", "email", "firstName", "lastName", "isActive", "companyId", "role" from "users" where "id" in (?, ?, ?) order by "users"."firstName" COLLATE mobius_natural asc, "users"."lastName" COLLATE mobius_natural asc, "users"."email" COLLATE mobius_natural asc, "users"."id" asc`,
     );
     expect(query.bindings).toEqual([7, 8, 9]);
   });

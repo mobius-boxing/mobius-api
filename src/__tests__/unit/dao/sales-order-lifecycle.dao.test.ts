@@ -45,6 +45,7 @@ const makeBuilder = (table, captures) => {
     "whereNotNull",
     "forUpdate",
     "orderBy",
+    "orderByRaw",
     "join",
     "leftJoin",
   ].forEach(record);

@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IPaperSupply } from "../../interfaces/paper-supply/paper-supply.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -73,8 +74,8 @@ const PAPER_SUPPLY_FILTERS: FilterConfigs = {
 };
 
 const PAPER_SUPPLY_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   grammage: { column: "grammage" },
   price: { column: "price" },
   createdAt: { column: "createdAt" },
@@ -90,10 +91,7 @@ const PAPER_SUPPLY_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "name", "description"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "createdAt",
-      order: "desc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -241,8 +239,7 @@ export class PaperSupplyDAO implements IBaseDAO<IPaperSupply> {
     applyCompanyScope(countQuery, this.tableName, companyId);
 
     const [paperSupplies, totalResult] = await Promise.all([
-      query
-        .orderBy(`${this.tableName}.createdAt`, "desc")
+      applyConfigDefaultSort(query, this.queryConfig)
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),

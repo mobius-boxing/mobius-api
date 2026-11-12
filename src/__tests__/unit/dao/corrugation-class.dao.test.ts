@@ -280,13 +280,20 @@ describe("CorrugationClassDAO", () => {
       expect(result.totalPages).toBe(3);
     });
 
-    it("should order by code ascending", async () => {
+    it("should order by code ascending, natural collation, id tie-break", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
       mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith("code", "asc");
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["corrugation_classes.code"],
+      );
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        "corrugation_classes.id",
+        "asc",
+      );
     });
   });
 

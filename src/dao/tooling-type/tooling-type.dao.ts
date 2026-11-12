@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IToolingType } from "../../interfaces/tooling-type/tooling-type.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -40,8 +41,8 @@ const TOOLING_TYPE_FILTERS: FilterConfigs = {
 };
 
 const TOOLING_TYPE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -55,10 +56,7 @@ const TOOLING_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "name", "description"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "code",
-      order: "asc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -148,9 +146,8 @@ export class ToolingTypeDAO implements IBaseDAO<IToolingType> {
     const offset = (page - 1) * limit;
 
     const [toolingTypes, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("code", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

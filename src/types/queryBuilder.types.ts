@@ -36,14 +36,29 @@ export interface FilterConfig {
  */
 export interface SortConfig {
   column: string; // Database column name (snake_case)
+  // A JOINED table to qualify `column` with — same many-to-one rule as
+  // `FilterConfig.table`, and the count query needs no join for it (no sort there).
+  table?: string;
+  // Text column: order by the `mobius_natural` ICU collation (case-, accent- and
+  // digit-aware). Never on a non-text column — Postgres rejects COLLATE there.
+  natural?: boolean;
   allowedOrders?: ("asc" | "desc")[]; // Default: ["asc", "desc"]
+}
+
+export interface SortKey {
+  column: string;
+  order: "asc" | "desc";
+  table?: string;
+  natural?: boolean;
 }
 
 /**
  * Configuration for searchable columns
  */
 export interface SearchConfig {
-  columns: string[]; // Database columns to search (snake_case)
+  // Database columns to search. A dotted entry ("consumable_supplies.code") is a
+  // JOINED column used as-is: both the data and the count query must join it.
+  columns: string[];
   operator?: "LIKE" | "ILIKE"; // Default: "ILIKE" for case-insensitive
 }
 
@@ -54,10 +69,8 @@ export interface QueryBuilderConfig {
   filters?: { [key: string]: FilterConfig }; // Key is the query param name (camelCase)
   sorting?: { [key: string]: SortConfig }; // Key is the query param name (camelCase)
   search?: SearchConfig;
-  defaultSort?: {
-    column: string;
-    order: "asc" | "desc";
-  };
+  // `thenBy` keys apply in order; `<tableName>.id` always closes the ORDER BY.
+  defaultSort?: SortKey & { thenBy?: SortKey[] };
   tableName: string; // Primary table name for qualified column names
 }
 

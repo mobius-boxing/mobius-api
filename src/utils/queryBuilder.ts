@@ -7,6 +7,7 @@ import {
   ParsedQuery,
   SearchConfig,
   SortConfig,
+  SortKey,
 } from "../types/queryBuilder.types";
 
 // Re-export types for convenience
@@ -16,6 +17,7 @@ export type {
   SortConfig,
   SortConfigs,
   SearchConfig,
+  SortKey,
   QueryBuilderConfig,
   ParsedQuery,
 } from "../types/queryBuilder.types";
@@ -134,25 +136,86 @@ export function applyFilters(
   });
 }
 
+/** Created by migration 20261112180000 in every core and tenant database. */
+export const NATURAL_COLLATION = "mobius_natural";
+
+export function orderByColumn(
+  query: Knex.QueryBuilder,
+  qualifiedColumn: string,
+  order: "asc" | "desc",
+  natural = false,
+): void {
+  const direction = order === "desc" ? "desc" : "asc";
+  if (natural) {
+    query.orderByRaw(`?? COLLATE ${NATURAL_COLLATION} ${direction}`, [
+      qualifiedColumn,
+    ]);
+  } else {
+    query.orderBy(qualifiedColumn, direction);
+  }
+}
+
+/** The unique tie-break keeps OFFSET pages stable when sort values repeat. */
+export function applyDefaultSort(
+  query: Knex.QueryBuilder,
+  defaultSort: SortKey & { thenBy?: SortKey[] },
+  tableName: string,
+): void {
+  const keys = [defaultSort, ...(defaultSort.thenBy ?? [])];
+  keys.forEach((key) =>
+    orderByColumn(
+      query,
+      `${key.table ?? tableName}.${key.column}`,
+      key.order,
+      key.natural,
+    ),
+  );
+  if (!keys.some((key) => key.column === "id" && !key.table)) {
+    orderByColumn(query, `${tableName}.id`, defaultSort.order);
+  }
+}
+
+const FALLBACK_SORT: SortKey = { column: "created_at", order: "desc" };
+
+/**
+ * For hand-written list queries: the same order `buildQuery` gives the grid.
+ * Returns the builder it was given so the knex result type survives (`.modify`
+ * would widen it to `any`) — wrap the chain's head: `applyConfigDefaultSort(knex(t), cfg).select()`.
+ */
+export function applyConfigDefaultSort<Q extends Knex.QueryBuilder>(
+  query: Q,
+  config: QueryBuilderConfig,
+): Q {
+  applyDefaultSort(
+    query,
+    config.defaultSort || FALLBACK_SORT,
+    config.tableName,
+  );
+  return query;
+}
+
 export function applySorting(
   query: Knex.QueryBuilder,
   sortBy: string | undefined,
   sortOrder: "asc" | "desc",
   sortConfig: { [key: string]: SortConfig },
-  defaultSort: { column: string; order: "asc" | "desc" },
+  defaultSort: SortKey & { thenBy?: SortKey[] },
   tableName: string,
 ): void {
-  if (sortBy && sortConfig[sortBy]) {
-    const config = sortConfig[sortBy];
-    const allowedOrders = config.allowedOrders || ["asc", "desc"];
-
-    if (allowedOrders.includes(sortOrder)) {
-      query.orderBy(`${tableName}.${config.column}`, sortOrder);
-    } else {
-      query.orderBy(`${tableName}.${defaultSort.column}`, defaultSort.order);
-    }
-  } else {
-    query.orderBy(`${tableName}.${defaultSort.column}`, defaultSort.order);
+  const config = sortBy ? sortConfig[sortBy] : undefined;
+  const allowedOrders = config?.allowedOrders || ["asc", "desc"];
+  if (!config || !allowedOrders.includes(sortOrder)) {
+    applyDefaultSort(query, defaultSort, tableName);
+    return;
+  }
+  orderByColumn(
+    query,
+    `${config.table ?? tableName}.${config.column}`,
+    sortOrder,
+    config.natural,
+  );
+  if (config.column !== "id" || config.table) {
+    orderByColumn(query, `${tableName}.id`, sortOrder);
   }
 }
 
@@ -169,7 +232,9 @@ export function applySearch(
 
   query.where((builder) => {
     searchConfig.columns.forEach((column, index) => {
-      const qualifiedColumn = `${tableName}.${column}`;
+      const qualifiedColumn = column.includes(".")
+        ? column
+        : `${tableName}.${column}`;
       if (index === 0) {
         builder.where(qualifiedColumn, operator, searchTerm);
       } else {
@@ -198,10 +263,7 @@ export function buildQuery(
     applySearch(baseQuery, search, config.search, config.tableName);
   }
 
-  const defaultSort = config.defaultSort || {
-    column: "created_at",
-    order: "desc" as const,
-  };
+  const defaultSort = config.defaultSort || FALLBACK_SORT;
   if (config.sorting) {
     applySorting(
       baseQuery,
@@ -212,10 +274,7 @@ export function buildQuery(
       config.tableName,
     );
   } else {
-    baseQuery.orderBy(
-      `${config.tableName}.${defaultSort.column}`,
-      defaultSort.order,
-    );
+    applyDefaultSort(baseQuery, defaultSort, config.tableName);
   }
 
   baseQuery.limit(limit).offset(offset);

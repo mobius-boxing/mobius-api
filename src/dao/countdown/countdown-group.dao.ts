@@ -5,9 +5,16 @@ import {
   INamedRef,
 } from "../../interfaces/countdown/countdown.interfaces";
 import { diffSets } from "../../utils/setDiff";
+import {
+  applyConfigDefaultSort,
+  createQueryConfig,
+} from "../../utils/queryBuilder";
 import { CoreClient, displayName } from "../../services/core-client.service";
 
 const GROUPS_TABLE = "countdown_groups";
+const GROUPS_BY_NAME = createQueryConfig(GROUPS_TABLE, {
+  defaultSort: { column: "name", order: "asc", natural: true },
+});
 const MEMBERS_TABLE = "countdown_group_members";
 
 /** Internal row shape — carries the serial id the API must never expose. */
@@ -30,9 +37,10 @@ export class CountdownGroupDAO {
   async list(companyId: number): Promise<ICountdownGroup[]> {
     const knex = db("tenant");
 
-    const groups = await knex<ICountdownGroupRow>(GROUPS_TABLE)
-      .where({ companyId })
-      .orderBy("name");
+    const groups = await applyConfigDefaultSort(
+      knex<ICountdownGroupRow>(GROUPS_TABLE),
+      GROUPS_BY_NAME,
+    ).where({ companyId });
     if (groups.length === 0) return [];
 
     const memberships: IMembershipRow[] = await knex(MEMBERS_TABLE)

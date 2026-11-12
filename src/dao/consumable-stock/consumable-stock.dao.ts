@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IConsumableStock } from "../../interfaces/consumable-stock/consumable-stock.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -88,12 +89,18 @@ const CONSUMABLE_STOCK_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: CONSUMABLE_STOCK_FILTERS,
     sorting: CONSUMABLE_STOCK_SORTING,
     search: {
-      columns: ["comments"],
+      columns: [
+        "comments",
+        "consumable_supplies.code",
+        "consumable_supplies.name",
+      ],
       operator: "ILIKE",
     },
     defaultSort: {
-      column: "createdAt",
-      order: "desc",
+      table: "consumable_supplies",
+      column: "name",
+      order: "asc",
+      natural: true,
     },
   },
 );
@@ -197,8 +204,7 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
     const countQuery = knex(this.tableName);
 
     const [records, totalResult] = await Promise.all([
-      query
-        .orderBy(`${this.tableName}.createdAt`, "desc")
+      applyConfigDefaultSort(query, this.queryConfig)
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),
@@ -284,9 +290,10 @@ export class ConsumableStockDAO implements IBaseDAO<IConsumableStock> {
 
   async getAllByWarehouseId(warehouseId: number): Promise<IConsumableStock[]> {
     const knex = db("tenant");
-    const records = await this.buildJoinQuery(knex)
-      .where(`${this.tableName}.warehouseId`, warehouseId)
-      .orderBy(`${this.tableName}.createdAt`, "desc");
+    const records = await applyConfigDefaultSort(
+      this.buildJoinQuery(knex),
+      this.queryConfig,
+    ).where(`${this.tableName}.warehouseId`, warehouseId);
 
     return records.map((record: any) => this.mapWithRelations(record));
   }

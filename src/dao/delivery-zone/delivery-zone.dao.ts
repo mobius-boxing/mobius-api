@@ -27,8 +27,8 @@ const DELIVERY_ZONE_FILTERS: FilterConfigs = {
 };
 
 const DELIVERY_ZONE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   createdAt: { column: "createdAt" },
 };
 
@@ -38,7 +38,7 @@ const DELIVERY_ZONE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: DELIVERY_ZONE_FILTERS,
     sorting: DELIVERY_ZONE_SORTING,
     search: { columns: ["code", "description"], operator: "ILIKE" },
-    defaultSort: { column: "code", order: "asc" },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 

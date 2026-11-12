@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICorrugationClass } from "../../interfaces/corrugation-class/corrugation-class.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -38,8 +39,8 @@ const CORRUGATION_CLASS_FILTERS: FilterConfigs = {
 };
 
 const CORRUGATION_CLASS_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -53,10 +54,7 @@ const CORRUGATION_CLASS_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "description"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "code",
-      order: "asc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -136,9 +134,8 @@ export class CorrugationClassDAO implements IBaseDAO<ICorrugationClass> {
     const offset = (page - 1) * limit;
 
     const [corrugationClasses, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("code", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

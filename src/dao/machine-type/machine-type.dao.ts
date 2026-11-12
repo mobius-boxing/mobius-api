@@ -29,7 +29,7 @@ const MACHINE_TYPE_FILTERS: FilterConfigs = {
 };
 
 const MACHINE_TYPE_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
 };
 
@@ -39,7 +39,7 @@ const MACHINE_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: MACHINE_TYPE_FILTERS,
     sorting: MACHINE_TYPE_SORTING,
     search: { columns: ["name", "attribute"], operator: "ILIKE" },
-    defaultSort: { column: "name", order: "asc" },
+    defaultSort: { column: "name", order: "asc", natural: true },
   },
 );
 

@@ -35,8 +35,8 @@ const FINISHED_GOOD_FILTERS: FilterConfigs = {
 };
 
 const FINISHED_GOOD_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   minimumStock: { column: "minimumStock" },
   createdAt: { column: "createdAt" },
 };
@@ -47,7 +47,7 @@ const FINISHED_GOOD_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: FINISHED_GOOD_FILTERS,
     sorting: FINISHED_GOOD_SORTING,
     search: { columns: ["code", "name", "description"], operator: "ILIKE" },
-    defaultSort: { column: "code", order: "asc" },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 

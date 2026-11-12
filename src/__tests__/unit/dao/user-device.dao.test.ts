@@ -47,6 +47,7 @@ const makeBuilder = (table) => {
     "orWhere",
     "whereIn",
     "orderBy",
+    "orderByRaw",
     "limit",
     "offset",
     "join",
@@ -260,6 +261,7 @@ describe("the wire mapper (AC-1-7, I-10)", () => {
       const [page] = deviceBuilders();
       expect(page.orderByCalls).toEqual([
         ["user_devices.requestedAt", expected],
+        ["user_devices.id", expected],
       ]);
     },
   );

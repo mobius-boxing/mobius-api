@@ -335,13 +335,20 @@ describe("WarehouseDAO", () => {
       expect(result.data[0].gridCols).toBe(20);
     });
 
-    it("should order by name ascending", async () => {
+    it("should order by name ascending, natural collation, id tie-break", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
       mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith("name", "asc");
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["warehouses.name"],
+      );
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        "warehouses.id",
+        "asc",
+      );
     });
 
     it("should calculate correct pagination", async () => {

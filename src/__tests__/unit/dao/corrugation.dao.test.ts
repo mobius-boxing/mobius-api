@@ -314,14 +314,18 @@ describe("CorrugationDAO", () => {
       );
     });
 
-    it("should order by code ascending", async () => {
+    it("should order by code ascending, natural collation, id tie-break", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
       mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["corrugations.code"],
+      );
       expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
-        "corrugations.code",
+        "corrugations.id",
         "asc",
       );
     });

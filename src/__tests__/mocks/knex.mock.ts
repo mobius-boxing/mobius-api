@@ -27,6 +27,7 @@ export interface MockQueryBuilder {
   returning: MockFn;
   count: MockFn;
   orderBy: MockFn;
+  orderByRaw: MockFn;
   limit: MockFn;
   offset: MockFn;
   leftJoin: MockFn;
@@ -60,6 +61,7 @@ export const createMockQueryBuilder = (): MockQueryBuilder => {
   queryBuilder.returning = jest.fn().mockResolvedValue([]);
   queryBuilder.count = jest.fn(() => queryBuilder);
   queryBuilder.orderBy = jest.fn(() => queryBuilder);
+  queryBuilder.orderByRaw = jest.fn(() => queryBuilder);
   queryBuilder.limit = jest.fn(() => queryBuilder);
   queryBuilder.offset = jest.fn(() => queryBuilder);
   queryBuilder.leftJoin = jest.fn(() => queryBuilder);
@@ -198,6 +200,7 @@ export const createTableAwareKnexMock = () => {
       "andWhere",
       "orWhere",
       "modify",
+      "orderByRaw",
       "forUpdate",
       "leftJoin",
       "innerJoin",

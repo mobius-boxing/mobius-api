@@ -40,7 +40,7 @@ const DELIVERY_LOCATION_FILTERS: FilterConfigs = {
 };
 
 const DELIVERY_LOCATION_SORTING: SortConfigs = {
-  address: { column: "address" },
+  address: { column: "address", natural: true },
   createdAt: { column: "createdAt" },
 };
 
@@ -50,7 +50,7 @@ const DELIVERY_LOCATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: DELIVERY_LOCATION_FILTERS,
     sorting: DELIVERY_LOCATION_SORTING,
     search: { columns: ["address", "externalSystemCode"], operator: "ILIKE" },
-    defaultSort: { column: "createdAt", order: "asc" },
+    defaultSort: { column: "address", order: "asc", natural: true },
   },
 );
 

@@ -1,7 +1,8 @@
 import { KnexTimeoutError } from "knex";
 import { db, DatabaseNotConnectedError } from "../database/registry";
 import { CompanyDAO } from "../dao/company/company.dao";
-import { UserDAO } from "../dao/user/user.dao";
+import { USER_QUERY_CONFIG, UserDAO } from "../dao/user/user.dao";
+import { applyConfigDefaultSort } from "../utils/queryBuilder";
 import {
   BLOCKED_SUB_STATUSES,
   CompanyModuleDAO,
@@ -222,11 +223,9 @@ export const CoreClient = {
   listCompanyPeople(companyId: number): Promise<readonly CorePerson[]> {
     return cached("listCompanyPeople", [companyId], async () => {
       const rows: { uuid: string; firstName: string; lastName: string }[] =
-        await db("core")("users")
+        await applyConfigDefaultSort(db("core")("users"), USER_QUERY_CONFIG)
           .where({ companyId, isActive: true })
-          .select("uuid", "firstName", "lastName")
-          // Ordering on the name parts matches ordering on "firstName lastName".
-          .orderBy([{ column: "firstName" }, { column: "lastName" }]);
+          .select("uuid", "firstName", "lastName");
       return rows.map((row) => ({ uuid: row.uuid, name: displayName(row) }));
     });
   },
@@ -238,7 +237,10 @@ export const CoreClient = {
   usersByIds(ids: readonly number[]): Promise<readonly CoreUser[]> {
     if (ids.length === 0) return Promise.resolve([]);
     return cached("usersByIds", [ids], async () => {
-      const rows: CoreUser[] = await db("core")("users")
+      const rows: CoreUser[] = await applyConfigDefaultSort(
+        db("core")("users"),
+        USER_QUERY_CONFIG,
+      )
         .whereIn("id", ids)
         .select(
           "id",
@@ -249,12 +251,7 @@ export const CoreClient = {
           "isActive",
           "companyId",
           "role",
-        )
-        .orderBy([
-          { column: "firstName" },
-          { column: "lastName" },
-          { column: "id" },
-        ]);
+        );
       return rows;
     });
   },

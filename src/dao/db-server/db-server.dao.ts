@@ -53,19 +53,16 @@ const DB_SERVER_FILTERS: FilterConfigs = {
 };
 
 const DB_SERVER_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
 
-const DB_SERVER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
-  TABLE,
-  {
-    filters: DB_SERVER_FILTERS,
-    sorting: DB_SERVER_SORTING,
-    defaultSort: { column: "id", order: "asc" },
-  },
-);
+const DB_SERVER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(TABLE, {
+  filters: DB_SERVER_FILTERS,
+  sorting: DB_SERVER_SORTING,
+  defaultSort: { column: "name", order: "asc", natural: true },
+});
 
 /** `tenant_databases` rows counted against a server, model I-1's live set. */
 const LIVE_STATUSES_SQL =

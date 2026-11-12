@@ -37,6 +37,7 @@ const makeBuilder = (table) => {
     "whereNull",
     "whereNotNull",
     "orderBy",
+    "orderByRaw",
     "leftJoin",
     "join",
     "limit",
@@ -402,14 +403,18 @@ describe("SalesOrderDAO.getAllWithFilters params (AC-19, L-007)", () => {
     ]);
   });
 
-  // sales-order-list moved the default to `id desc` (spec D-8: Procusto's
-  // grid is OrderByDescending(c => c.Id)); `id` is not a `sortBy` value.
-  it("defaults to id desc", async () => {
+  // list-sorting D-3 replaced sales-order-list's `id desc` default (spec D-8)
+  // with number ascending; `id` still closes the ORDER BY and is not a `sortBy` value.
+  it("defaults to number asc, natural, closed by id", async () => {
     await new SalesOrderDAO().getAllWithFilters(req({}));
 
+    expect(fixtures.sales_orders.orderByRawCalls).toContainEqual([
+      "?? COLLATE mobius_natural asc",
+      ["sales_orders.number"],
+    ]);
     expect(fixtures.sales_orders.orderByCalls).toContainEqual([
       "sales_orders.id",
-      "desc",
+      "asc",
     ]);
   });
 

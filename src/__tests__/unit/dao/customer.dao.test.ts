@@ -70,8 +70,9 @@ describe("CustomerDAO", () => {
     (mockKnex as any).transaction = jest.fn(
       (work: (trx: unknown) => Promise<unknown>) => work(mockKnex),
     );
-    mockQueryBuilder.then = jest.fn((onFulfilled?: (value: unknown) => unknown) =>
-      Promise.resolve(onFulfilled ? onFulfilled(undefined) : undefined),
+    mockQueryBuilder.then = jest.fn(
+      (onFulfilled?: (value: unknown) => unknown) =>
+        Promise.resolve(onFulfilled ? onFulfilled(undefined) : undefined),
     );
     mockCoreCalls.length = 0;
     mockCoreCompanies = [];
@@ -365,15 +366,19 @@ describe("CustomerDAO", () => {
       );
     });
 
-    it("should order by createdAt descending", async () => {
+    it("should order by name ascending, natural collation, id tie-break", async () => {
       mockQueryBuilder.offset.mockResolvedValue([]);
       mockQueryBuilder.first.mockResolvedValue({ count: "0" });
 
       await dao.getAll(1, 10);
 
+      expect(mockQueryBuilder.orderByRaw).toHaveBeenCalledWith(
+        "?? COLLATE mobius_natural asc",
+        ["customers.name"],
+      );
       expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
-        "customers.createdAt",
-        "desc",
+        "customers.id",
+        "asc",
       );
     });
 

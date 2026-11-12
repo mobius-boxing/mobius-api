@@ -37,8 +37,8 @@ const MODEL_FILTERS: FilterConfigs = {
 const RESOLVED_ID_KEYS = ["flapTypeId", "complementId"] as const;
 
 const MODEL_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   createdAt: { column: "createdAt" },
 };
 
@@ -46,7 +46,7 @@ const MODEL_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("models", {
   filters: MODEL_FILTERS,
   sorting: MODEL_SORTING,
   search: { columns: ["code", "description"], operator: "ILIKE" },
-  defaultSort: { column: "code", order: "asc" },
+  defaultSort: { column: "code", order: "asc", natural: true },
 });
 
 // PARITY (L-010): formula columns are raw text, written byte-for-byte.

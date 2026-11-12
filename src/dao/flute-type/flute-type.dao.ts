@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IFluteType } from "../../interfaces/flute-type/flute-type.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -39,8 +40,8 @@ const FLUTE_TYPE_FILTERS: FilterConfigs = {
 };
 
 const FLUTE_TYPE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   fluteFactor: { column: "fluteFactor" },
   length: { column: "length" },
   width: { column: "width" },
@@ -58,10 +59,7 @@ const FLUTE_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "description"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "code",
-      order: "asc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -150,9 +148,8 @@ export class FluteTypeDAO implements IBaseDAO<IFluteType> {
     const offset = (page - 1) * limit;
 
     const [fluteTypes, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("code", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

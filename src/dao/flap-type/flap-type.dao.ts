@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IFlapType } from "../../interfaces/flap-type/flap-type.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -38,8 +39,8 @@ const FLAP_TYPE_FILTERS: FilterConfigs = {
 };
 
 const FLAP_TYPE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -53,10 +54,7 @@ const FLAP_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "description"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "code",
-      order: "asc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -136,9 +134,8 @@ export class FlapTypeDAO implements IBaseDAO<IFlapType> {
     const offset = (page - 1) * limit;
 
     const [flapTypes, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("code", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IBoxType } from "../../interfaces/box-type/box-type.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -38,8 +39,8 @@ const BOX_TYPE_FILTERS: FilterConfigs = {
 };
 
 const BOX_TYPE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -53,10 +54,7 @@ const BOX_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "name"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "code",
-      order: "asc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -134,9 +132,8 @@ export class BoxTypeDAO implements IBaseDAO<IBoxType> {
     const offset = (page - 1) * limit;
 
     const [records, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("code", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

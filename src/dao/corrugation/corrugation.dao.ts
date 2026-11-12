@@ -6,6 +6,7 @@ import {
 } from "../../interfaces/corrugation/corrugation.interfaces";
 import { v4 as uuidv4 } from "uuid";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -52,8 +53,8 @@ const CORRUGATION_FILTERS: FilterConfigs = {
 };
 
 const CORRUGATION_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   theoreticalGrammage: { column: "theoreticalGrammage" },
   suggestedWidth: { column: "suggestedWidth" },
   caliper: { column: "caliper" },
@@ -70,10 +71,7 @@ const CORRUGATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "description"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "code",
-      order: "asc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -388,7 +386,7 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
     const offset = (page - 1) * limit;
 
     const [corrugations, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select(
           `${this.tableName}.*`,
           knex.raw(`
@@ -403,7 +401,6 @@ export class CorrugationDAO implements IBaseDAO<ICorrugation> {
           `${this.tableName}.corrugationClassId`,
           "cc.id",
         )
-        .orderBy(`${this.tableName}.code`, "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

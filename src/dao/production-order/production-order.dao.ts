@@ -66,7 +66,7 @@ const COMPLETION_STATES = ["open", "completed"] as const;
 const VOID_STATES = ["active", "voided"] as const;
 
 const PRODUCTION_ORDER_SORTING: SortConfigs = {
-  number: { column: "number" },
+  number: { column: "number", natural: true },
   orderDate: { column: "orderDate" },
   deliveryDate: { column: "deliveryDate" },
   quantity: { column: "quantity" },
@@ -79,7 +79,7 @@ const PRODUCTION_ORDER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: PRODUCTION_ORDER_FILTERS,
     sorting: PRODUCTION_ORDER_SORTING,
     search: { columns: ["number"], operator: "ILIKE" },
-    defaultSort: { column: "createdAt", order: "desc" },
+    defaultSort: { column: "number", order: "asc", natural: true },
   },
 );
 

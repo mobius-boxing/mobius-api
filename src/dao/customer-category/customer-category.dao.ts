@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ICustomerCategory } from "../../interfaces/customer-category/customer-category.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -33,7 +34,7 @@ const CUSTOMER_CATEGORY_FILTERS: FilterConfigs = {
 };
 
 const CUSTOMER_CATEGORY_SORTING: SortConfigs = {
-  name: { column: "name" },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -47,10 +48,7 @@ const CUSTOMER_CATEGORY_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["name"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "name",
-      order: "asc",
-    },
+    defaultSort: { column: "name", order: "asc", natural: true },
   },
 );
 
@@ -145,9 +143,8 @@ export class CustomerCategoryDAO implements IBaseDAO<ICustomerCategory> {
     applyCompanyScope(countQuery, this.tableName, companyId);
 
     const [categories, totalResult] = await Promise.all([
-      query
+      applyConfigDefaultSort(query, this.queryConfig)
         .select(`${this.tableName}.*`)
-        .orderBy(`${this.tableName}.name`, "asc")
         .limit(limit)
         .offset(offset),
       countQuery.count("* as count").first(),

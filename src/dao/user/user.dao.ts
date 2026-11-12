@@ -3,6 +3,8 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IUser, IUserWithCompany } from "../../interfaces/user/user.interfaces";
 import {
+  applyConfigDefaultSort,
+  applySearch,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -52,16 +54,16 @@ const USER_FILTERS: FilterConfigs = {
 };
 
 const USER_SORTING: SortConfigs = {
-  email: { column: "email" },
-  firstName: { column: "firstName" },
-  lastName: { column: "lastName" },
+  email: { column: "email", natural: true },
+  firstName: { column: "firstName", natural: true },
+  lastName: { column: "lastName", natural: true },
   role: { column: "role" },
   isActive: { column: "isActive" },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
 
-const USER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("users", {
+export const USER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("users", {
   filters: USER_FILTERS,
   sorting: USER_SORTING,
   search: {
@@ -69,8 +71,13 @@ const USER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("users", {
     operator: "ILIKE",
   },
   defaultSort: {
-    column: "createdAt",
-    order: "desc",
+    column: "firstName",
+    order: "asc",
+    natural: true,
+    thenBy: [
+      { column: "lastName", order: "asc", natural: true },
+      { column: "email", order: "asc", natural: true },
+    ],
   },
 });
 
@@ -294,14 +301,13 @@ export class UserDAO implements IBaseDAO<IUser> {
     const offset = (page - 1) * limit;
 
     const [users, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select(
           `${this.tableName}.*`,
           "companies.name as companyName",
           "companies.uuid as companyUuid",
         )
         .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
-        .orderBy(`${this.tableName}.createdAt`, "desc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),
@@ -392,11 +398,15 @@ export class UserDAO implements IBaseDAO<IUser> {
     page: number,
     limit: number,
     roleUuid?: string,
+    search?: string,
   ): Promise<IDataPaginator<IUser>> {
     const knex = db("core");
     const offset = (page - 1) * limit;
 
-    const dataQuery = knex(this.tableName)
+    const dataQuery = applyConfigDefaultSort(
+      knex(this.tableName),
+      this.queryConfig,
+    )
       .select(
         `${this.tableName}.*`,
         "companies.name as companyName",
@@ -407,7 +417,6 @@ export class UserDAO implements IBaseDAO<IUser> {
       .leftJoin("companies", `${this.tableName}.companyId`, "companies.id")
       .leftJoin("roles", `${this.tableName}.roleId`, "roles.id")
       .where(`${this.tableName}.companyId`, companyId)
-      .orderBy(`${this.tableName}.createdAt`, "desc")
       .limit(limit)
       .offset(offset);
 
@@ -421,6 +430,9 @@ export class UserDAO implements IBaseDAO<IUser> {
       dataQuery.where("roles.uuid", roleUuid);
       countQuery.where("roles.uuid", roleUuid);
     }
+
+    applySearch(dataQuery, search, this.queryConfig.search, this.tableName);
+    applySearch(countQuery, search, this.queryConfig.search, this.tableName);
 
     const [users, totalResult] = await Promise.all([
       dataQuery,

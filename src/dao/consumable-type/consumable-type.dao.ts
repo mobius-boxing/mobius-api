@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { IConsumableType } from "../../interfaces/consumable-type/consumable-type.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -40,8 +41,8 @@ const CONSUMABLE_TYPE_FILTERS: FilterConfigs = {
 };
 
 const CONSUMABLE_TYPE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -55,10 +56,7 @@ const CONSUMABLE_TYPE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code", "name"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "createdAt",
-      order: "desc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -145,9 +143,8 @@ export class ConsumableTypeDAO implements IBaseDAO<IConsumableType> {
     const offset = (page - 1) * limit;
 
     const [records, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("createdAt", "desc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

@@ -33,8 +33,8 @@ const MACHINE_FILTERS: FilterConfigs = {
 };
 
 const MACHINE_SORTING: SortConfigs = {
-  code: { column: "code" },
-  description: { column: "description" },
+  code: { column: "code", natural: true },
+  description: { column: "description", natural: true },
   createdAt: { column: "createdAt" },
 };
 
@@ -42,7 +42,7 @@ const MACHINE_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig("machines", {
   filters: MACHINE_FILTERS,
   sorting: MACHINE_SORTING,
   search: { columns: ["code", "description"], operator: "ILIKE" },
-  defaultSort: { column: "code", order: "asc" },
+  defaultSort: { column: "code", order: "asc", natural: true },
 });
 
 const SCALAR_FIELDS = [

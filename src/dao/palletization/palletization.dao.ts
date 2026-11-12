@@ -35,8 +35,8 @@ const PALLETIZATION_FILTERS: FilterConfigs = {
 };
 
 const PALLETIZATION_SORTING: SortConfigs = {
-  code: { column: "code" },
-  name: { column: "name" },
+  code: { column: "code", natural: true },
+  name: { column: "name", natural: true },
   stackingType: { column: "stackingType" },
   createdAt: { column: "createdAt" },
 };
@@ -47,7 +47,7 @@ const PALLETIZATION_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
     filters: PALLETIZATION_FILTERS,
     sorting: PALLETIZATION_SORTING,
     search: { columns: ["code", "name", "description"], operator: "ILIKE" },
-    defaultSort: { column: "code", order: "asc" },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 

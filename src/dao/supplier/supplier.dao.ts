@@ -2,6 +2,7 @@ import { db } from "../../database/registry";
 import { IBaseDAO, IDataPaginator } from "../../database/d.types";
 import { ISupplier } from "../../interfaces/supplier/supplier.interfaces";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -57,7 +58,7 @@ const SUPPLIER_FILTERS: FilterConfigs = {
 };
 
 const SUPPLIER_SORTING: SortConfigs = {
-  code: { column: "code" },
+  code: { column: "code", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
 };
@@ -71,10 +72,7 @@ const SUPPLIER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["code"],
       operator: "ILIKE",
     },
-    defaultSort: {
-      column: "code",
-      order: "asc",
-    },
+    defaultSort: { column: "code", order: "asc", natural: true },
   },
 );
 
@@ -178,9 +176,8 @@ export class SupplierDAO implements IBaseDAO<ISupplier> {
     const offset = (page - 1) * limit;
 
     const [suppliers, totalResult] = await Promise.all([
-      knex(this.tableName)
+      applyConfigDefaultSort(knex(this.tableName), this.queryConfig)
         .select("*")
-        .orderBy("code", "asc")
         .limit(limit)
         .offset(offset),
       knex(this.tableName).count("* as count").first(),

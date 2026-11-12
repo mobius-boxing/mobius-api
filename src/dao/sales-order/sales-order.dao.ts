@@ -13,6 +13,7 @@ import {
 import { OrderApprovalMachine } from "../../interfaces/sales-order/sales-order-approval.interfaces";
 import { toNumberOut } from "../../utils/numbers";
 import {
+  applyConfigDefaultSort,
   parseQueryParams,
   buildQuery,
   buildCountQuery,
@@ -97,14 +98,14 @@ export const SALES_ORDER_FILTERS: FilterConfigs = {
 };
 
 export const SALES_ORDER_SORTING: SortConfigs = {
-  number: { column: "number" },
+  number: { column: "number", natural: true },
   createdAt: { column: "createdAt" },
   updatedAt: { column: "updatedAt" },
   deliveryDate: { column: "deliveryDate" },
   quantity: { column: "quantity" },
   price: { column: "price" },
-  purchaseOrder: { column: "purchaseOrder" },
-  supplierCode: { column: "supplierCode" },
+  purchaseOrder: { column: "purchaseOrder", natural: true },
+  supplierCode: { column: "supplierCode", natural: true },
 };
 
 export const SALES_ORDER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
@@ -116,10 +117,10 @@ export const SALES_ORDER_QUERY_CONFIG: QueryBuilderConfig = createQueryConfig(
       columns: ["number", "purchaseOrder", "supplierCode"],
       operator: "ILIKE",
     },
-    // D-8: Procusto's grid is `OrderByDescending(c => c.Id)`
-    // (PedidoRepository.cs:110). `id` is never offered as a `sortBy` value and
-    // never leaves the API — it is the default ordering only.
-    defaultSort: { column: "id", order: "desc" },
+    // Deliberately NOT Procusto parity: its grid is `OrderByDescending(c => c.Id)`
+    // (PedidoRepository.cs:110); every Mobius grid defaults to natural order on
+    // its display key (list-sorting, 2026-11-12).
+    defaultSort: { column: "number", order: "asc", natural: true },
   },
 );
 
@@ -191,6 +192,11 @@ const ORDER_MACHINE_COLUMNS: Record<
     cancelledBy: "financialCancelledBy",
   },
 };
+
+const ASSOCIATED_ORDERS_SORT: QueryBuilderConfig = createQueryConfig(
+  "production_orders",
+  { defaultSort: { column: "number", order: "asc", natural: true } },
+);
 
 export class SalesOrderDAO {
   private tableName = "sales_orders";
@@ -697,7 +703,7 @@ export class SalesOrderDAO {
       );
 
     const [rows, totalResult] = await Promise.all([
-      scoped()
+      applyConfigDefaultSort(scoped(), ASSOCIATED_ORDERS_SORT)
         .leftJoin("products as prod", "production_orders.productId", "prod.id")
         .leftJoin("customers as cust", "prod.customerId", "cust.id")
         .select(
@@ -716,7 +722,6 @@ export class SalesOrderDAO {
           "cust.uuid as customerUuid",
           "cust.name as customerName",
         )
-        .orderBy("production_orders.number", "asc")
         .limit(limit)
         .offset((page - 1) * limit),
       scoped().count("* as count").first(),

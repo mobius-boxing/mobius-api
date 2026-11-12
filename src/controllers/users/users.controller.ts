@@ -62,18 +62,14 @@ export class UsersController implements IBaseController {
         }
         const { page = 1, limit = 20 } = req.query;
         const roleUuid = req.query.roleUuid as string | undefined;
-        result = roleUuid
-          ? await this._userDAO.getAllByCompany(
-              adminUser.companyId,
-              Number(page),
-              Number(limit),
-              roleUuid,
-            )
-          : await this._userDAO.getAllByCompany(
-              adminUser.companyId,
-              Number(page),
-              Number(limit),
-            );
+        const search = req.query.search as string | undefined;
+        result = await this._userDAO.getAllByCompany(
+          adminUser.companyId,
+          Number(page),
+          Number(limit),
+          roleUuid,
+          search,
+        );
       }
 
       // SECURITY: strip password hash before sending to client.
