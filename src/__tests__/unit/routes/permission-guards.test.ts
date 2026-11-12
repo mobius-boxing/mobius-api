@@ -284,7 +284,7 @@ const ROUTER_CASES: RouterCase[] = [
   {
     file: "invitations/invitations.router.ts",
     code: "users.edit",
-    readonlyCalls: 4,
+    readonlyCalls: 5,
     writeCalls: 3,
   },
 ];
