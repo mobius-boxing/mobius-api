@@ -31,6 +31,16 @@ const ROLE_RANK: Record<string, number> = {
   superAdmin: 3,
 };
 
+// Numeric keys never leave the API (L-005: stripped here, not in the DAO mapper,
+// because delete/update read `existing.id` from it).
+function toResponse(invitation: IInvitation): Omit<
+  IInvitation,
+  "id" | "companyId" | "invitedBy" | "roleId"
+> {
+  const { id, companyId, invitedBy, roleId, ...rest } = invitation;
+  return rest;
+}
+
 export class InvitationsController implements IBaseController {
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _companyDAO: CompanyDAO = new CompanyDAO();
@@ -101,7 +111,7 @@ export class InvitationsController implements IBaseController {
       // SECURITY (C4): admins only see their own company; superAdmin may target via ?companyId.
       const result: IDataPaginator<IInvitation> =
         await this._invitationDAO.getAll(page, limit, companyFilterScope(req));
-      res.status(200).json(result);
+      res.status(200).json({ ...result, data: result.data.map(toResponse) });
     } catch (err: any) {
       next(err);
     }
@@ -130,7 +140,7 @@ export class InvitationsController implements IBaseController {
 
       res.status(200).json({
         success: true,
-        data: result,
+        data: toResponse(result),
       });
     } catch (err: any) {
       next(err);
@@ -304,7 +314,7 @@ export class InvitationsController implements IBaseController {
 
       res.status(201).json({
         success: true,
-        data: result,
+        data: toResponse(result),
       });
     } catch (err: any) {
       if (err instanceof RolePolicyError) {
@@ -365,7 +375,7 @@ export class InvitationsController implements IBaseController {
 
       res.status(200).json({
         success: true,
-        data: result,
+        data: result ? toResponse(result) : result,
       });
     } catch (err: any) {
       next(err);
@@ -445,7 +455,7 @@ export class InvitationsController implements IBaseController {
       }
 
       // SECURITY (C4/M5): never echo the (hashed) token back to the client.
-      const { token: _token, ...safeResult } = result;
+      const { token: _token, ...safeResult } = toResponse(result);
 
       res.status(200).json({
         success: true,
@@ -482,7 +492,7 @@ export class InvitationsController implements IBaseController {
 
       res.status(200).json({
         success: true,
-        data: result,
+        data: result.map(toResponse),
       });
     } catch (err: any) {
       next(err);
@@ -553,7 +563,7 @@ export class InvitationsController implements IBaseController {
 
       res.status(200).json({
         success: true,
-        data: result,
+        data: result ? toResponse(result) : result,
         message: "Invitation accepted successfully",
       });
     } catch (err: any) {
