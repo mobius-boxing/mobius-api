@@ -595,7 +595,7 @@ describe("I-7 — requireAdmin()/admin requireRole() gone from routes; inline ro
    * Every remaining `role === "admin"` match under controllers/services —
    * the T2 sweep replaced every authorization gate with a permission-code
    * check. What is left is not a gate on the caller:
-   *  - `auth.controller.ts` / `invitations.controller.ts` resolve which
+   *  - `auth.controller.ts` / `user-target.service.ts` resolve which
    *    system role NAME a legacy `role: "admin"|"member"` enum maps to, for
    *    a user/invitation being created — not who may call the endpoint;
    *  - `users.controller.ts` computes whether the user being deactivated IS
@@ -609,9 +609,9 @@ describe("I-7 — requireAdmin()/admin requireRole() gone from routes; inline ro
    */
   const ADMIN_STRING_CHECK_ALLOWLIST = [
     "controllers/auth/auth.controller.ts",
-    "controllers/invitations/invitations.controller.ts",
     "controllers/users/users.controller.ts",
     "services/rbac.service.ts",
+    "services/user-target.service.ts",
   ];
 
   it("has no inline role==='admin' authorization outside the documented allowlist", () => {

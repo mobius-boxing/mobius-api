@@ -12,24 +12,18 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { InvitationCreateInputDTO } from "../../dto/input/invitation";
 import { CompanyDAO } from "../../dao/company/company.dao";
-import { RoleDAO } from "../../dao/role/role.dao";
 import { UserDAO } from "../../dao/user/user.dao";
-import { RbacService } from "../../services/rbac.service";
 import { EmailService } from "../../services/email.service";
+import { RolePolicyError } from "../../services/role-policy.service";
 import {
-  RolePolicyService,
-  RolePolicyError,
-} from "../../services/role-policy.service";
-import { getCompanyFilterUuid } from "../../utils/companyScope";
+  LegacyRole,
+  resolveUserTarget,
+  ROLE_RANK,
+  UserTarget,
+  UserTargetError,
+} from "../../services/user-target.service";
 import { companyFilterScope } from "../../utils/daoScope";
 import { db } from "../../database/registry";
-
-// SECURITY (C4): role hierarchy used to forbid escalation via invitations.
-const ROLE_RANK: Record<string, number> = {
-  member: 1,
-  admin: 2,
-  superAdmin: 3,
-};
 
 // Numeric keys never leave the API (L-005: stripped here, not in the DAO mapper,
 // because delete/update read `existing.id` from it).
@@ -44,7 +38,6 @@ function toResponse(invitation: IInvitation): Omit<
 export class InvitationsController implements IBaseController {
   private _invitationDAO: InvitationDAO = new InvitationDAO();
   private _companyDAO: CompanyDAO = new CompanyDAO();
-  private _roleDAO: RoleDAO = new RoleDAO();
   private _userDAO: UserDAO = new UserDAO();
   private _emailService: EmailService = new EmailService();
 
@@ -178,88 +171,28 @@ export class InvitationsController implements IBaseController {
         return next(new Error(validation.message));
       }
 
-      // SECURITY (C4): an actor may never invite a role higher than their own (no admin → superAdmin).
-      const actorRank = ROLE_RANK[actor?.role] ?? 0;
-      const targetRank = ROLE_RANK[inputDTO.role] ?? 0;
-      if (targetRank > actorRank) {
-        res.status(403).json({
-          success: false,
-          message: "You cannot invite a user with a higher role than your own.",
-        });
-        return;
-      }
-
-      // SECURITY (C4): resolve the target company. Non-superAdmins are locked to their own company;
-      // superAdmins must specify a company (unless inviting another superAdmin, who has none).
-      let companyId: number | undefined;
-      if (actor?.role === "superAdmin") {
-        const bodyCompanyUuid = data.companyId as string | undefined;
-        if (bodyCompanyUuid) {
-          const company = await this._companyDAO.getByUuid(bodyCompanyUuid);
-          if (!company || !company.id) {
-            res.status(400).json({
-              success: false,
-              message: "Invalid company ID",
-            });
-            return;
-          }
-          companyId = company.id;
-        } else if (inputDTO.role !== "superAdmin") {
-          res.status(400).json({
-            success: false,
-            message: "Company ID is required for non-superAdmin invitations.",
-          });
+      let target: UserTarget;
+      try {
+        target = await resolveUserTarget(
+          req,
+          {
+            companyId: data.companyId,
+            roleUuid: data.roleUuid,
+            role: inputDTO.role as LegacyRole,
+          },
+          { allowCompanyless: false },
+        );
+      } catch (targetErr) {
+        if (targetErr instanceof UserTargetError) {
+          res
+            .status(targetErr.status)
+            .json({ success: false, message: targetErr.message });
           return;
         }
-      } else {
-        const actorCompanyUuid = getCompanyFilterUuid(req);
-        if (!actorCompanyUuid) {
-          res.status(400).json({
-            success: false,
-            message: "You must belong to a company to create invitations.",
-          });
-          return;
-        }
-        const company = await this._companyDAO.getByUuid(actorCompanyUuid);
-        if (!company || !company.id) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid company.",
-          });
-          return;
-        }
-        companyId = company.id;
+        throw targetErr;
       }
-
-      // A legacy client sending only `role` (no `roleUuid`) maps to the
-      // company's Admin/Member system role. Same ceiling rule as
-      // `/roles/assign` (superAdmin exempt).
-      let roleId: number | null = null;
-      if (companyId) {
-        const roleUuid = data.roleUuid as string | undefined;
-        if (roleUuid) {
-          const role = await this._roleDAO.getByUuid(roleUuid, companyId);
-          if (!role || !role.id) {
-            res.status(400).json({ success: false, message: "Invalid role" });
-            return;
-          }
-          if (actor?.role !== "superAdmin") {
-            const actorCodes = await RbacService.authzForUserUuid(actor.userId);
-            RolePolicyService.assertCeiling(
-              actor?.role,
-              actorCodes.codes,
-              role.permissionCodes ?? [],
-            );
-          }
-          roleId = role.id;
-          inputDTO.role = role.systemKey === "admin" ? "admin" : "member";
-        } else {
-          roleId = await RbacService.systemRoleId(
-            companyId,
-            inputDTO.role === "admin" ? "admin" : "member",
-          );
-        }
-      }
+      const { companyId, roleId } = target;
+      inputDTO.role = target.role;
 
       const token = crypto.randomBytes(32).toString("hex");
 

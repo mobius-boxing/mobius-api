@@ -42,6 +42,7 @@ const mockUserDAO = {
 
 const mockInvitationDAO = {
   create: jest.fn(),
+  deletePendingForEmail: jest.fn(),
 };
 
 const mockCompanyDAO = {
@@ -114,10 +115,29 @@ jest.mock("../../../dao/invitation/invitation.dao", () => {
     InvitationDAO: function () {
       return {
         create: (...args) => mf.create(...args),
+        deletePendingForEmail: (...args) => mf.deletePendingForEmail(...args),
       };
     },
   };
 });
+
+// Company/role resolution is the shared resolver's job (exercised against a real
+// stack); here it stands in as a superAdmin target so create's own steps run.
+jest.mock("../../../services/user-target.service", () => {
+  const actual = jest.requireActual("../../../services/user-target.service");
+  return {
+    ...actual,
+    resolveUserTarget: async () => ({
+      companyId: 1,
+      roleId: 7,
+      role: "member",
+    }),
+  };
+});
+
+jest.mock("../../../database/registry", () => ({
+  db: () => ({ transaction: (fn) => fn({}) }),
+}));
 
 // Mock the CompanyDAO module
 jest.mock("../../../dao/company/company.dao", () => {
@@ -336,7 +356,14 @@ describe("UsersController", () => {
           uuid: "generated-uuid",
           email: "new@test.com",
           isActive: true,
+          roleId: 7,
         }),
+        expect.anything(),
+      );
+      expect(mockInvitationDAO.deletePendingForEmail).toHaveBeenCalledWith(
+        "new@test.com",
+        1,
+        expect.anything(),
       );
       expect(mockRes.status).toHaveBeenCalledWith(201);
     });

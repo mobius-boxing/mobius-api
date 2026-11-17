@@ -27,6 +27,11 @@ import {
   RolePolicyError,
   RolePolicyService,
 } from "../../services/role-policy.service";
+import {
+  LegacyRole,
+  resolveUserTarget,
+  UserTargetError,
+} from "../../services/user-target.service";
 
 export class UsersController implements IBaseController {
   private _userDAO: UserDAO = new UserDAO();
@@ -148,6 +153,16 @@ export class UsersController implements IBaseController {
         return next(new Error(validation.message));
       }
 
+      const target = await resolveUserTarget(
+        req,
+        {
+          companyId: inputDTO.companyId,
+          roleUuid: data?.roleUuid,
+          role: (inputDTO.role ?? "member") as LegacyRole,
+        },
+        { allowCompanyless: true },
+      );
+
       const existingUser = await this._userDAO.getUserByEmail(inputDTO.email);
       if (existingUser) {
         res.status(400).json({
@@ -169,40 +184,29 @@ export class UsersController implements IBaseController {
 
       const hashedPassword = await bcrypt.hash(inputDTO.password, BCRYPT_COST);
 
-      // SECURITY (C3), same rule the update path already applies: `companyId`
-      // arrives as a UUID from the clients and as a numeric id from internal
-      // callers. `UserCreateInputDTO` checks the SHAPE (uuid or int) and leaves
-      // it alone; resolving it here replaces the old `parseInt(uuid, 10)`,
-      // which quietly produced the leading digits — or NaN — and wrote it to
-      // the FK column.
-      let companyId: number | undefined;
-      if (typeof inputDTO.companyId === "number") {
-        companyId = inputDTO.companyId;
-      } else if (typeof inputDTO.companyId === "string") {
-        const company = await this._companyDAO.getByUuid(inputDTO.companyId);
-        if (!company || !company.id) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid company ID",
-          });
-          return;
-        }
-        companyId = company.id;
-      }
-
       const dataToCreate: IUser = {
         uuid: uuidv4(),
         email: inputDTO.email,
         password: hashedPassword,
         firstName: inputDTO.firstName,
         lastName: inputDTO.lastName,
-        role: inputDTO.role as "member" | "admin" | "superAdmin",
-        companyId,
+        role: target.role,
+        companyId: target.companyId,
+        roleId: target.roleId,
         isActive: true,
         emailVerified: false,
       };
 
-      const result = await this._userDAO.create(dataToCreate);
+      // A pending invitation for this address could never be accepted once the
+      // (globally unique) email belongs to a user, so it goes with the insert.
+      const result = await db("core").transaction(async (trx) => {
+        await this._invitationDAO.deletePendingForEmail(
+          dataToCreate.email,
+          dataToCreate.companyId,
+          trx,
+        );
+        return this._userDAO.create(dataToCreate, trx);
+      });
 
       // SECURITY: strip password hash before sending to client.
       const { password, ...userWithoutPassword } = result;
@@ -212,6 +216,18 @@ export class UsersController implements IBaseController {
         data: userWithoutPassword,
       });
     } catch (err: any) {
+      if (err instanceof UserTargetError) {
+        res.status(err.status).json({ success: false, message: err.message });
+        return;
+      }
+      if (err instanceof RolePolicyError) {
+        res.status(err.status).json({
+          success: false,
+          code: err.code,
+          message: err.message,
+        });
+        return;
+      }
       next(err);
     }
   }

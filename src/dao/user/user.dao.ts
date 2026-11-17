@@ -96,8 +96,8 @@ export class UserDAO implements IBaseDAO<IUser> {
   private tableName = "users";
   private queryConfig = USER_QUERY_CONFIG;
 
-  async create(item: IUser): Promise<IUser> {
-    const knex = db("core");
+  async create(item: IUser, trx?: Knex.Transaction): Promise<IUser> {
+    const knex = trx ?? db("core");
     const [user] = await knex(this.tableName)
       .insert({
         email: item.email,
@@ -106,6 +106,7 @@ export class UserDAO implements IBaseDAO<IUser> {
         lastName: item.lastName,
         role: item.role,
         companyId: item.companyId,
+        roleId: item.roleId ?? null,
         isActive: item.isActive ?? true,
         emailVerified: item.emailVerified ?? false,
       })

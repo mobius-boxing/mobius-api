@@ -70,7 +70,7 @@ export class UsersRouter {
     this.router.post(
       "/",
       authenticate,
-      requireSuperAdmin(),
+      requirePermission("users.edit"),
       apiRateLimiter,
       this.usersController.create.bind(this.usersController),
     );
