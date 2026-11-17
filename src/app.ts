@@ -39,7 +39,7 @@ app.use(
   cors({
     // The allowlist is consulted per request (never an echo of the caller's Origin), and it is
     // read from the environment on every call so wildcard entries such as
-    // `https://*.vencimientos.mobiusboxing.com` cover whitelabel customers that did not exist at
+    // `https://*.vencimientos.mobius.box` cover whitelabel customers that did not exist at
     // boot: onboarding a customer is a DNS + database change, never an API redeploy.
     // An unmatched origin gets `false` — cors() then simply omits the CORS headers.
     origin: (origin, callback) =>

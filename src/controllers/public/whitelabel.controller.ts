@@ -16,7 +16,7 @@ import {
   DEFAULT_SHELL_COLOR,
 } from "../../utils/whitelabel-defaults";
 /** Public origin of this API; the logo URL must be absolute (a different origin renders it). */
-const DEFAULT_PUBLIC_API_URL = "https://api.mobiusboxing.com";
+const DEFAULT_PUBLIC_API_URL = "https://api.mobius.box";
 /** Branding is small, public and changes rarely — but not never. */
 const LOGO_CACHE_CONTROL = "public, max-age=300";
 
@@ -32,7 +32,7 @@ interface ResolvedTenant {
 }
 
 /**
- * Public, UNAUTHENTICATED whitelabel branding for `{client}.<module>.mobiusboxing.com`
+ * Public, UNAUTHENTICATED whitelabel branding for `{client}.<module>.mobius.box`
  * (modules.md §3). The SPA parses its own hostname, extracts the client label and
  * asks for the branding before anyone has logged in — there is no token to
  * authorize with, by design.
@@ -189,8 +189,8 @@ export class WhitelabelController {
 
       // helmet defaults every response to `Cross-Origin-Resource-Policy:
       // same-origin`, which is right for the API but fatal here: the tenant SPA
-      // is served from {client}.vencimientos.mobiusboxing.com while this image
-      // comes from api.mobiusboxing.com, so the browser refused to paint it and
+      // is served from {client}.vencimientos.mobius.box while this image
+      // comes from api.mobius.box, so the browser refused to paint it and
       // every customer logo rendered as a broken image. This is a deliberately
       // public asset — the route serves only the uuid recorded in that company's
       // own branding — so it opts out for itself alone, without loosening the

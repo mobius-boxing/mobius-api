@@ -41,15 +41,15 @@ const DNS_LABEL_PATTERN = /^[a-zA-Z0-9-]+$/;
  * Does one allowlist entry match this Origin?
  *
  * Two entry shapes:
- *   - exact:    `https://app.mobiusboxing.com`  → plain string equality.
- *   - wildcard: `https://*.vencimientos.mobiusboxing.com` → the `*` stands for
+ *   - exact:    `https://app.mobius.box`  → plain string equality.
+ *   - wildcard: `https://*.vencimientos.mobius.box` → the `*` stands for
  *     EXACTLY ONE hostname label (no dots), matching the DNS/TLS wildcard rule.
  *
  * SECURITY: no regular expression is ever built from the pattern or the origin —
  * matching is prefix/suffix string comparison plus a fixed label pattern. That
  * removes both regex injection and the classic `.` -> "any char" mistake, so
- * `https://vencimientos.mobiusboxing.com.evil.com` and
- * `https://a.b.vencimientos.mobiusboxing.com` are both rejected.
+ * `https://vencimientos.mobius.box.evil.com` and
+ * `https://a.b.vencimientos.mobius.box` are both rejected.
  */
 const originMatchesPattern = (origin: string, pattern: string): boolean => {
   const star = pattern.indexOf("*");
@@ -77,7 +77,7 @@ const originMatchesPattern = (origin: string, pattern: string): boolean => {
  * Is this Origin header value allowed?
  *
  * Wildcard entries exist so that onboarding a whitelabel customer
- * (`{client}.vencimientos.mobiusboxing.com`) is a DNS + database change only —
+ * (`{client}.vencimientos.mobius.box`) is a DNS + database change only —
  * it must NEVER require editing CORS_ALLOWED_ORIGINS and redeploying the API.
  *
  * An origin that matches nothing gets no CORS headers at all; the caller never

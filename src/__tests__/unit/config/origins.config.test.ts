@@ -12,21 +12,21 @@ import {
   validateAllowedOrigins,
 } from "../../../common/config/origins/origins.config";
 
-const WILDCARD = "https://*.vencimientos.mobiusboxing.com";
-const EXACT = "https://app.mobiusboxing.com";
+const WILDCARD = "https://*.vencimientos.mobius.box";
+const EXACT = "https://app.mobius.box";
 const ALLOWLIST = [EXACT, WILDCARD];
 
 describe("isOriginAllowed — exact entries", () => {
   it("accepts an exact match and nothing near it", () => {
     expect(isOriginAllowed(EXACT, ALLOWLIST)).toBe(true);
-    expect(isOriginAllowed("http://app.mobiusboxing.com", ALLOWLIST)).toBe(
+    expect(isOriginAllowed("http://app.mobius.box", ALLOWLIST)).toBe(
       false,
     );
     expect(
-      isOriginAllowed("https://app.mobiusboxing.com:8443", ALLOWLIST),
+      isOriginAllowed("https://app.mobius.box:8443", ALLOWLIST),
     ).toBe(false);
     expect(
-      isOriginAllowed("https://app.mobiusboxing.com.evil.com", ALLOWLIST),
+      isOriginAllowed("https://app.mobius.box.evil.com", ALLOWLIST),
     ).toBe(false);
   });
 
@@ -41,10 +41,10 @@ describe("isOriginAllowed — exact entries", () => {
 describe("isOriginAllowed — single-label wildcards", () => {
   it("accepts exactly one label in the wildcard position", () => {
     expect(
-      isOriginAllowed("https://acme.vencimientos.mobiusboxing.com", ALLOWLIST),
+      isOriginAllowed("https://acme.vencimientos.mobius.box", ALLOWLIST),
     ).toBe(true);
     expect(
-      isOriginAllowed("https://qa-demo.vencimientos.mobiusboxing.com", [
+      isOriginAllowed("https://qa-demo.vencimientos.mobius.box", [
         WILDCARD,
       ]),
     ).toBe(true);
@@ -57,20 +57,20 @@ describe("isOriginAllowed — single-label wildcards", () => {
 
   it("does NOT match more than one label (`*` is one label, like TLS)", () => {
     expect(
-      isOriginAllowed("https://a.b.vencimientos.mobiusboxing.com", ALLOWLIST),
+      isOriginAllowed("https://a.b.vencimientos.mobius.box", ALLOWLIST),
     ).toBe(false);
   });
 
   it("does NOT match a suffix-extension attack", () => {
     expect(
       isOriginAllowed(
-        "https://vencimientos.mobiusboxing.com.evil.com",
+        "https://vencimientos.mobius.box.evil.com",
         ALLOWLIST,
       ),
     ).toBe(false);
     expect(
       isOriginAllowed(
-        "https://acme.vencimientos.mobiusboxing.com.evil.com",
+        "https://acme.vencimientos.mobius.box.evil.com",
         ALLOWLIST,
       ),
     ).toBe(false);
@@ -78,44 +78,44 @@ describe("isOriginAllowed — single-label wildcards", () => {
 
   it("does NOT match the bare apex, an empty label, or a scheme swap", () => {
     expect(
-      isOriginAllowed("https://vencimientos.mobiusboxing.com", ALLOWLIST),
+      isOriginAllowed("https://vencimientos.mobius.box", ALLOWLIST),
     ).toBe(false);
     expect(
-      isOriginAllowed("https://.vencimientos.mobiusboxing.com", ALLOWLIST),
+      isOriginAllowed("https://.vencimientos.mobius.box", ALLOWLIST),
     ).toBe(false);
     expect(
-      isOriginAllowed("http://acme.vencimientos.mobiusboxing.com", ALLOWLIST),
+      isOriginAllowed("http://acme.vencimientos.mobius.box", ALLOWLIST),
     ).toBe(false);
   });
 
   it("does NOT let a port or path ride along in the wildcard label", () => {
     expect(
       isOriginAllowed(
-        "https://acme:8443.vencimientos.mobiusboxing.com",
+        "https://acme:8443.vencimientos.mobius.box",
         ALLOWLIST,
       ),
     ).toBe(false);
     expect(
       isOriginAllowed(
-        "https://acme/x.vencimientos.mobiusboxing.com",
+        "https://acme/x.vencimientos.mobius.box",
         ALLOWLIST,
       ),
     ).toBe(false);
     expect(
-      isOriginAllowed("https://acme.vencimientos.mobiusboxing.com/", ALLOWLIST),
+      isOriginAllowed("https://acme.vencimientos.mobius.box/", ALLOWLIST),
     ).toBe(false);
   });
 
   it("treats the `.` in a pattern as a literal dot, not a regex wildcard", () => {
     expect(
-      isOriginAllowed("https://acme.vencimientosXmobiusboxing.com", ALLOWLIST),
+      isOriginAllowed("https://acme.vencimientosXmobius.box", ALLOWLIST),
     ).toBe(false);
   });
 
   it("fails closed on a malformed wildcard entry", () => {
     // `*` outside the leftmost label position, or more than one `*`.
     expect(
-      isOriginAllowed("https://a.b.mobiusboxing.com", ["https://a.*.b.com"]),
+      isOriginAllowed("https://a.b.mobius.box", ["https://a.*.b.com"]),
     ).toBe(false);
     expect(isOriginAllowed("https://a.b.c.com", ["https://*.*.com"])).toBe(
       false,
@@ -126,7 +126,7 @@ describe("isOriginAllowed — single-label wildcards", () => {
 
   it("matches nothing when the allowlist is empty", () => {
     expect(
-      isOriginAllowed("https://acme.vencimientos.mobiusboxing.com", []),
+      isOriginAllowed("https://acme.vencimientos.mobius.box", []),
     ).toBe(false);
   });
 });
@@ -146,7 +146,7 @@ describe("allowlist parsing and production guard", () => {
     process.env.CORS_ALLOWED_ORIGINS = `${EXACT}, ${WILDCARD}`;
 
     expect(getAllowedOrigins()).toEqual([EXACT, WILDCARD]);
-    expect(isOriginAllowed("https://acme.vencimientos.mobiusboxing.com")).toBe(
+    expect(isOriginAllowed("https://acme.vencimientos.mobius.box")).toBe(
       true,
     );
     expect(isOriginAllowed("https://evil.com")).toBe(false);

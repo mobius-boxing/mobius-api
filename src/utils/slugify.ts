@@ -1,5 +1,5 @@
 /**
- * DNS-safe slugs for whitelabeled hostnames (`{client}.vencimientos.mobiusboxing.com`).
+ * DNS-safe slugs for whitelabeled hostnames (`{client}.vencimientos.mobius.box`).
  *
  * A company's slug becomes ONE DNS label, so the rules here are the DNS label
  * rules, not "pretty url" rules: lowercase a-z0-9 plus hyphens, never starting

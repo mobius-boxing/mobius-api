@@ -12,8 +12,8 @@
  * No SDK on purpose — sending is one POST and `fetch` is built into Node 20.
  *
  * `RESEND_FROM` must exactly match a domain verified in the Resend account, and
- * it is deliberately a dedicated subdomain: the root mobiusboxing.com records
- * that Mobius and Rol-Pel rely on are never touched, and this sender's
+ * it is deliberately a dedicated subdomain: the legacy root mobiusboxing.com records
+ * that Rol-Pel and the other PoCs rely on are never touched, and this sender's
  * reputation is its own.
  *
  * Everything fails soft. A send that cannot be delivered logs and returns false;
@@ -22,7 +22,7 @@
  */
 const ENDPOINT = "https://api.resend.com/emails";
 
-const DEFAULT_FROM = "Mobius <avisos@avisos.mobiusboxing.com>";
+const DEFAULT_FROM = "Mobius <avisos@avisos.mobius.box>";
 
 /** A slow network must not wedge the hourly scheduler. */
 const TIMEOUT_MS = 10_000;

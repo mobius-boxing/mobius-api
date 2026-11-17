@@ -127,10 +127,10 @@ describe("hostnames refused by name", () => {
   });
 
   it("refuses the API's own host", async () => {
-    process.env.API_PUBLIC_URL = "https://api.mobiusboxing.com";
-    expect(isBlockedHostName("api.mobiusboxing.com")).toBe(true);
+    process.env.API_PUBLIC_URL = "https://api.mobius.box";
+    expect(isBlockedHostName("api.mobius.box")).toBe(true);
     expect(
-      await refuses("https://api.mobiusboxing.com/api/node-files"),
+      await refuses("https://api.mobius.box/api/node-files"),
     ).toContain("no permitido");
     // And only that host: the guard must not start refusing the world.
     expect(isBlockedHostName("api.otra-empresa.com")).toBe(false);

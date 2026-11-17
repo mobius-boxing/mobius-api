@@ -32,7 +32,7 @@ export interface ICompany {
   name: string;
   /**
    * Global DNS label for this client — the `{client}` in
-   * `{client}.vencimientos.mobiusboxing.com`. NOT NULL and unique in the
+   * `{client}.vencimientos.mobius.box`. NOT NULL and unique in the
    * database; optional here only because create-paths build the row before the
    * DAO derives it.
    */
