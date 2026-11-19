@@ -84,6 +84,7 @@ export const MACHINE_TYPE_LABELS = {
   requiresDie: "Requiere troquel",
   requiresPlate: "Requiere clis\u00e9",
   corrugated: "Corrugado",
+  isSupplier: "Proveedor",
   generatesSheets: "Genera l\u00e1minas",
 };
 
@@ -95,6 +96,7 @@ export class MachineTypeCreateInputDTO {
   requiresPlate?: boolean;
   attribute?: string | null;
   corrugated?: boolean;
+  isSupplier?: boolean;
   generatesSheets?: boolean;
 
   constructor(data: Record<string, unknown>) {
@@ -105,6 +107,7 @@ export class MachineTypeCreateInputDTO {
     this.requiresPlate = source.requiresPlate as boolean | undefined;
     this.attribute = source.attribute as string | null | undefined;
     this.corrugated = source.corrugated as boolean | undefined;
+    this.isSupplier = source.isSupplier as boolean | undefined;
     this.generatesSheets = source.generatesSheets as boolean | undefined;
   }
 
@@ -141,6 +144,7 @@ export class MachineTypeCreateInputDTO {
         "requiresDie",
         "requiresPlate",
         "corrugated",
+        "isSupplier",
         "generatesSheets",
       ] as const;
       for (const flag of flags) {
@@ -191,6 +195,7 @@ export const MACHINE_LABELS: Record<string, string> = {
   code: "El código",
   description: "La descripción",
   machineTypeUuid: "El tipo de máquina",
+  supplierUuid: "El proveedor",
   setupTime: "El tiempo de preparación",
   sheetWidthMin: "El ancho mínimo de lámina",
   sheetWidthMax: "El ancho máximo de lámina",
@@ -221,6 +226,8 @@ export class MachineCreateInputDTO {
   machineTypeUuid!: string;
   sourceWarehouseUuid?: string;
   destinationWarehouseUuid?: string;
+  // `null` clears the mapping; the controller checks the machine type allows one (I-5).
+  supplierUuid?: string | null;
   sheetWidthMin?: number;
   sheetLengthMin?: number;
   sheetWidthMax?: number;
@@ -251,6 +258,8 @@ export class MachineCreateInputDTO {
       this.sourceWarehouseUuid = data.sourceWarehouseUuid;
     if (data.destinationWarehouseUuid !== undefined)
       this.destinationWarehouseUuid = data.destinationWarehouseUuid;
+    if (data.supplierUuid !== undefined)
+      this.supplierUuid = data.supplierUuid || null;
     const self = this as Record<string, unknown>;
     for (const key of NUMERIC_KEYS) {
       const v = toNumberInput(data[key]);
@@ -281,6 +290,11 @@ export class MachineCreateInputDTO {
       if (required || this.machineTypeUuid !== undefined) {
         this.machineTypeUuid = field("machineTypeUuid", () =>
           requiredUuid(this.machineTypeUuid, MACHINE_LABELS.machineTypeUuid),
+        );
+      }
+      if (this.supplierUuid) {
+        this.supplierUuid = field("supplierUuid", () =>
+          requiredUuid(this.supplierUuid, MACHINE_LABELS.supplierUuid),
         );
       }
       const self = this as Record<string, unknown>;

@@ -13,10 +13,7 @@ import {
   IRefreshSession,
   RefreshOutcome,
 } from "../../interfaces/refresh-session/refresh-session.interfaces";
-import {
-  IUser,
-  IUserWithCompany,
-} from "../../interfaces/user/user.interfaces";
+import { IUser, IUserWithCompany } from "../../interfaces/user/user.interfaces";
 import { IDeviceSession } from "../../interfaces/user-device/user-device.interfaces";
 import { getAuthConfig } from "../../common/config/auth/auth.config";
 import {
@@ -39,10 +36,7 @@ import {
   PasswordResetDTO,
 } from "../../dto/input/auth";
 import { EmailService } from "../../services/email.service";
-import {
-  generateToken,
-  sessionIdOf,
-} from "../../middlewares/auth.middleware";
+import { generateToken, sessionIdOf } from "../../middlewares/auth.middleware";
 import {
   issueOrReuseDevice,
   toDeviceSession,
@@ -89,10 +83,8 @@ const sendCsrfRequired = (res: Response): void => {
 // INV-20: a cross-site HTML form cannot send application/json without a CORS
 // preflight, so requiring it stops login CSRF through the global urlencoded parser.
 const isJsonRequest = (req: Request): boolean =>
-  (req.headers["content-type"] ?? "")
-    .split(";")[0]
-    .trim()
-    .toLowerCase() === "application/json";
+  (req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase() ===
+  "application/json";
 
 const sendJsonRequired = (res: Response): void => {
   res.status(415).json({
@@ -173,6 +165,7 @@ export class AuthController {
         ...userWithoutCompany,
         companyId: company?.uuid || undefined,
         companyName: company?.name || undefined,
+        companyIsTerminadora: company?.isTerminadora === true,
         modules: enabledModules,
         permissions,
         roleUuid,
@@ -466,7 +459,11 @@ export class AuthController {
       this.sendOpenedSession(
         res,
         opened,
-        await this.buildSessionData(userWithCompany, opened.session.uuid, device),
+        await this.buildSessionData(
+          userWithCompany,
+          opened.session.uuid,
+          device,
+        ),
       );
     } catch (err: any) {
       next(err);
@@ -509,7 +506,10 @@ export class AuthController {
             trx,
           );
           if (alive) {
-            const locked = await this._userDAO.lockForSessionChange(alive.userId, trx);
+            const locked = await this._userDAO.lockForSessionChange(
+              alive.userId,
+              trx,
+            );
             if (!locked || !locked.isActive) {
               await this._sessionDAO.revoke(alive.id, "user_deactivated", trx);
               return { kind: "revoked" };
@@ -603,9 +603,13 @@ export class AuthController {
       if (!sid && bearer?.startsWith("Bearer ") && process.env.JWT_SECRET) {
         try {
           // An expired access token still names the session being signed out.
-          const decoded = jwt.verify(bearer.substring(7), process.env.JWT_SECRET, {
-            ignoreExpiration: true,
-          }) as { sid?: unknown };
+          const decoded = jwt.verify(
+            bearer.substring(7),
+            process.env.JWT_SECRET,
+            {
+              ignoreExpiration: true,
+            },
+          ) as { sid?: unknown };
           sid =
             typeof decoded.sid === "string" && UUID_PATTERN.test(decoded.sid)
               ? decoded.sid
@@ -772,6 +776,7 @@ export class AuthController {
           ...userWithoutPassword,
           companyId: withCompany?.company?.uuid,
           companyName: withCompany?.company?.name,
+          companyIsTerminadora: withCompany?.company?.isTerminadora === true,
           modules,
           permissions,
           roleUuid,
@@ -1074,7 +1079,11 @@ export class AuthController {
       this.sendOpenedSession(
         res,
         opened,
-        await this.buildSessionData(userWithCompany, opened.session.uuid, device),
+        await this.buildSessionData(
+          userWithCompany,
+          opened.session.uuid,
+          device,
+        ),
       );
     } catch (err: any) {
       next(err);

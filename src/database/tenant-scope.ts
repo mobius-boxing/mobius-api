@@ -75,6 +75,13 @@ export const TENANT_SCOPE: Readonly<Record<string, TenantScopeEntry>> = {
   corrugator_plan_orders: { kind: "direct", column: "companyId" },
   corrugator_plan_combinations: { kind: "direct", column: "companyId" },
   corrugator_plan_items: { kind: "direct", column: "companyId" },
+  // terminadora-order-flow: every new table carries its own companyId.
+  order_deliveries: { kind: "direct", column: "companyId" },
+  product_stock: { kind: "direct", column: "companyId" },
+  quotations: { kind: "direct", column: "companyId" },
+  supplier_purchase_orders: { kind: "direct", column: "companyId" },
+  supplier_purchase_order_lines: { kind: "direct", column: "companyId" },
+  supplier_receipts: { kind: "direct", column: "companyId" },
   countdown_categories: { kind: "direct", column: "companyId" },
   countdown_documents: { kind: "direct", column: "companyId" },
   countdown_groups: { kind: "direct", column: "companyId" },

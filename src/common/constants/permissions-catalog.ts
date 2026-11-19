@@ -477,6 +477,54 @@ export const MOBIUS_ADDED_PERMISSIONS: IPermissionConcept[] = [
       "Generar y deshacer el Programa de Corrugado (registro/desregistro)",
     area: "actions",
   },
+  {
+    // RW-only: the web app and every route read the quotation with the one
+    // code; a read-only variant of an approval/delete gate is meaningless.
+    code: "quotations.edit",
+    name: "Cotizaciones",
+    description: "Alta, edición y generación de pedidos desde cotizaciones",
+    area: "sales-plus",
+  },
+  {
+    code: "quotations.approve",
+    name: "Cotizaciones - Aprobar",
+    description: "Aprobar y quitar la aprobación de cotizaciones",
+    area: "actions",
+  },
+  {
+    code: "quotations.delete",
+    name: "Cotizaciones - Eliminar",
+    description: "Eliminar cotizaciones que aún no generaron un pedido",
+    area: "actions",
+  },
+  {
+    code: "supplier-orders.plan",
+    name: "Programas de proveedores",
+    description:
+      "Armar los programas (órdenes de compra) de terminadoras a proveedores",
+    area: "operations",
+    readonly: true,
+  },
+  {
+    code: "supplier-orders.send",
+    name: "Programas de proveedores - Enviar",
+    description: "Enviar y deshacer el envío de un programa de proveedor",
+    area: "actions",
+  },
+  {
+    code: "supplier-orders.receive",
+    name: "Seguimiento de proveedores",
+    description:
+      "Seguimiento de lo enviado a proveedores y registro de recepciones",
+    area: "operations",
+    readonly: true,
+  },
+  {
+    code: "product-stock.view",
+    name: "Stock de productos",
+    description: "Consulta del stock de productos recibidos de proveedores",
+    area: "queries",
+  },
 ];
 
 /** Name of the protected all-permissions role seeded per company. */

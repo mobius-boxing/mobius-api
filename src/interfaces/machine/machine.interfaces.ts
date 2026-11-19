@@ -8,6 +8,7 @@ export interface IMachineType {
   requiresPlate: boolean;
   attribute?: string | null;
   corrugated: boolean;
+  isSupplier?: boolean;
   generatesSheets?: boolean | null;
   legacyId?: number | null;
   createdAt?: Date;
@@ -30,6 +31,7 @@ export interface IMachine {
   maxScoreLines?: number | null;
   sourceWarehouseId?: number | null;
   destinationWarehouseId?: number | null;
+  supplierId?: number | null;
   linearMeters?: number | null;
   boxWidthMin?: number | null;
   boxWidthMax?: number | null;
@@ -50,7 +52,13 @@ export interface IMachine {
   updatedAt?: Date;
 
   // Related entities (populated by DAO joins)
-  machineType?: { uuid: string; name?: string; corrugated?: boolean } | null;
+  machineType?: {
+    uuid: string;
+    name?: string;
+    corrugated?: boolean;
+    isSupplier?: boolean;
+  } | null;
   sourceWarehouse?: { uuid: string; name?: string } | null;
   destinationWarehouse?: { uuid: string; name?: string } | null;
+  supplier?: { uuid: string; code: string } | null;
 }

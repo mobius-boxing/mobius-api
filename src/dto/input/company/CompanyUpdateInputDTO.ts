@@ -27,6 +27,7 @@ export class CompanyUpdateInputDTO {
   slug?: string;
   description?: string;
   isActive?: boolean;
+  isTerminadora?: boolean;
 
   constructor(data: any) {
     if (data.name !== undefined) this.name = data.name;
@@ -37,6 +38,8 @@ export class CompanyUpdateInputDTO {
           : data.slug;
     if (data.description !== undefined) this.description = data.description;
     if (data.isActive !== undefined) this.isActive = data.isActive;
+    if (data.isTerminadora !== undefined)
+      this.isTerminadora = data.isTerminadora;
   }
 
   public build(): this {
@@ -59,6 +62,11 @@ export class CompanyUpdateInputDTO {
       if (this.isActive !== undefined) {
         this.isActive = field("isActive", () =>
           toBoolean(this.isActive, "El estado"),
+        );
+      }
+      if (this.isTerminadora !== undefined) {
+        this.isTerminadora = field("isTerminadora", () =>
+          toBoolean(this.isTerminadora, "El indicador de terminadora"),
         );
       }
       if (this.slug !== undefined) {

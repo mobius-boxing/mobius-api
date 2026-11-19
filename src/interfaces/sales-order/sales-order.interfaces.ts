@@ -75,7 +75,12 @@ export interface IOrderData {
   deliveryLocation?: ISalesOrderRef | null;
 }
 
-export interface ISalesOrder {
+import {
+  IDeliveryRow,
+  IDeliverySummary,
+} from "../order-delivery/order-delivery.interfaces";
+
+export interface ISalesOrder extends Partial<IDeliverySummary> {
   // Internal use only — stripped from the public surface.
   id?: number;
   companyId?: number;
@@ -127,6 +132,7 @@ export interface ISalesOrder {
   // FK-less integer columns: the modules that own these tables are out of
   // scope, so they stay unwired (Q-4, non-goal 6).
   sheetSupplyId?: number | null;
+  // Mirror of quotations.salesOrderId; written only by quotation generate-order.
   quotationId?: number | null;
   paymentTermId?: number | null;
   currencyId?: number | null;
@@ -139,6 +145,7 @@ export interface ISalesOrder {
   customer?: ISalesOrderRef | null;
   product?: ISalesOrderRef | null;
   salesUser?: ISalesOrderRef | null;
+  quotation?: { uuid: string; number: number } | null;
   orderData?: IOrderData | null;
 
   // Derived, never stored.
@@ -170,6 +177,8 @@ export interface ISalesOrderOrderDataInput {
 
 /** What SalesOrderDAO.create / update accept (post-resolution). */
 export interface ISalesOrderWrite extends ISalesOrder {
+  /** Full replacement set, locations resolved; absent = leave the stored rows alone. */
+  deliveryRows?: IDeliveryRow[];
   orderDataInput?: ISalesOrderOrderDataInput;
   createdByUsername?: string | null;
 }

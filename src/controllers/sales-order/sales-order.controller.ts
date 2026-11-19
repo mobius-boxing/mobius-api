@@ -6,6 +6,8 @@ import { ProductDAO } from "../../dao/product/product.dao";
 import { DeliveryLocationDAO } from "../../dao/delivery-location/delivery-location.dao";
 import { UserDAO } from "../../dao/user/user.dao";
 import { ISalesOrder } from "../../interfaces/sales-order/sales-order.interfaces";
+import { IDeliveryRow } from "../../interfaces/order-delivery/order-delivery.interfaces";
+import { OrderDeliveryService } from "../../services/order-delivery.service";
 import {
   ORDER_APPROVAL_MACHINES,
   OrderApprovalMachine,
@@ -85,6 +87,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
   private deliveryLocationDAO = new DeliveryLocationDAO();
   private userDAO = new UserDAO();
   private lifecycleDAO = new SalesOrderLifecycleDAO();
+  private deliveries = new OrderDeliveryService();
 
   /** Permission decisions route through RbacService — never inlined here. */
   private async can(req: Request, code: string): Promise<boolean> {
@@ -250,6 +253,46 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     return location.id;
   }
 
+  /** I-21: the derived date/location are the only source when deliveries are sent. */
+  private rejectDeliveriesConflict(
+    inputDTO: SalesOrderCreateInputDTO,
+    res: Response,
+  ): boolean {
+    if (
+      inputDTO.deliveries?.length &&
+      (inputDTO.sent("deliveryDate") || inputDTO.sent("deliveryLocationUuid"))
+    ) {
+      res.status(400).json({
+        success: false,
+        code: "DELIVERIES_CONFLICT",
+        message:
+          "deliveryDate and deliveryLocationUuid are derived from deliveries; send one or the other",
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /** `undefined` = not sent, `false` = a 400 was written. */
+  private async resolveDeliveries(
+    inputDTO: SalesOrderCreateInputDTO,
+    customerId: number,
+    companyId: number,
+    res: Response,
+  ): Promise<IDeliveryRow[] | undefined | false> {
+    if (inputDTO.deliveries === undefined) return undefined;
+    const resolved = await this.deliveries.resolve(
+      inputDTO.deliveries,
+      customerId,
+      companyId,
+    );
+    if (!resolved.ok) {
+      res.status(400).json({ success: false, message: resolved.message });
+      return false;
+    }
+    return resolved.rows;
+  }
+
   /**
    * Vendedor: explicit uuid wins; otherwise the customer's salesPersonId
    * (Mobius's stand-in for SituacionComercialCliente.Vendedor — D-7).
@@ -277,6 +320,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     req: Request,
     res: Response,
   ): Promise<any | null> {
+    if (this.rejectDeliveriesConflict(inputDTO, res)) return null;
     if (!(await this.enforceFieldPermissions(inputDTO, req, res))) return null;
 
     const companyScope = companyFilterScope(req);
@@ -332,8 +376,17 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     );
     if (salesUserId === false) return null;
 
+    const deliveryRows = await this.resolveDeliveries(
+      inputDTO,
+      customer.id,
+      customer.companyId as number,
+      res,
+    );
+    if (deliveryRows === false) return null;
+
     return {
       ...this.scalarPayload(inputDTO),
+      ...(deliveryRows !== undefined ? { deliveryRows } : {}),
       companyId: customer.companyId,
       customerId: customer.id,
       productId,
@@ -357,6 +410,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     req: Request,
     res: Response,
   ): Promise<any | null> {
+    if (this.rejectDeliveriesConflict(inputDTO, res)) return null;
     if (!(await this.enforceFieldPermissions(inputDTO, req, res))) return null;
 
     const companyScope = companyFilterScope(req);
@@ -416,6 +470,42 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
     );
     if (salesUserId === false) return null;
 
+    let deliveryRows: IDeliveryRow[] | undefined;
+    if (inputDTO.deliveries !== undefined) {
+      const customer = await this.customerDAO.getByUuid(
+        customerUuid,
+        companyScope,
+      );
+      if (!customer?.id) {
+        this.sendNotFound(res);
+        return null;
+      }
+      const resolved = await this.resolveDeliveries(
+        inputDTO,
+        customer.id,
+        existing.companyId as number,
+        res,
+      );
+      if (resolved === false) return null;
+      deliveryRows = resolved;
+      // The derived date is still a delivery-date edit.
+      const earliest = OrderDeliveryService.earliest(deliveryRows ?? []);
+      if (
+        earliest &&
+        this.deliveryDateChanged(
+          earliest.deliveryDate,
+          existing.deliveryDate,
+        ) &&
+        !(await this.can(req, EDIT_DELIVERY_DATE))
+      ) {
+        res.status(403).json({
+          success: false,
+          message: `Insufficient permissions. Required: ${EDIT_DELIVERY_DATE}`,
+        });
+        return null;
+      }
+    }
+
     const orderDataInput = {
       ...this.orderDataPayload(inputDTO),
       ...(deliveryLocationId !== undefined ? { deliveryLocationId } : {}),
@@ -423,6 +513,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
 
     return {
       ...this.scalarPayload(inputDTO),
+      ...(deliveryRows !== undefined ? { deliveryRows } : {}),
       ...(salesUserId !== undefined ? { salesUserId } : {}),
       ...(Object.keys(orderDataInput).length ? { orderDataInput } : {}),
     };
@@ -430,7 +521,7 @@ export class SalesOrderController extends BaseCrudController<ISalesOrder> {
 
   /** Timestamp comparison — the same instant sent back is not a change. */
   private deliveryDateChanged(
-    incoming: string | null | undefined,
+    incoming: string | Date | null | undefined,
     stored: Date | string | null | undefined,
   ): boolean {
     const toTime = (value: any): number | null => {

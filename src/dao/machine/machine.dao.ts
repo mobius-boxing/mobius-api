@@ -58,6 +58,7 @@ const SCALAR_FIELDS = [
   "maxScoreLines",
   "sourceWarehouseId",
   "destinationWarehouseId",
+  "supplierId",
   "linearMeters",
   "boxWidthMin",
   "boxWidthMax",
@@ -90,6 +91,9 @@ export class MachineDAO {
         knex.raw(
           `CASE WHEN dw.id IS NOT NULL THEN to_jsonb(dw) END as "destinationWarehouse"`,
         ),
+        knex.raw(
+          `CASE WHEN sup.id IS NOT NULL THEN jsonb_build_object('uuid', sup.uuid, 'code', sup.code) END as "supplier"`,
+        ),
       )
       .leftJoin(
         "machine_types as mt",
@@ -105,7 +109,8 @@ export class MachineDAO {
         "warehouses as dw",
         `${this.tableName}.destinationWarehouseId`,
         "dw.id",
-      );
+      )
+      .leftJoin("suppliers as sup", `${this.tableName}.supplierId`, "sup.id");
   }
 
   async create(item: IMachine): Promise<IMachine> {
@@ -157,6 +162,25 @@ export class MachineDAO {
     return row
       ? ((await this.getByUuid(row.uuid)) ?? this.mapToInterface(row))
       : null;
+  }
+
+  async typeIsSupplier(machineTypeId: number): Promise<boolean> {
+    const row = await db("tenant")("machine_types")
+      .where("id", machineTypeId)
+      .select("isSupplier")
+      .first();
+    return row?.isSupplier === true;
+  }
+
+  /** The stored type and supplier of one machine, for the I-5 pair check. */
+  async getTypeAndSupplier(
+    id: number,
+  ): Promise<{ machineTypeId: number; supplierId: number | null } | null> {
+    const row = await db("tenant")(this.tableName)
+      .where("id", id)
+      .select("machineTypeId", "supplierId")
+      .first();
+    return row ?? null;
   }
 
   async delete(id: number): Promise<boolean> {
@@ -215,7 +239,12 @@ export class MachineDAO {
     const num = toNumberOut;
     const stripType = (obj: any) =>
       obj
-        ? { uuid: obj.uuid, name: obj.name, corrugated: obj.corrugated }
+        ? {
+            uuid: obj.uuid,
+            name: obj.name,
+            corrugated: obj.corrugated,
+            isSupplier: obj.isSupplier ?? false,
+          }
         : null;
     const stripWh = (obj: any) =>
       obj ? { uuid: obj.uuid, name: obj.name } : null;
@@ -250,6 +279,7 @@ export class MachineDAO {
       machineType: stripType(record.machineType),
       sourceWarehouse: stripWh(record.sourceWarehouse),
       destinationWarehouse: stripWh(record.destinationWarehouse),
+      supplier: record.supplier ?? null,
     };
   }
 }

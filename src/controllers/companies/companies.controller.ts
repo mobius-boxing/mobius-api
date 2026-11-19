@@ -101,6 +101,7 @@ export class CompaniesController implements IBaseController {
         slug: inputDTO.slug,
         description: inputDTO.description,
         isActive: true,
+        isTerminadora: inputDTO.isTerminadora,
       };
 
       const result = await this._companyDAO.create(dataToCreate);

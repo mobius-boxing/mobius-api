@@ -39,6 +39,8 @@ export interface ICompany {
   slug?: string;
   description?: string;
   isActive?: boolean;
+  /** Terminadora order flow switch; written only by superAdmin via the company routes. */
+  isTerminadora?: boolean;
   /**
    * The raw `companies.branding` blob as stored — `{}` for a company that never
    * set any branding (the DAO maps NULL to `{}` so consumers never have to

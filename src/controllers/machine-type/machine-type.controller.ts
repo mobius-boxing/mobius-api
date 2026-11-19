@@ -68,6 +68,28 @@ export class MachineTypeController extends BaseCrudController<IMachineType> {
     return inputDTO;
   }
 
+  /** I-5: a type cannot stop being a supplier while a machine maps to one. */
+  protected async beforeUpdate(
+    inputDTO: any,
+    existingId: number,
+    _req: Request,
+    res: Response,
+  ): Promise<any | null> {
+    if (inputDTO.isSupplier === false) {
+      const mapped = await this.dao.countMachinesWithSupplier(existingId);
+      if (mapped > 0) {
+        res.status(409).json({
+          success: false,
+          code: "MACHINE_TYPE_HAS_SUPPLIER_MACHINES",
+          message:
+            "Cannot unset isSupplier: machines of this type are still mapped to a supplier.",
+        });
+        return null;
+      }
+    }
+    return inputDTO;
+  }
+
   protected async beforeCreate(
     inputDTO: any,
     req: Request,

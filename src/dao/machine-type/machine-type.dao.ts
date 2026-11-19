@@ -1,6 +1,7 @@
 import { Request } from "express";
 import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
+import { toCountOut } from "../../utils/numbers";
 import { IMachineType } from "../../interfaces/machine/machine.interfaces";
 import {
   parseQueryParams,
@@ -59,6 +60,7 @@ export class MachineTypeDAO {
         requiresPlate: item.requiresPlate ?? false,
         attribute: item.attribute ?? null,
         corrugated: item.corrugated ?? false,
+        isSupplier: item.isSupplier ?? false,
         generatesSheets: item.generatesSheets ?? null,
       })
       .returning("*");
@@ -100,6 +102,7 @@ export class MachineTypeDAO {
       "requiresPlate",
       "attribute",
       "corrugated",
+      "isSupplier",
       "generatesSheets",
     ] as const) {
       if (item[key] !== undefined) updateData[key] = item[key];
@@ -110,6 +113,15 @@ export class MachineTypeDAO {
       .update(updateData)
       .returning("*");
     return row ? this.mapToInterface(row) : null;
+  }
+
+  async countMachinesWithSupplier(id: number): Promise<number> {
+    const row = await db("tenant")("machines")
+      .where("machineTypeId", id)
+      .whereNotNull("supplierId")
+      .count("* as count")
+      .first();
+    return toCountOut(row?.count);
   }
 
   async delete(id: number): Promise<boolean> {
@@ -160,6 +172,7 @@ export class MachineTypeDAO {
       requiresPlate: record.requiresPlate,
       attribute: record.attribute,
       corrugated: record.corrugated,
+      isSupplier: record.isSupplier ?? false,
       generatesSheets: record.generatesSheets,
       legacyId: record.legacyId,
       createdAt: record.createdAt,

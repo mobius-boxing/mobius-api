@@ -119,6 +119,12 @@ export interface IGenerationEligibility {
   oneOrderPerSalesOrder: boolean;
   /** The dialog's single seeded row (GenerarOrdenesForm.cs:68-72). */
   defaultRow: { quantity: number; deliveryDate: string | null };
+  /**
+   * The dialog's seeded rows: one per delivery of the pedido (resolved
+   * quantity, date) unless `oneOrderPerSalesOrder` is on or there are none —
+   * then `[defaultRow]`.
+   */
+  defaultRows: IPromisedQuantity[];
 }
 
 /** Nested reference on the outward surface: uuid plus a label field or two. */

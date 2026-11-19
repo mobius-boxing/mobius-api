@@ -38,7 +38,7 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * contract migration removed its two audited tables, plus the 4
  * `corrugator_plan*` tables (corrugator-planning T2, 2026-09-25).
  */
-const AUDITED_TABLES = 80;
+const AUDITED_TABLES = 86;
 
 /**
  * The migration creates the current month plus 13 ahead, so the inventory can

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
 import { MachineDAO } from "../../dao/machine/machine.dao";
 import { MachineTypeDAO } from "../../dao/machine-type/machine-type.dao";
+import { SupplierDAO } from "../../dao/supplier/supplier.dao";
 import { IMachine } from "../../interfaces/machine/machine.interfaces";
 import {
   MachineCreateInputDTO,
@@ -25,6 +26,40 @@ export class MachineController extends BaseCrudController<IMachine> {
   };
 
   private machineTypeDAO = new MachineTypeDAO();
+  private supplierDAO = new SupplierDAO();
+
+  /**
+   * I-5: `supplierId` may be non-null only on a machine whose type isSupplier.
+   * Checked on the EFFECTIVE pair, so changing only the type of a mapped
+   * machine is refused as well.
+   */
+  private async checkSupplierAllowed(
+    refs: Record<string, number | null>,
+    existingId: number | null,
+    res: Response,
+  ): Promise<boolean> {
+    const stored = existingId
+      ? await this.dao.getTypeAndSupplier(existingId)
+      : null;
+    const supplierId =
+      refs.supplierId !== undefined
+        ? refs.supplierId
+        : (stored?.supplierId ?? null);
+    if (supplierId === null) return true;
+    const machineTypeId =
+      refs.machineTypeId !== undefined
+        ? refs.machineTypeId
+        : (stored?.machineTypeId ?? null);
+    if (machineTypeId && (await this.dao.typeIsSupplier(machineTypeId))) {
+      return true;
+    }
+    res.status(400).json({
+      success: false,
+      code: "SUPPLIER_NOT_ALLOWED",
+      message: "A supplier can only be mapped to a machine of a supplier type.",
+    });
+    return false;
+  }
 
   protected async buildCreateDTO(
     req: Request,
@@ -93,6 +128,19 @@ export class MachineController extends BaseCrudController<IMachine> {
       }
       resolved.machineTypeId = machineTypeId;
     }
+    if (inputDTO.supplierUuid !== undefined) {
+      const supplierId = inputDTO.supplierUuid
+        ? await this.supplierDAO.getIdByUuid(
+            inputDTO.supplierUuid,
+            companyScope,
+          )
+        : null;
+      if (inputDTO.supplierUuid && !supplierId) {
+        res.status(400).json({ success: false, message: "Supplier not found" });
+        return null;
+      }
+      resolved.supplierId = supplierId;
+    }
     for (const [uuidKey, idKey, table] of [
       ["sourceWarehouseUuid", "sourceWarehouseId", "warehouses"],
       ["destinationWarehouseUuid", "destinationWarehouseId", "warehouses"],
@@ -130,8 +178,10 @@ export class MachineController extends BaseCrudController<IMachine> {
     }
     const refs = await this.resolveRefs(inputDTO, req, res);
     if (refs === null) return null;
+    if (!(await this.checkSupplierAllowed(refs, null, res))) return null;
 
     const payload: any = { ...inputDTO, companyId, ...refs };
+    delete payload.supplierUuid;
     delete payload.machineTypeUuid;
     delete payload.sourceWarehouseUuid;
     delete payload.destinationWarehouseUuid;
@@ -140,14 +190,16 @@ export class MachineController extends BaseCrudController<IMachine> {
 
   protected async beforeUpdate(
     inputDTO: any,
-    _existingId: number,
+    existingId: number,
     req: Request,
     res: Response,
   ): Promise<any | null> {
     const refs = await this.resolveRefs(inputDTO, req, res);
     if (refs === null) return null;
+    if (!(await this.checkSupplierAllowed(refs, existingId, res))) return null;
 
     const payload: any = { ...inputDTO, ...refs };
+    delete payload.supplierUuid;
     delete payload.machineTypeUuid;
     delete payload.sourceWarehouseUuid;
     delete payload.destinationWarehouseUuid;

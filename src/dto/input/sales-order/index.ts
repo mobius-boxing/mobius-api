@@ -1,5 +1,7 @@
 import { toNumberInput as num } from "../../../utils/numbers";
 import { collect, FieldValidationError } from "../shared/ValidationError";
+import { IDeliveryInput } from "../../../interfaces/order-delivery/order-delivery.interfaces";
+import { OrderDeliveryService } from "../../../services/order-delivery.service";
 
 /**
  * Pedido DTOs — module 18 sub-area D.
@@ -63,6 +65,9 @@ export class SalesOrderCreateInputDTO {
   dispatchNotes?: string | null;
   conversionNotes?: string | null;
 
+  /** Full replacement set; `[]` clears. Locations are resolved by the controller. */
+  deliveries?: IDeliveryInput[];
+
   /**
    * Raw body keys, so build() can reject server-owned / unsupported ones and
    * the controller can tell "sent as null" from "absent". Defined
@@ -70,11 +75,16 @@ export class SalesOrderCreateInputDTO {
    * enumerable Set would ride along into the insert.
    */
   protected readonly providedKeys!: Set<string>;
+  protected readonly rawDeliveries!: unknown;
 
   constructor(data: any) {
     const body = data ?? {};
     Object.defineProperty(this, "providedKeys", {
       value: new Set(Object.keys(body)),
+      enumerable: false,
+    });
+    Object.defineProperty(this, "rawDeliveries", {
+      value: body.deliveries,
       enumerable: false,
     });
 
@@ -156,6 +166,18 @@ export class SalesOrderCreateInputDTO {
     }
   }
 
+  protected validateDeliveries(): void {
+    if (!this.providedKeys.has("deliveries")) return;
+    try {
+      this.deliveries = OrderDeliveryService.parseInput(this.rawDeliveries);
+    } catch (e) {
+      throw new FieldValidationError(
+        "deliveries",
+        e instanceof Error ? e.message : "deliveries is invalid",
+      );
+    }
+  }
+
   /** True when the key arrived with a non-blank value. */
   protected filled(key: "customerUuid" | "productUuid"): boolean {
     return String(this[key] ?? "").trim() !== "";
@@ -176,6 +198,7 @@ export class SalesOrderCreateInputDTO {
       field("quantity", () => this.validateQuantity(true));
       field("money", () => this.validateMoney());
       field("deliveryDate", () => this.validateDeliveryDate());
+      field("deliveries", () => this.validateDeliveries());
     });
     return this;
   }
@@ -222,6 +245,7 @@ export class SalesOrderUpdateInputDTO extends SalesOrderCreateInputDTO {
       field("quantity", () => this.validateQuantity(false));
       field("money", () => this.validateMoney());
       field("deliveryDate", () => this.validateDeliveryDate());
+      field("deliveries", () => this.validateDeliveries());
     });
 
     const self = this as Record<string, unknown>;

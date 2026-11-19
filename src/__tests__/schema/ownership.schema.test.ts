@@ -35,18 +35,20 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * tenant registry (`db_servers`, `tenant_databases`, `tenant_migration_runs`
  * — all `core`, model D-7), plus `user_devices` (device approval, 2026-09-12
  * — also `core`), plus the 4 `corrugator_plan*` tables (corrugator-planning
- * T2, 2026-09-25 — all `tenant`).
+ * T2, 2026-09-25 — all `tenant`), plus the 6 terminadora-order-flow tables
+ * (`order_deliveries`, `product_stock`, `quotations`, `supplier_purchase_orders`,
+ * `supplier_purchase_order_lines`, `supplier_receipts` — all `tenant`).
  */
-const DOMAIN_TABLE_COUNT = 88;
+const DOMAIN_TABLE_COUNT = 94;
 /** db-per-company model D-3: the pre-fan-out names, per plane. */
 const DOMAIN_COUNTS: Record<DbKey, number> = {
   core: 16,
-  tenant: 72,
+  tenant: 78,
 };
 /** The names each plane holds, fan-out copies included (model placement table). */
 const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
   core: 16,
-  tenant: 74,
+  tenant: 80,
 };
 /**
  * The two names that deliberately live in both planes (AC-2, model D-5/D-6):
@@ -55,7 +57,7 @@ const PLANE_TABLE_COUNTS: Record<DbKey, number> = {
 const FANNED_OUT_COPIES: Record<string, number> = { files: 2, audit_logs: 2 };
 /** Tenant tables per catalogue slug: ERP 53 + `files` + `audit_logs` under core. */
 const MODULE_COUNTS: Record<string, number> = {
-  core: 59,
+  core: 65,
   countdown: 9,
   "node-files": 6,
 };

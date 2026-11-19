@@ -13,6 +13,7 @@ import {
   PRODUCTION_ORDER_CONFIG_KEYS,
   WARNING_MESSAGES,
 } from "../interfaces/production-order/production-order.interfaces";
+import { OrderDeliveryService } from "./order-delivery.service";
 import { AppConfigService } from "./app-config.service";
 import { CodeGeneratorService, CODE_SCOPES } from "./code-generator.service";
 import { validateProductionOrder } from "./production-order-validator.service";
@@ -143,6 +144,7 @@ export class ProductionOrderGenerationService {
   private dao = new ProductionOrderDAO();
   private appConfig = new AppConfigService();
   private codeGenerator = new CodeGeneratorService();
+  private deliveries = new OrderDeliveryService();
 
   /** The four config toggles this flow honours, resolved for one company. */
   async loadConfig(companyId: number): Promise<IGenerationConfig> {
@@ -207,10 +209,15 @@ export class ProductionOrderGenerationService {
         : null,
     };
 
+    const defaultRows = await this.defaultRowsOf(
+      salesOrder,
+      defaultRow,
+      config,
+    );
     const blockingReasons = evaluateGuards({
       salesOrder,
       existingOrderCount,
-      promisedQuantities: [defaultRow],
+      promisedQuantities: defaultRows,
       force: true,
       config,
     });
@@ -222,7 +229,26 @@ export class ProductionOrderGenerationService {
       requiresForce: salesOrder.voidedAt != null,
       oneOrderPerSalesOrder: config.oneOrderPerSalesOrder,
       defaultRow,
+      defaultRows,
     };
+  }
+
+  private async defaultRowsOf(
+    salesOrder: ILockedSalesOrder,
+    defaultRow: IPromisedQuantity,
+    config: IGenerationConfig,
+  ): Promise<IPromisedQuantity[]> {
+    if (config.oneOrderPerSalesOrder) return [defaultRow];
+    const summary = (
+      await this.deliveries.summaries("salesOrderId", [
+        { id: salesOrder.id, quantity: salesOrder.quantity },
+      ])
+    ).get(salesOrder.id);
+    if (!summary || summary.deliveries.length === 0) return [defaultRow];
+    return summary.deliveries.map((d) => ({
+      quantity: d.quantity,
+      deliveryDate: new Date(d.deliveryDate).toISOString(),
+    }));
   }
 
   /** `POST /production-orders/generate`. One transaction, all rows or none. */

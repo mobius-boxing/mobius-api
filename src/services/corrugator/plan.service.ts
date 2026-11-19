@@ -332,7 +332,7 @@ async function loadInPlansBatch(
 
 // ── Eligible order rows + context (I-1, §Seeding, P-1, P-3) ────────────────
 
-interface RawOrderRow {
+export interface RawOrderRow {
   id: number;
   uuid: string;
   number: string;
@@ -444,7 +444,7 @@ export interface OrderContext {
   notOnMachine: boolean;
 }
 
-async function buildOrderContexts(
+export async function buildOrderContexts(
   companyId: number,
   rows: RawOrderRow[],
   machineUuids?: string[],

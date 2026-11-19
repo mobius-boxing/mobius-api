@@ -44,15 +44,16 @@ const describeIfLocalDb = isLocalDb ? describe : describe.skip;
  * 3-table tenant registry (all `core`, all audited, model D-7), plus
  * `user_devices` (device approval, 2026-09-12; also `core`, audited), plus
  * the 4 `corrugator_plan*` tables (corrugator-planning T2, 2026-09-25; all
- * `tenant`, all audited, none excluded).
+ * `tenant`, all audited, none excluded), plus the 6 terminadora-order-flow
+ * tables (all `tenant`, all audited, none excluded).
  */
 const AUDITED_COUNTS: Record<DbKey, number> = {
-  tenant: 68,
+  tenant: 74,
   core: 13,
 };
 /** `files` is attached under core + tenant: 77 calls, 76 tables. */
-const ATTACH_CALLS = 81;
-const AUDITED_TABLES = 80;
+const ATTACH_CALLS = 87;
+const AUDITED_TABLES = 86;
 
 /**
  * R-1, corrected post-T2 router sweep (2026-09-14): only entities no company

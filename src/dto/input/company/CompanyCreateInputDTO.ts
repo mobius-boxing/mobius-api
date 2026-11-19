@@ -3,7 +3,11 @@ import {
   isValidDnsSlug,
   toDnsSlug,
 } from "../../../utils/slugify";
-import { clearableText, requiredText } from "../shared/fieldValidators";
+import {
+  clearableText,
+  requiredText,
+  toBoolean,
+} from "../shared/fieldValidators";
 import { collect, FieldValidationError } from "../shared/ValidationError";
 
 /**
@@ -44,6 +48,7 @@ export class CompanyCreateInputDTO {
    */
   slug: string;
   description?: string;
+  isTerminadora?: boolean;
 
   constructor(data: any) {
     this.name = data.name;
@@ -52,6 +57,8 @@ export class CompanyCreateInputDTO {
         ? data.slug.trim().toLowerCase()
         : toDnsSlug(typeof data.name === "string" ? data.name : "");
     if (data.description !== undefined) this.description = data.description;
+    if (data.isTerminadora !== undefined)
+      this.isTerminadora = data.isTerminadora;
   }
 
   public build(): this {
@@ -66,6 +73,11 @@ export class CompanyCreateInputDTO {
           COMPANY_LABELS.description,
         ),
       ) as string | undefined;
+      if (this.isTerminadora !== undefined) {
+        this.isTerminadora = field("isTerminadora", () =>
+          toBoolean(this.isTerminadora, "El indicador de terminadora"),
+        );
+      }
       // A slug is part of a live hostname, so an invalid one is a hard error
       // and never a silently-corrected value: the subdomain the operator was
       // told to configure must be exactly the slug that got stored. Same two

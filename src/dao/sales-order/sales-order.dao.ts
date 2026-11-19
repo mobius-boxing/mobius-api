@@ -1,4 +1,5 @@
 import { Request } from "express";
+import type { Knex } from "knex";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "../../database/registry";
 import { IDataPaginator } from "../../database/d.types";
@@ -44,6 +45,7 @@ import {
   CODE_SCOPES,
 } from "../../services/code-generator.service";
 import { OrderDataDAO } from "../order-data/order-data.dao";
+import { OrderDeliveryService } from "../../services/order-delivery.service";
 import { CoreClient, type CoreUser } from "../../services/core-client.service";
 
 /** An upper bound with no time part, e.g. `2026-03-31`. */
@@ -139,6 +141,7 @@ const SCALAR_COLUMNS = [
   "balancePercentage",
   "supplierCode",
   "salesUserId",
+  "quotationId",
   "legacyId",
 ] as const;
 
@@ -203,6 +206,7 @@ export class SalesOrderDAO {
   private queryConfig = SALES_ORDER_QUERY_CONFIG;
   private codeGenerator = new CodeGeneratorService();
   private orderDataDAO = new OrderDataDAO();
+  private deliveries = new OrderDeliveryService();
 
   // ── Reads ────────────────────────────────────────────────────────────────
   private selectWithJoins(knex: any) {
@@ -231,6 +235,10 @@ export class SalesOrderDAO {
           knex.raw(
             `CASE WHEN psh.id IS NOT NULL THEN to_jsonb(psh) END as "sheetSupply"`,
           ),
+          // quotations.salesOrderId is UNIQUE, so this join never multiplies rows.
+          knex.raw(
+            `CASE WHEN qt.id IS NOT NULL THEN jsonb_build_object('uuid', qt.uuid, 'number', qt.number) END as "quotation"`,
+          ),
         )
         .leftJoin(
           "customers as cust",
@@ -247,6 +255,7 @@ export class SalesOrderDAO {
           `${this.tableName}.sheetSupplyId`,
           "psh.id",
         )
+        .leftJoin("quotations as qt", "qt.salesOrderId", `${this.tableName}.id`)
     );
   }
 
@@ -262,9 +271,11 @@ export class SalesOrderDAO {
     applyCompanyScope(query, this.tableName, companyId);
     const found = await query.first();
     const [row] = found ? await this.withSalesUsers([found]) : [];
+    if (!row) return null;
+    const [withDeliveries] = await this.withDeliveries([row]);
     // L-005: re-attach the numeric id explicitly — mapToInterface strips it,
     // and callers that guard on `existing.id` would 404 forever otherwise.
-    return row ? { ...this.mapToInterface(row), id: row.id } : null;
+    return { ...withDeliveries, id: row.id };
   }
 
   async getIdByUuid(
@@ -289,7 +300,13 @@ export class SalesOrderDAO {
    * deliberate sequence semantics (divergence D7 of the service): gapless
    * numbering would need a lock held for the whole request.
    */
-  async create(item: ISalesOrderWrite): Promise<ISalesOrder> {
+  async create(
+    item: ISalesOrderWrite,
+    inTransaction?: (
+      trx: Knex.Transaction,
+      row: { id: number },
+    ) => Promise<void>,
+  ): Promise<ISalesOrder> {
     const knex = db("tenant");
     const number = await this.codeGenerator.next(
       item.companyId!,
@@ -325,6 +342,19 @@ export class SalesOrderDAO {
       }
 
       const [row] = await trx(this.tableName).insert(insertData).returning("*");
+      if (item.deliveryRows?.length) {
+        await this.deliveries.syncSalesOrderTrx(
+          trx,
+          {
+            id: row.id,
+            orderDataId: orderDataRow.id,
+            companyId: item.companyId!,
+          },
+          item.deliveryRows,
+        );
+      }
+      // Lets generate-order link its quotation in the SAME transaction (D-27).
+      if (inTransaction) await inTransaction(trx, row);
       return row;
     });
 
@@ -340,7 +370,7 @@ export class SalesOrderDAO {
     const updated = await knex.transaction(async (trx) => {
       const existing = await trx(this.tableName)
         .where("id", id)
-        .select("id", "uuid", "number", "orderDataId")
+        .select("id", "uuid", "number", "orderDataId", "companyId")
         .first();
       if (!existing) return null;
 
@@ -360,6 +390,8 @@ export class SalesOrderDAO {
           ...item.orderDataInput,
         });
       }
+      // I-21: runs after the order_data write so the derived location wins.
+      await this.deliveries.syncSalesOrderTrx(trx, existing, item.deliveryRows);
 
       return existing;
     });
@@ -599,9 +631,7 @@ export class SalesOrderDAO {
 
     return {
       success: true,
-      data: (await this.withSalesUsers(rows)).map((row) =>
-        this.mapToInterface(row),
-      ),
+      data: await this.withDeliveries(await this.withSalesUsers(rows)),
       page: parsedQuery.page,
       limit: parsedQuery.limit,
       count: rows.length,
@@ -634,6 +664,18 @@ export class SalesOrderDAO {
     delete parsedQuery.filters[filterKey];
     if (!uuid) return undefined;
     return (await idByUuid(uuid)) ?? -1;
+  }
+
+  /** Mapped interfaces for raw joined rows, each carrying its deliveries (one query for the set). */
+  private async withDeliveries(rows: any[]): Promise<ISalesOrder[]> {
+    const summaries = await this.deliveries.summaries(
+      "salesOrderId",
+      rows.map((r) => ({ id: r.id, quantity: toNumberOut(r.quantity) ?? 0 })),
+    );
+    return rows.map((row) => ({
+      ...this.mapToInterface(row),
+      ...summaries.get(row.id)!,
+    }));
   }
 
   /** Each row's vendedor from core, in one query for the whole page. */
@@ -793,6 +835,7 @@ export class SalesOrderDAO {
       customer: pickRef(record.customer, ["name", "code"]),
       product: pickRef(record.product, ["code", "description"]),
       salesUser: pickRef(record.salesUser, ["name", "email"]),
+      quotation: record.quotation ?? null,
       orderData: this.orderDataDAO.mapToInterface(
         record.orderData,
         record.deliveryLocation,

@@ -145,6 +145,18 @@ export const AUDIT_PARENT: Record<string, AuditParent> = {
     grand: "corrugator_plans",
     grandFk: "planId",
   },
+  // terminadora-order-flow: lines belong to their purchase order, a receipt
+  // to its line (two hops from the purchase order).
+  supplier_purchase_order_lines: {
+    parent: "supplier_purchase_orders",
+    fk: "purchaseOrderId",
+  },
+  supplier_receipts: {
+    parent: "supplier_purchase_order_lines",
+    fk: "lineId",
+    grand: "supplier_purchase_orders",
+    grandFk: "purchaseOrderId",
+  },
 };
 
 /**
@@ -263,6 +275,13 @@ export const ENTITY_READ_PERMISSION: Record<string, string | null> = {
   // narrower `products.approve.technical` (one PATCH) or `products.delete`
   // (DELETE only).
   products: "products.edit",
+  // terminadora-order-flow: the code each router enforces on the entity.
+  order_deliveries: "orders.edit", // deliveries of a quotation or a sales order
+  product_stock: "product-stock.view",
+  quotations: "quotations.edit",
+  supplier_purchase_orders: "supplier-orders.plan",
+  supplier_purchase_order_lines: "supplier-orders.plan", // child of `supplier_purchase_orders`
+  supplier_receipts: "supplier-orders.plan", // child of `supplier_purchase_order_lines`
   role_permissions: "roles.edit", // child of `roles`
   roles: "roles.edit",
   sales_order_approval_events: "orders.edit", // child of `sales_orders`
@@ -358,6 +377,7 @@ export const AUDIT_FK_TABLE: Record<string, string> = {
   groupId: "countdown_groups",
   imageFileUuid: "files",
   invitedBy: "users",
+  lineId: "supplier_purchase_order_lines",
   machineId: "machines",
   machineTypeId: "machine_types",
   managerId: "users",
@@ -373,8 +393,11 @@ export const AUDIT_FK_TABLE: Record<string, string> = {
   paperTypeId: "paper_types",
   permissionId: "permissions",
   productId: "products",
+  productStockId: "product_stock",
   productTypeId: "product_types",
+  productionOrderId: "production_orders",
   productionRouteId: "production_routes",
+  purchaseOrderId: "supplier_purchase_orders",
   resolvedBy: "users",
   revokedBy: "users",
   roleId: "roles",

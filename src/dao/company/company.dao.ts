@@ -71,6 +71,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
         slug: item.slug ?? toDnsSlug(item.name),
         description: item.description,
         isActive: item.isActive ?? true,
+        isTerminadora: item.isTerminadora ?? false,
       })
       .returning("*");
 
@@ -127,6 +128,8 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
     if (item.description !== undefined)
       updateData.description = item.description;
     if (item.isActive !== undefined) updateData.isActive = item.isActive;
+    if (item.isTerminadora !== undefined)
+      updateData.isTerminadora = item.isTerminadora;
 
     updateData.updatedAt = knex.fn.now();
 
@@ -273,6 +276,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
       slug: record.slug,
       description: record.description,
       isActive: record.isActive,
+      isTerminadora: record.isTerminadora ?? false,
       // The column is NOT NULL DEFAULT '{}', but a row read through a join or
       // an older snapshot may still hand us undefined — normalize once here so
       // no consumer has to distinguish "no branding" from "no column".
