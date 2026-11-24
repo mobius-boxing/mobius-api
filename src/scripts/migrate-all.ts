@@ -5,6 +5,7 @@ import {
   migrationConfigFor,
   migrationLog,
 } from "../database/migration-sets";
+import { currentProduct } from "../common/config/product";
 import { connectionForTenant } from "../database/env";
 import { resolveCredential } from "../database/credential-resolver";
 import { latestTenantMigrationFile } from "../services/tenant-provisioning.service";
@@ -126,7 +127,15 @@ export async function runMigrateAll(
 
   const filter =
     parsed.mode === "company" ? { companyUuid: parsed.companyUuid } : {};
-  const fleet = await deps.migrateFleet(filter);
+  let fleet: FleetOutcome;
+  try {
+    fleet = await deps.migrateFleet(filter);
+  } catch (error) {
+    deps.err(
+      `[migrate] fleet failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return 1;
+  }
   deps.out(
     `[migrate] fleet: attempted ${fleet.attempted}, skipped ${fleet.skippedCurrent} (already current), failed ${fleet.failed.length}` +
       (fleet.failed.length > 0 ? `: ${fleet.failed.join(", ")}` : ""),
@@ -172,13 +181,24 @@ async function listFleetRows(
   filter: { companyUuid?: string },
 ): Promise<FleetRow[]> {
   const coreDatabase = coreMigrationConnection().database;
+  const product = currentProduct();
+  if (filter.companyUuid) {
+    const target = await coreKnex("companies")
+      .where("uuid", filter.companyUuid)
+      .first<{ product: string } | undefined>("product");
+    if (target && target.product !== product) {
+      throw new Error(
+        `company ${filter.companyUuid} belongs to Mobius ${target.product}; this run serves ${product} (MOBIUS_PRODUCT)`,
+      );
+    }
+  }
   let query = coreKnex("tenant_databases as td")
+    .join("companies as c", "c.id", "td.companyId")
+    .where("c.product", product)
     .whereIn("td.status", ["active", "suspended"])
     .andWhere("td.databaseName", "<>", coreDatabase); // shared-target rows are migrated by the core step
   if (filter.companyUuid) {
-    query = query
-      .join("companies as c", "c.id", "td.companyId")
-      .andWhere("c.uuid", filter.companyUuid);
+    query = query.andWhere("c.uuid", filter.companyUuid);
   }
   return query.select("td.*");
 }

@@ -1,3 +1,4 @@
+import { isProduct, type Product } from "../../../common/config/product";
 import {
   isReservedDnsSlug,
   isValidDnsSlug,
@@ -49,6 +50,7 @@ export class CompanyCreateInputDTO {
   slug: string;
   description?: string;
   isTerminadora?: boolean;
+  product?: Product;
 
   constructor(data: any) {
     this.name = data.name;
@@ -59,6 +61,7 @@ export class CompanyCreateInputDTO {
     if (data.description !== undefined) this.description = data.description;
     if (data.isTerminadora !== undefined)
       this.isTerminadora = data.isTerminadora;
+    if (data.product !== undefined) this.product = data.product;
   }
 
   public build(): this {
@@ -77,6 +80,17 @@ export class CompanyCreateInputDTO {
         this.isTerminadora = field("isTerminadora", () =>
           toBoolean(this.isTerminadora, "El indicador de terminadora"),
         );
+      }
+      if (this.product !== undefined) {
+        field("product", () => {
+          if (!isProduct(this.product)) {
+            throw new FieldValidationError(
+              "product",
+              'El producto debe ser "full" o "lite"',
+            );
+          }
+          return this.product;
+        });
       }
       // A slug is part of a live hostname, so an invalid one is a hard error
       // and never a silently-corrected value: the subdomain the operator was

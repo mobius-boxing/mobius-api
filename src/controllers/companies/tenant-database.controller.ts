@@ -6,7 +6,10 @@ import {
   IDbServer,
   ITenantDatabase,
 } from "../../interfaces/tenant/tenant.interfaces";
-import { tenantStats } from "../../database/tenant-pools";
+import {
+  assertCompanyProduct,
+  tenantStats,
+} from "../../database/tenant-pools";
 import {
   beginProvisioning,
   runProvisioningSteps,
@@ -79,6 +82,7 @@ export class TenantDatabaseController {
         res.status(404).json(COMPANY_NOT_FOUND_BODY);
         return;
       }
+      await assertCompanyProduct(companyId);
 
       const row = await this.findReportableRow(companyId);
       if (!row) {
@@ -114,6 +118,7 @@ export class TenantDatabaseController {
         res.status(404).json(COMPANY_NOT_FOUND_BODY);
         return;
       }
+      await assertCompanyProduct(companyId);
 
       let dto: TenantProvisionInputDTO;
       try {
@@ -175,6 +180,7 @@ export class TenantDatabaseController {
         res.status(404).json(COMPANY_NOT_FOUND_BODY);
         return;
       }
+      await assertCompanyProduct(companyId);
 
       const row = await this._tenantDatabaseDAO.getLiveByCompanyId(companyId);
       if (!row) {

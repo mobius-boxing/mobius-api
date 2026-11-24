@@ -1,6 +1,7 @@
 import { knex as createKnex, type Knex } from "knex";
 import { connectionFor, connectionForTenant } from "./env";
 import { resolveCredential } from "./credential-resolver";
+import { assertCompanyProduct } from "./tenant-pools";
 import { TenantDatabaseDAO } from "../dao/tenant-database/tenant-database.dao";
 import { DbServerDAO } from "../dao/db-server/db-server.dao";
 import type {
@@ -57,6 +58,7 @@ export async function listDedicatedTenants(): Promise<DedicatedTenantTarget[]> {
 export async function openDedicatedTenant(
   target: DedicatedTenantTarget,
 ): Promise<Knex> {
+  await assertCompanyProduct(target.row.companyId);
   const password = await resolveCredential(
     target.row.credentialRef,
     target.row.credentialCiphertext,
@@ -75,6 +77,7 @@ export const closeDedicatedTenant = (knex: Knex): Promise<void> =>
 export async function resolveDedicatedTenant(
   companyId: number,
 ): Promise<DedicatedTenantTarget | null> {
+  await assertCompanyProduct(companyId);
   const coreDatabase = connectionFor("core").database;
   const row = await new TenantDatabaseDAO().getLiveByCompanyId(companyId);
   if (!row || row.databaseName === coreDatabase) return null;

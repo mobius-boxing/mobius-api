@@ -1,0 +1,110 @@
+# Core contract: byte-identical in mobius-api and mobius-lite-api; change both or neither.
+# One path (file) or directory (compared recursively, added/removed files included)
+# per line, relative to the repo root; '#' starts a comment. Checked by
+# scripts/check-core-contract.sh and, at deploy, by the deploy script (working trees).
+# Rule of thumb: whatever reads or writes a CORE-plane table (src/database/ownership.ts),
+# or decides which tenant an API process may open, belongs here. Tenant-only
+# business code does not.
+
+# The contract itself
+core-contract.paths
+scripts/check-core-contract.sh
+src/common/config/product.ts
+
+# Core schema and seeds (one shared core database)
+migrations/core/
+seeds/core/
+src/__tests__/unit/core-migrations.test.ts
+src/__tests__/unit/helpers/contract-ddl.ts
+
+# Plane plumbing: ownership, pools, credentials, migration sets, env
+src/database/ownership.ts
+src/database/registry.ts
+src/database/tenant-pools.ts
+src/database/credential-resolver.ts
+src/database/dedicated-tenants.ts
+src/database/migration-sets.ts
+src/database/env.ts
+src/database/keys.ts
+src/database/cross-plane-refs.ts
+src/database/audit-context.ts
+src/utils/requestContext.ts
+src/utils/companyScope.ts
+src/utils/daoScope.ts
+
+# Auth, sessions, devices, tenant context, errors
+src/middlewares/auth.middleware.ts
+src/middlewares/tenant-context.middleware.ts
+src/middlewares/error/
+src/routes/auth/
+src/controllers/auth/
+src/dto/input/auth/
+src/routes/devices/
+src/controllers/devices/
+src/services/device.service.ts
+src/common/config/auth/
+src/utils/cookies.ts
+src/utils/tokenHash.ts
+
+# Core entities: companies, users, invitations, roles, permissions, modules, files
+src/routes/companies/
+src/controllers/companies/
+src/dto/input/company/
+src/dto/tenant/
+src/routes/users/
+src/controllers/users/
+src/routes/invitations/
+src/controllers/invitations/
+src/routes/roles/
+src/controllers/role/
+src/routes/permissions/
+src/routes/db-servers/
+src/routes/modules/
+src/routes/files/
+src/dao/company/
+src/dao/company-module/
+src/dao/module/
+src/dao/db-server/
+src/dao/tenant-database/
+src/dao/email-token/
+src/dao/file/
+src/dao/invitation/
+src/dao/permission/
+src/dao/refresh-session/
+src/dao/role/
+src/dao/user/
+src/dao/user-device/
+src/dao/audit-log/
+src/interfaces/company/
+src/interfaces/company-module/
+src/interfaces/user/
+src/interfaces/user-device/
+src/interfaces/tenant/
+src/interfaces/invitation/
+src/interfaces/email-token/
+src/interfaces/module/
+src/interfaces/refresh-session/
+src/interfaces/file/
+src/interfaces/audit-log/
+src/services/rbac.service.ts
+src/services/role-policy.service.ts
+src/services/user-target.service.ts
+src/services/core-client.service.ts
+src/services/tenant-provisioning.service.ts
+src/services/company-purge.service.ts
+src/services/purge-snapshot.service.ts
+src/services/email.service.ts
+src/services/module-email.service.ts
+src/services/email-token.service.ts
+
+# Module catalogue is shared core data (C-7): registry, manifests, sync
+src/modules/
+src/scripts/modules-sync.ts
+
+# Fleet and core-touching scripts
+src/scripts/migrate-all.ts
+src/scripts/migrate-rollback.ts
+src/scripts/purge-companies.ts
+src/scripts/purge-gate.ts
+src/scripts/db-bootstrap.ts
+src/scripts/db-check-integrity.ts

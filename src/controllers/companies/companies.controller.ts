@@ -8,6 +8,10 @@ import { UserDAO } from "../../dao/user/user.dao";
 import { ICompany } from "../../interfaces/company/company.interfaces";
 import { v4 as uuidv4 } from "uuid";
 import {
+  currentProduct,
+  wrongProductError,
+} from "../../common/config/product";
+import {
   CompanyBrandingInputDTO,
   CompanyCreateInputDTO,
   CompanyUpdateInputDTO,
@@ -95,6 +99,11 @@ export class CompaniesController implements IBaseController {
         return next(new Error(validation.message));
       }
 
+      const product = inputDTO.product ?? currentProduct();
+      if (product !== currentProduct()) {
+        return next(wrongProductError(product));
+      }
+
       const dataToCreate: ICompany = {
         uuid: uuidv4(),
         name: inputDTO.name,
@@ -102,6 +111,7 @@ export class CompaniesController implements IBaseController {
         description: inputDTO.description,
         isActive: true,
         isTerminadora: inputDTO.isTerminadora,
+        product,
       };
 
       const result = await this._companyDAO.create(dataToCreate);
@@ -214,6 +224,15 @@ export class CompaniesController implements IBaseController {
         return;
       }
 
+      if (data.product !== undefined && data.product !== existing.product) {
+        res.status(400).json({
+          success: false,
+          code: "PRODUCT_IMMUTABLE",
+          message: "A company's product cannot be changed after creation.",
+        });
+        return;
+      }
+
       // build() throws on an invalid or reserved slug — a 400, not a 500.
       let inputDTO: CompanyUpdateInputDTO;
       try {
@@ -309,6 +328,9 @@ export class CompaniesController implements IBaseController {
         return;
       }
       const companyId = existing.id;
+      if (existing.product && existing.product !== currentProduct()) {
+        return next(wrongProductError(existing.product));
+      }
 
       // NOT `CompanyDAO.delete`: the ledger is append-only in the database, so
       // removing a company is only possible through the purge path, which turns

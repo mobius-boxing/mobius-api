@@ -1,4 +1,5 @@
 import { KnexTimeoutError } from "knex";
+import { currentProduct } from "../common/config/product";
 import { db, DatabaseNotConnectedError } from "../database/registry";
 import { CompanyDAO } from "../dao/company/company.dao";
 import { USER_QUERY_CONFIG, UserDAO } from "../dao/user/user.dao";
@@ -135,12 +136,14 @@ export const CoreClient = {
   /**
    * Every active company id (corrugator-planning's boot sweep, I-14): unlike
    * `companyIdsWithModuleEnabled`, this is core-app, not module-gated, so
-   * every tenant is a candidate.
+   * every tenant of this process's product is a candidate (the other
+   * product's API serves the rest).
    */
   activeCompanyIds(): Promise<readonly number[]> {
     return cached("activeCompanyIds", [], async () => {
       const ids: number[] = await db("core")("companies")
         .where("isActive", true)
+        .andWhere("product", currentProduct())
         .orderBy("id")
         .pluck("id");
       return ids;
@@ -151,7 +154,9 @@ export const CoreClient = {
     return cached("companyIdsWithModuleEnabled", [slug], async () => {
       const ids: number[] = await db("core")("company_modules as cm")
         .join("modules as m", "m.id", "cm.moduleId")
-        .where("m.slug", slug)
+        .join("companies as c", "c.id", "cm.companyId")
+        .where("c.product", currentProduct())
+        .andWhere("m.slug", slug)
         .andWhere("cm.enabled", true)
         .whereNotIn("cm.subscriptionStatus", BLOCKED_SUB_STATUSES)
         .orderBy("cm.companyId")

@@ -32,6 +32,14 @@ jest.mock("../../../dao/tenant-database/tenant-database.dao", () => ({
   },
 }));
 
+jest.mock("../../../dao/company/company.dao", () => ({
+  CompanyDAO: function CompanyDAO() {
+    return {
+      getById: async (id: number) => ({ id, name: "c", product: "full" }),
+    };
+  },
+}));
+
 const getServerById =
   jest.fn<(id: number) => Promise<Record<string, unknown> | null>>();
 

@@ -27,6 +27,14 @@ import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { inputValidator, IInputValidator } from "@sundaysf/utils";
+import {
+  currentProduct,
+  productAppUrl,
+  wrongProductError,
+  type Product,
+} from "../../common/config/product";
+import { CompanyDAO } from "../../dao/company/company.dao";
+import { ICompany } from "../../interfaces/company/company.interfaces";
 import { getAllowedOrigins } from "../../common/config/origins/origins.config";
 import {
   LoginInputDTO,
@@ -94,6 +102,12 @@ const sendJsonRequired = (res: Response): void => {
   });
 };
 
+/** The other product's name when `company` belongs to it; SuperAdmins have no company and are never refused. */
+const otherProductOf = (company?: ICompany | null): Product | null =>
+  company?.product && company.product !== currentProduct()
+    ? company.product
+    : null;
+
 const lifetimes = (): SessionLifetimes => {
   const config = getAuthConfig();
   return {
@@ -112,6 +126,7 @@ export class AuthController {
   private _avatarService: UserAvatarService = new UserAvatarService();
   private _sessionDAO: RefreshSessionDAO = new RefreshSessionDAO();
   private _deviceDAO: UserDeviceDAO = new UserDeviceDAO();
+  private _companyDAO: CompanyDAO = new CompanyDAO();
 
   /**
    * The login/accept-invitation/refresh body, built in one place so all three
@@ -166,6 +181,7 @@ export class AuthController {
         companyId: company?.uuid || undefined,
         companyName: company?.name || undefined,
         companyIsTerminadora: company?.isTerminadora === true,
+        companyProduct: company ? (company.product ?? "full") : undefined,
         modules: enabledModules,
         permissions,
         roleUuid,
@@ -431,6 +447,11 @@ export class AuthController {
         return;
       }
 
+      // After the password check, so the product of an email is never
+      // revealed to someone who does not hold the password.
+      const wrongProduct = otherProductOf(userWithCompany.company);
+      if (wrongProduct) return next(wrongProductError(wrongProduct));
+
       const device = await issueOrReuseDevice(
         {
           id: userWithCompany.id,
@@ -495,6 +516,17 @@ export class AuthController {
           message: "Refresh token is missing or invalid.",
         });
         return;
+      }
+
+      // Before the rotation: a refused request must not burn the caller's token.
+      const peeked = await this._sessionDAO.findAliveByUuid(sessionUuid);
+      if (peeked) {
+        const owner = await this._userDAO.getById(peeked.userId);
+        const company = owner?.companyId
+          ? await this._companyDAO.getById(owner.companyId)
+          : null;
+        const wrongProduct = otherProductOf(company);
+        if (wrongProduct) return next(wrongProductError(wrongProduct));
       }
 
       let deviceRow: Awaited<ReturnType<UserDeviceDAO["getById"]>> = null;
@@ -732,6 +764,12 @@ export class AuthController {
         return;
       }
 
+      const withCompany = await this._userDAO.getUserByEmailWithCompany(
+        user.email,
+      );
+      const wrongProduct = otherProductOf(withCompany?.company);
+      if (wrongProduct) return next(wrongProductError(wrongProduct));
+
       // Enrich /me with enabled module slugs. Fail-soft: existing clients that
       // ignore `modules` keep working even if the DAO ever throws.
       let modules: string[] = [];
@@ -766,10 +804,6 @@ export class AuthController {
 
       // Expose the company as a UUID (consistent with the login response); the raw numeric
       // companyId is internal and is stripped from responses, so resolve the UUID here.
-      const withCompany = await this._userDAO.getUserByEmailWithCompany(
-        user.email,
-      );
-
       res.status(200).json({
         success: true,
         data: {
@@ -777,6 +811,9 @@ export class AuthController {
           companyId: withCompany?.company?.uuid,
           companyName: withCompany?.company?.name,
           companyIsTerminadora: withCompany?.company?.isTerminadora === true,
+          companyProduct: withCompany?.company
+            ? (withCompany.company.product ?? "full")
+            : undefined,
           modules,
           permissions,
           roleUuid,
@@ -996,6 +1033,12 @@ export class AuthController {
         return;
       }
 
+      const invitedCompany = invitation.companyId
+        ? await this._companyDAO.getById(invitation.companyId)
+        : null;
+      const wrongProduct = otherProductOf(invitedCompany);
+      if (wrongProduct) return next(wrongProductError(wrongProduct));
+
       const existingUser = await this._userDAO.getUserByEmail(invitation.email);
       if (existingUser) {
         res.status(400).json({
@@ -1133,8 +1176,16 @@ export class AuthController {
       // Return the reset link to the app that initiated the request (web app vs backoffice),
       // but only when its Origin is in our allowlist — never trust an arbitrary Origin (open-redirect).
       const origin = req.headers.origin;
-      const baseUrl =
-        origin && getAllowedOrigins().includes(origin) ? origin : undefined;
+      // A user of the other product gets that product's app link, whichever
+      // app asked (C-5); FRONTEND_URL (undefined here) is the dev fallback.
+      const otherProduct = otherProductOf(
+        (await this._userDAO.getUserByEmailWithCompany(user.email))?.company,
+      );
+      const baseUrl = otherProduct
+        ? (productAppUrl(otherProduct) ?? undefined)
+        : origin && getAllowedOrigins().includes(origin)
+          ? origin
+          : undefined;
 
       // Tradeoff: token row is already committed; swallow email failures so we still return the
       // same generic 200 response regardless of email success (preserves email-enumeration safety).

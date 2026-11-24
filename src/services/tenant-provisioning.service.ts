@@ -10,7 +10,11 @@ import {
   withTenantTarget,
 } from "../database/registry";
 import { connectionFor, connectionForTenant } from "../database/env";
-import { evictTenant, invalidateTenantCache } from "../database/tenant-pools";
+import {
+  assertCompanyProduct,
+  evictTenant,
+  invalidateTenantCache,
+} from "../database/tenant-pools";
 import {
   resolveCredential,
   sealCredential,
@@ -107,6 +111,8 @@ export async function registerShared(
   const companyIds = all.data
     .map((company) => company.id)
     .filter((id): id is number => id !== undefined);
+
+  for (const companyId of companyIds) await assertCompanyProduct(companyId);
 
   if (!sameIdSet(companyIds, snapshot.value.keeperIds)) {
     return {
@@ -517,6 +523,7 @@ export async function beginProvisioning(
   companyId: number,
   options: ProvisionOptions = {},
 ): Promise<BeginProvisioningResult> {
+  await assertCompanyProduct(companyId);
   const tenantDAO = new TenantDatabaseDAO();
   const companyDAO = new CompanyDAO();
   const dbServerDAO = new DbServerDAO();
@@ -643,6 +650,7 @@ export async function runProvisioningSteps(
   companyUuid: string,
   hooks: ProvisionHooks = {},
 ): Promise<ProvisionResult> {
+  await assertCompanyProduct(row.companyId);
   const tenantDAO = new TenantDatabaseDAO();
   try {
     const password = await resolveCredential(
@@ -773,6 +781,7 @@ export async function decommissionTenantDatabase(
   companyId: number,
   hooks: DecommissionHooks = {},
 ): Promise<DecommissionResult> {
+  await assertCompanyProduct(companyId);
   const tenantDAO = new TenantDatabaseDAO();
   const dbServerDAO = new DbServerDAO();
 
@@ -889,6 +898,7 @@ async function openRowKnex(
   row: ITenantDatabase,
   server: IDbServer,
 ): Promise<{ knex: Knex; close: () => Promise<void> }> {
+  await assertCompanyProduct(row.companyId);
   if (isSharedTargetRow(row)) {
     // `db("core")` would reject a tenant-owned table name (the wrong-database
     // guard); C1's dedupe reads the same physical connection through the
@@ -1099,6 +1109,7 @@ export async function move(
     };
   }
   const companyId = company.id;
+  await assertCompanyProduct(companyId);
 
   const tenantDAO = new TenantDatabaseDAO();
   const dbServerDAO = new DbServerDAO();

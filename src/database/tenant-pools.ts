@@ -4,6 +4,12 @@ import type { PhysicalKey } from "./keys";
 import { connectionFor, connectionForTenant } from "./env";
 import { resolveCredential } from "./credential-resolver";
 import { migrationsDirectory } from "./migration-sets";
+import {
+  WrongProductError,
+  currentProduct,
+  wrongProductBody,
+  type Product,
+} from "../common/config/product";
 import type {
   IDbServer,
   ITenantDatabase,
@@ -52,7 +58,8 @@ export type TenantResolutionKind =
   | "suspended"
   | "unavailable"
   | "behind"
-  | "busy";
+  | "busy"
+  | "wrongProduct";
 
 /** A `TenantResolution` other than `"ok"`, thrown by `withTenant` (model). */
 export class TenantUnavailableError extends Error {
@@ -96,7 +103,11 @@ export type TenantHandle = {
 
 export type TenantResolution =
   | { kind: "ok"; handle: TenantHandle }
-  | { kind: TenantResolutionKind; row: ITenantDatabase | null };
+  | {
+      kind: Exclude<TenantResolutionKind, "wrongProduct">;
+      row: ITenantDatabase | null;
+    }
+  | { kind: "wrongProduct"; product: Product; row: null };
 
 /** The model's exact bodies for every `TENANT_*`/`COMPANY_REQUIRED` response (D-23, D-45). */
 export const TENANT_ERROR_RESPONSES: Record<
@@ -130,7 +141,23 @@ export const TENANT_ERROR_RESPONSES: Record<
     message: "Too many companies active; retry.",
     retryAfter: 2,
   },
+  wrongProduct: {
+    status: 409,
+    code: "WRONG_PRODUCT",
+    message: "This company uses another Mobius product",
+  },
 };
+
+/** The JSON body for a non-ok resolution; WRONG_PRODUCT also carries `data`. */
+export function tenantErrorBody(
+  resolution: Exclude<TenantResolution, { kind: "ok" }>,
+): Record<string, unknown> {
+  if (resolution.kind === "wrongProduct") {
+    return wrongProductBody(resolution.product);
+  }
+  const mapped = TENANT_ERROR_RESPONSES[resolution.kind];
+  return { success: false, code: mapped.code, message: mapped.message };
+}
 
 export const COMPANY_REQUIRED_BODY = {
   success: false,
@@ -172,6 +199,42 @@ export function invalidateTenantCache(companyId: number): void {
 export function resetTenantPoolsForTest(): void {
   openInstances.clear();
   registryCache.clear();
+  productCache.clear();
+}
+
+type ProductEntry = { product: Product; expiresAt: number };
+const productCache = new Map<number, ProductEntry>();
+
+/**
+ * `companies.product` is immutable (DB trigger), so the TTL only bounds
+ * staleness after a company is purged and its cache entry outlives it.
+ */
+export async function companyProductOf(
+  companyId: number,
+): Promise<Product | null> {
+  const cached = productCache.get(companyId);
+  const nowMs = Date.now();
+  if (cached && cached.expiresAt > nowMs) return cached.product;
+  const { CompanyDAO } = await import("../dao/company/company.dao");
+  const company = await new CompanyDAO().getById(companyId);
+  if (!company?.product) return null;
+  productCache.set(companyId, {
+    product: company.product,
+    expiresAt: nowMs + REGISTRY_TTL_MS,
+  });
+  return company.product;
+}
+
+/**
+ * C-1: every route to a tenant database — request context, `withTenant`,
+ * provisioning, decommission, fleet scripts — reaches this check, so an API
+ * never opens another product's tenant.
+ */
+export async function assertCompanyProduct(companyId: number): Promise<void> {
+  const product = await companyProductOf(companyId);
+  if (product && product !== currentProduct()) {
+    throw new WrongProductError(product);
+  }
 }
 
 async function lookupRegistry(companyId: number): Promise<RegistryLookup> {
@@ -389,6 +452,10 @@ export async function acquireTenant(
   companyId: number,
 ): Promise<TenantResolution> {
   await sweepIdle();
+  const product = await companyProductOf(companyId);
+  if (product && product !== currentProduct()) {
+    return { kind: "wrongProduct", product, row: null };
+  }
   const { live, building } = await lookupRegistry(companyId);
 
   if (!live) {

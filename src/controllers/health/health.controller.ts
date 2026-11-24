@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from "express";
+import { currentProduct } from "../../common/config/product";
 import { getServiceVersion } from "../../common/utils/version.resolver";
 import { getServiceEnvironment } from "../../common/utils/environment.resolver";
 
@@ -16,6 +17,7 @@ export class HealthController {
         health: "Up!",
         version,
         environment,
+        product: currentProduct(),
       });
     } catch (err: any) {
       next(err);

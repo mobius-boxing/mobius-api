@@ -6,6 +6,7 @@ import {
   acquireTenant,
   COMPANY_REQUIRED_BODY,
   TENANT_ERROR_RESPONSES,
+  tenantErrorBody,
 } from "../database/tenant-pools";
 
 /** RFC 4122 shape only — a malformed uuid would make Postgres throw, not answer. */
@@ -217,10 +218,6 @@ export const resolveTenantContext = async (
   if (mapped.retryAfter !== undefined) {
     res.set("Retry-After", String(mapped.retryAfter));
   }
-  res.status(mapped.status).json({
-    success: false,
-    code: mapped.code,
-    message: mapped.message,
-  });
+  res.status(mapped.status).json(tenantErrorBody(resolution));
   return false;
 };

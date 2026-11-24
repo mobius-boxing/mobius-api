@@ -9,6 +9,7 @@ import {
   isOriginAllowed,
   validateAllowedOrigins,
 } from "./common/config/origins/origins.config";
+import { validateProductConfig } from "./common/config/product";
 import { globalRateLimiter } from "./middlewares/rate-limit.middleware";
 import { sanitizeResponse } from "./middlewares/sanitize-response.middleware";
 import { auditContext } from "./middlewares/audit-context.middleware";
@@ -17,6 +18,7 @@ dotenv.config();
 
 // SECURITY (H4): fail fast if the CORS allowlist is missing in production.
 validateAllowedOrigins();
+validateProductConfig();
 
 const app: Express = express();
 

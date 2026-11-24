@@ -1,3 +1,4 @@
+import type { Product } from "../../common/config/product";
 /**
  * Whitelabel identity of a client, shared by EVERY module that company has
  * (spec revision 2: branding is a property of the company, not of the
@@ -41,6 +42,8 @@ export interface ICompany {
   isActive?: boolean;
   /** Terminadora order flow switch; written only by superAdmin via the company routes. */
   isTerminadora?: boolean;
+  /** Which product's API serves this company; fixed at creation (DB trigger). */
+  product?: Product;
   /**
    * The raw `companies.branding` blob as stored — `{}` for a company that never
    * set any branding (the DAO maps NULL to `{}` so consumers never have to

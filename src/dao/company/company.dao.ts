@@ -17,6 +17,7 @@ import {
   type SortConfigs,
 } from "../../utils/queryBuilder";
 import { Request } from "express";
+import { currentProduct } from "../../common/config/product";
 import { toDnsSlug } from "../../utils/slugify";
 import { dayRangeFilters } from "../../utils/filterRanges";
 
@@ -72,6 +73,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
         description: item.description,
         isActive: item.isActive ?? true,
         isTerminadora: item.isTerminadora ?? false,
+        product: item.product ?? currentProduct(),
       })
       .returning("*");
 
@@ -277,6 +279,7 @@ export class CompanyDAO implements IBaseDAO<ICompany> {
       description: record.description,
       isActive: record.isActive,
       isTerminadora: record.isTerminadora ?? false,
+      product: record.product ?? "full",
       // The column is NOT NULL DEFAULT '{}', but a row read through a join or
       // an older snapshot may still hand us undefined — normalize once here so
       // no consumer has to distinguish "no branding" from "no column".

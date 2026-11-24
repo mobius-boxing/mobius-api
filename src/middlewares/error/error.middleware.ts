@@ -1,9 +1,14 @@
 import { NextFunction, Response, Request } from "express";
 import { ValidationError } from "../../dto/input/shared/ValidationError";
+import {
+  WrongProductError,
+  wrongProductBody,
+} from "../../common/config/product";
 import { CoreUnavailableError } from "../../services/core-client.service";
 import {
   COMPANY_REQUIRED_BODY,
   TENANT_ERROR_RESPONSES,
+  tenantErrorBody,
   TenantNotResolvedError,
   TenantUnavailableError,
 } from "../../database/tenant-pools";
@@ -58,11 +63,11 @@ export const errorMiddleware = (
     if (mapped.retryAfter !== undefined) {
       res.set("Retry-After", String(mapped.retryAfter));
     }
-    return res.status(mapped.status).json({
-      success: false,
-      code: mapped.code,
-      message: mapped.message,
-    });
+    return res.status(mapped.status).json(tenantErrorBody(err.resolution));
+  }
+
+  if (err instanceof WrongProductError) {
+    return res.status(409).json(wrongProductBody(err.product));
   }
 
   if (err.name === "TokenExpiredError") {

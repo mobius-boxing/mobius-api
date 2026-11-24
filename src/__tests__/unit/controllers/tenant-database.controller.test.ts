@@ -60,6 +60,7 @@ jest.mock("../../../dao/db-server/db-server.dao", () => ({
   },
 }));
 jest.mock("../../../database/tenant-pools", () => ({
+  assertCompanyProduct: async () => undefined,
   tenantStats: (...args: unknown[]) => mockTenantStats(...args),
 }));
 jest.mock("../../../services/tenant-provisioning.service", () => ({
