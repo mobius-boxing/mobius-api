@@ -1,7 +1,8 @@
 import { knex as createKnex, type Knex } from "knex";
 import { connectionFor, connectionForTenant } from "./env";
 import { resolveCredential } from "./credential-resolver";
-import { assertCompanyProduct } from "./tenant-pools";
+import { assertCompanyProduct, companyProductOf } from "./tenant-pools";
+import { currentProduct } from "../common/config/product";
 import { TenantDatabaseDAO } from "../dao/tenant-database/tenant-database.dao";
 import { DbServerDAO } from "../dao/db-server/db-server.dao";
 import type {
@@ -48,6 +49,10 @@ export async function listDedicatedTenants(): Promise<DedicatedTenantTarget[]> {
   );
   const targets: DedicatedTenantTarget[] = [];
   for (const row of rows) {
+    // The other product's API owns its tenants (C-1); a superAdmin purge here
+    // leaves references in those tenants untouched (known limitation).
+    const product = await companyProductOf(row.companyId);
+    if (product && product !== currentProduct()) continue;
     const server = await dbServerDAO.getById(row.serverId);
     if (server) targets.push({ row, server });
   }
