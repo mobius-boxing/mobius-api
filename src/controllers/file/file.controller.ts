@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { FileDAO } from "../../dao/file/file.dao";
 import { FileStorageService } from "../../services/file-storage.service";
-import { getCompanyForCreate } from "../../utils/companyScope";
+import { getCompanyScope } from "../../utils/companyScope";
 import { companyFilterScope } from "../../utils/daoScope";
 
 // Procusto had no size/type limits; we add a defensive cap (D-note in file-storage.md).
@@ -28,11 +28,16 @@ export class FileController {
   /**
    * The company an uploaded file belongs to (L-009).
    *
-   * SECURITY: the target is decided by `getCompanyForCreate`, never by trusting
+   * SECURITY: the target is decided by `getCompanyScope`, never by trusting
    * the body. A superAdmin has no company of their own, so they MUST name one
-   * (`companyId`, the company UUID — a multipart text field, which multer parses
-   * into `req.body`); every other caller is forced to their JWT company and a
-   * `companyId` they send is ignored, not honoured.
+   * (`companyId`, the company UUID); every other caller is forced to their JWT
+   * company and a `companyId` they send is ignored, not honoured.
+   *
+   * `getCompanyScope` (query first, then the multipart body) is what the tenant
+   * middleware used to pick this request's database, so the row is stamped with
+   * the company whose database it lands in. The web app sends a superAdmin's
+   * selection only as `?companyId=`; `getCompanyForCreate` reads the body alone
+   * and refused every such upload.
    *
    * Responds and returns null on failure: 400 when no company can be determined,
    * 404 when the named company does not exist.
@@ -41,12 +46,17 @@ export class FileController {
     req: Request,
     res: Response,
   ): Promise<number | null> {
-    const resolved = getCompanyForCreate(req);
-    if (!resolved.success) {
-      res.status(400).json({ success: false, message: resolved.message });
+    const scope = getCompanyScope(req);
+    if (!scope.companyUuid) {
+      res.status(400).json({
+        success: false,
+        message: scope.isSuperAdmin
+          ? "SuperAdmin must specify a company"
+          : "User must belong to a company to create resources",
+      });
       return null;
     }
-    const id = await this.dao.resolveCompanyId(resolved.companyUuid);
+    const id = await this.dao.resolveCompanyId(scope.companyUuid);
     if (!id) {
       res.status(404).json({ success: false, message: "Company not found" });
       return null;

@@ -59,10 +59,11 @@ const OTHER_COMPANY_ID = 42;
 const uploadRequest = (
   user: { userId: string; role: string; companyId: string | null },
   body: Record<string, unknown> = {},
+  query: Record<string, unknown> = {},
 ): Request =>
   ({
     params: {},
-    query: {},
+    query,
     headers: {},
     body,
     user,
@@ -125,6 +126,38 @@ describe("FileController.upload — target company scoping (AC-16)", () => {
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
+  it("superAdmin + ?companyId= (the web app's company selector) ⇒ that company", async () => {
+    await controller.upload(
+      uploadRequest(superAdmin, {}, { companyId: OTHER_COMPANY_UUID }),
+      res as Response,
+      next,
+    );
+
+    expect(mockFileDAO.create).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: OTHER_COMPANY_ID }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("superAdmin query and body disagree ⇒ the query (the routed tenant) wins", async () => {
+    await controller.upload(
+      uploadRequest(
+        superAdmin,
+        { companyId: OWN_COMPANY_UUID },
+        { companyId: OTHER_COMPANY_UUID },
+      ),
+      res as Response,
+      next,
+    );
+
+    expect(mockFileDAO.resolveCompanyId).toHaveBeenCalledWith(
+      OTHER_COMPANY_UUID,
+    );
+    expect(mockFileDAO.create).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: OTHER_COMPANY_ID }),
+    );
+  });
+
   it("superAdmin without companyId ⇒ 400 and nothing is written", async () => {
     await controller.upload(uploadRequest(superAdmin), res as Response, next);
 
@@ -138,7 +171,11 @@ describe("FileController.upload — target company scoping (AC-16)", () => {
 
   it("non-superAdmin sending ANOTHER company's companyId ⇒ their own company wins", async () => {
     await controller.upload(
-      uploadRequest(member, { companyId: OTHER_COMPANY_UUID }),
+      uploadRequest(
+        member,
+        { companyId: OTHER_COMPANY_UUID },
+        { companyId: OTHER_COMPANY_UUID },
+      ),
       res as Response,
       next,
     );
