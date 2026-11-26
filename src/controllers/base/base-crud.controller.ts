@@ -193,14 +193,23 @@ export abstract class BaseCrudController<TEntity> implements IBaseController {
       const payload = await this.beforeCreate(dto, req, res);
       if (payload === null) return;
 
-      // Company injection: non-superAdmins always get their JWT company; a
-      // superAdmin's body-supplied companyId (uuid) is resolved when present,
-      // otherwise left alone (global-row creation stays possible for them).
+      // Company injection: non-superAdmins always get their JWT company. A
+      // superAdmin's company comes from getCompanyScope (?companyId= first, the
+      // web app's company selector and the tenant this request was routed to,
+      // then the body); getCompanyForCreate reads only the body, so forms that
+      // don't copy the selection into it inserted a NULL companyId. With
+      // neither, it is left alone (global-row creation stays possible).
       if (
         this.options.injectCompany !== false &&
         (payload as any).companyId === undefined
       ) {
-        const company = getCompanyForCreate(req);
+        const superAdminScope =
+          (req as any).user?.role === "superAdmin"
+            ? getCompanyScope(req).companyUuid
+            : undefined;
+        const company = superAdminScope
+          ? { success: true as const, companyUuid: superAdminScope }
+          : getCompanyForCreate(req);
         if (company.success) {
           const companyId = await CoreClient.companyIdByUuid(
             company.companyUuid,
